@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8" /><title>FlowGT Recorder test harness</title></head>
+  <body>
+    <!-- 仅自动化测试用：getDisplayMedia 自动选源 → 与生产完全相同的 recorder-core 管线。
+         生产 UI 不链接到本页；商店打包时可剔除。 -->
+    <button id="startBtn">start</button>
+    <button id="stopBtn">stop</button>
+    <pre id="out"></pre>
+    <script src="recorder-core.js"></script>
+    <script src="test-harness.js"></script>
+  </body>
+</html>

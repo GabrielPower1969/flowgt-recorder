@@ -1,0 +1,5 @@
+node_modules/
+.browsers/
+test/tabcapture-check.log
+design-shots/
+.DS_Store
