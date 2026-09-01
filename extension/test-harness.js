@@ -17,7 +17,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
       playback: false, // 测试环境不需要回放
       onStopped: () => (document.title = 'harness-stopped'),
     });
-    out(`RECORDING micOk=${micOk}`);
+    out(`RECORDING micOk=${micOk} fmt=${FlowGTRecorder.pickFormat().ext}`);
   } catch (e) {
     out(`FAIL ${e.name}: ${e.message}`);
   }

@@ -54,7 +54,7 @@ async function waitForFile(sinceMs, timeoutMs = 15_000) {
     if (fs.existsSync(REC_DIR)) {
       const hit = fs
         .readdirSync(REC_DIR)
-        .filter((f) => f.endsWith('.webm'))
+        .filter((f) => /\.(webm|mp4)$/.test(f))
         .map((f) => ({ f, st: fs.statSync(path.join(REC_DIR, f)) }))
         .filter(({ st }) => st.mtimeMs >= sinceMs && st.size > 0)
         .sort((a, b) => b.st.mtimeMs - a.st.mtimeMs)[0];
@@ -80,13 +80,19 @@ async function analyzeAudio(file) {
   const t = [...stderr.matchAll(/time=(\d+):(\d+):([\d.]+)/g)].at(-1);
   const duration = t ? +t[1] * 3600 + +t[2] * 60 + +t[3] : 0;
   const mean = stderr.match(/mean_volume:\s*(-?[\d.]+) dB/);
+  const max = stderr.match(/max_volume:\s*(-?[\d.]+) dB/);
   const codec = (
     await pexec('ffprobe', [
       '-v', 'error', '-select_streams', 'a:0',
       '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', file,
     ])
   ).stdout.trim();
-  return { duration, meanVolume: mean ? +mean[1] : -Infinity, codec };
+  return {
+    duration,
+    meanVolume: mean ? +mean[1] : -Infinity,
+    maxVolume: max ? +max[1] : -Infinity,
+    codec,
+  };
 }
 
 let browser;
@@ -142,6 +148,9 @@ try {
   const s1 = await harness.$eval('#out', (el) => el.textContent);
   check('T1 采集启动', s1.startsWith('RECORDING'), s1);
   check('T1 麦克风并入混音', s1.includes('micOk=true'), s1);
+  // 运行时选到的格式（Chrome 126+ 应为 mp4/AAC，老内核回退 webm/opus）
+  const fmt = s1.match(/fmt=(\w+)/)?.[1];
+  check('T1 运行时选定编码格式', fmt === 'mp4' || fmt === 'webm', `fmt=${fmt}`);
 
   await sleep(8000);
   await harness.click('#stopBtn');
@@ -149,8 +158,11 @@ try {
   check('T1 文件落盘到 flowgt-recordings/', !!file1, file1 ? path.basename(file1) : '未找到');
   if (file1) {
     check('T1 文件名含标签', path.basename(file1).includes('autotest_基础'), path.basename(file1));
+    check('T1 有麦克风则文件名无 _nomic', !path.basename(file1).includes('_nomic'), path.basename(file1));
+    check('T1 文件扩展名与运行时格式一致', file1.endsWith(`.${fmt}`), path.basename(file1));
     const a = await analyzeAudio(file1);
-    check('T1 编码为 opus', a.codec === 'opus', a.codec);
+    const wantCodec = fmt === 'mp4' ? 'aac' : 'opus';
+    check(`T1 编码为 ${wantCodec}`, a.codec === wantCodec, a.codec);
     check('T1 时长 ≥6 秒', a.duration >= 6, `${a.duration.toFixed(1)}s`);
     check('T1 音频非静音(混音有内容)', a.meanVolume > -50, `mean_volume=${a.meanVolume}dB`);
   }
@@ -188,6 +200,32 @@ try {
       `${a2.duration.toFixed(1)}s, ${a2.meanVolume}dB`);
   }
 
+  // ---- 测试 5：纯麦克风进混音（标签页静音 → 文件里的声音只能来自麦克风）----
+  // 这是"人声没录进去"问题的自动化哨兵：假麦克风设备发脉冲音，
+  // 标签页完全无声，落盘文件仍非静音 = 麦克风这条混音路是通的。
+  console.log('— 测试 5：纯麦克风混音验证 —');
+  const toneSilent = await browser.newPage();
+  await toneSilent.goto(`${TONE_URL}?silent=1`);
+  const harness5 = await browser.newPage();
+  await harness5.goto(`chrome-extension://${extId}/test-harness.html?label=autotest_miconly`);
+  const t5start = Date.now();
+  await harness5.click('#startBtn');
+  await sleep(2000);
+  const s5 = await harness5.$eval('#out', (el) => el.textContent);
+  check('T5 静音标签页采集启动', s5.startsWith('RECORDING'), s5);
+  check('T5 麦克风已并入', s5.includes('micOk=true'), s5);
+  await sleep(6000);
+  await harness5.click('#stopBtn');
+  const file5 = await waitForFile(t5start);
+  check('T5 落盘', !!file5, file5 ? path.basename(file5) : '未找到');
+  if (file5) {
+    const a5 = await analyzeAudio(file5);
+    check('T5 混音含麦克风音频(峰值非静音)', a5.maxVolume > -40,
+      `max=${a5.maxVolume}dB mean=${a5.meanVolume}dB`);
+  }
+  await harness5.close();
+  await toneSilent.close();
+
   // ---- 测试 3：background 防双重启动守卫 ----
   console.log('— 测试 3：双重启动守卫 —');
   await sw.evaluate(async () => {
@@ -215,6 +253,27 @@ try {
   await sleep(1500);
   const sig = fs.existsSync(path.join(REC_DIR, 'signal-test.webm'));
   check('T4 指定文件名落盘', sig);
+
+  // ---- 测试 6：启动失败的错误路径（无效 tabId）----
+  console.log('— 测试 6：启动失败错误路径 —');
+  const badStart = await harness2.evaluate(() =>
+    chrome.runtime.sendMessage({
+      target: 'background', type: 'start-recording', tabId: 999999, label: 'bad',
+    })
+  );
+  check('T6 无效 tabId 启动被拒绝', !badStart?.ok, JSON.stringify(badStart));
+  const st6 = await sw.evaluate(async () => chrome.storage.session.get(['rec', 'lastError']));
+  check('T6 失败后无残留录音状态', !st6.rec?.recording, JSON.stringify(st6.rec ?? null));
+  check('T6 lastError 已记录', st6.lastError?.type === 'start-recording',
+    JSON.stringify(st6.lastError ?? null));
+
+  // ---- 测试 7：账号接口消息形状（真实网络，登录与否都必须返回布尔 signedIn）----
+  console.log('— 测试 7：get-account 消息 —');
+  const acct = await harness2.evaluate(() =>
+    chrome.runtime.sendMessage({ target: 'background', type: 'get-account' })
+  );
+  check('T7 get-account 返回 signedIn 布尔', typeof acct?.signedIn === 'boolean',
+    JSON.stringify(acct));
 } catch (e) {
   check('未捕获异常', false, e.stack?.split('\n')[0] || String(e));
 } finally {

@@ -4,17 +4,21 @@
   <body>
     <h1>440Hz test tone (simulates meeting audio)</h1>
     <script>
-      // 模拟会议里"对方的声音"：持续 440Hz 正弦波
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      gain.gain.value = 0.3;
-      osc.frequency.value = 440;
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      // autoplay-policy flag 允许无手势启动；保险起见 resume 一下
-      ctx.resume();
-      window.__toneRunning = true;
+      // 模拟会议里"对方的声音"：持续 440Hz 正弦波。
+      // ?silent=1 → 页面保持无声（供"纯麦克风进混音"测试用，标题不变以配合
+      // --auto-select-tab-capture-source-by-title 自动选源）。
+      if (new URLSearchParams(location.search).get('silent') !== '1') {
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        gain.gain.value = 0.3;
+        osc.frequency.value = 440;
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        // autoplay-policy flag 允许无手势启动；保险起见 resume 一下
+        ctx.resume();
+        window.__toneRunning = true;
+      }
     </script>
   </body>
 </html>

@@ -37,11 +37,16 @@ Click the icon → if you see *"Microphone not enabled"* → **Enable microphone
 | 2 | Switch to the meeting tab, click the FlowGT icon (or press `⌘⇧9` / `Ctrl+Shift+9`) | 切到会议标签页，点图标或按快捷键 |
 | 3 | Optional label, e.g. `Iris_Datacom_R2` | 备注可选，会拼进文件名 |
 | 4 | **Start recording** — icon shows a red `REC` badge | 点开始，图标出现红色 REC 角标 |
-| 5 | **Stop & save** → `~/Downloads/flowgt-recordings/2026-09-01_1430_Iris_Datacom_R2.webm` | 停止即落盘 |
+| 5 | **Stop & save** → `~/Downloads/flowgt-recordings/2026-09-01_1430_Iris_Datacom_R2.mp4` | 停止即落盘 |
 
+- Recordings are **audio-only `.mp4` (AAC 128k)** — double-click plays anywhere
+  (QuickTime, Windows, WeChat). Old Chrome (<126) falls back to `.webm` (Opus).
+  · 录音是**纯音频 .mp4（AAC）**，任何播放器双击即播；老 Chrome 自动回退 .webm。
 - Closing the meeting tab mid-call auto-saves the recording. · 会议页被关掉也会自动收尾保存，不丢。
 - You keep hearing the meeting while recording (playback is routed through). · 录音期间正常听到对方。
-- If the mic isn't granted, recording still works — tab audio only, with a warning shown. · 麦克风未授权时降级为只录对方，界面有提示。
+- If the mic isn't granted, recording still works — tab audio only, with a warning
+  shown and a `_nomic` marker in the filename. · 麦克风未授权时降级为只录对方，
+  界面有提示，且文件名带 `_nomic` 标记（一眼可见人声没进来）。
 
 ## Analyze · 分析（Claude Code 一句话）
 
@@ -49,8 +54,8 @@ Click the icon → if you see *"Microphone not enabled"* → **Enable microphone
 
 Per the global CLAUDE.md rules this runs the full chain:
 `make-srt.sh` (local mlx-whisper) → hallucination check → `interview-analysis` skill
-→ HTML report → archive. webm/opus is consumed directly by ffmpeg/whisper;
-convert with `ffmpeg -i in.webm out.mp3` when the archive needs mp3.
+→ HTML report → archive. Both .mp4/AAC and .webm/Opus are consumed directly by
+ffmpeg/whisper; convert with `ffmpeg -i in.mp4 out.mp3` when the archive needs mp3.
 
 ## Boundaries · 已知边界
 
@@ -85,17 +90,23 @@ extension/            ← load this in Chrome
 ├── icons/              official FlowGT mark (brand/png)
 └── fonts/              Space Grotesk subset (wordmark, OFL license)
 test/
-├── e2e.mjs                      full pipeline E2E (14 checks, headless)
+├── unit.mjs                     pure-logic unit tests (filename, format pick; plain Node)
+├── e2e.mjs                      full pipeline E2E (25 checks, headless, real Chrome)
 ├── screenshot-ui.mjs            UI state screenshots
 ├── manual-tabcapture-check.mjs  tabCapture handshake check (needs real invocation)
-└── tone.html                    440Hz test source
+└── tone.html                    440Hz test source (?silent=1 → mic-only test mode)
 ```
+
+Architecture & design decisions: see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Run tests · 跑测试:
 
 ```bash
-node test/e2e.mjs
+npm test
 ```
+
+(`npm run test:unit` for the instant Node-only suite, `npm run test:e2e` for the
+full browser pipeline.)
 
 Requires the pinned Chrome for Testing under `.browsers/` (Chrome 137+ retail
 builds removed `--load-extension`): · 需要 `.browsers/` 里的 Chrome for Testing：

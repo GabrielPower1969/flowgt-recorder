@@ -9,9 +9,29 @@ const FlowGTRecorder = (() => {
   let tabStream = null;
   let micStream = null;
   let recLabel = '';
+  let hadMic = false;
+  let recFormat = null;
   let blobUrl = null;
   let onDone = null;
   let endWatch = null;
+
+  // 编码格式：优先 AAC/.mp4（全平台双击可播，QuickTime/Windows/微信都认），
+  // 老 Chrome 不支持 audio/mp4 时回退 opus/.webm（音质效率最高但播放器少）。
+  // 扩展名用 .mp4 而不是 .m4a：chrome.downloads 会按 blob MIME(audio/mp4)
+  // 强制改写扩展名为 .mp4，写 .m4a 只会被浏览器改掉。
+  function pickFormat() {
+    const candidates = [
+      { mime: 'audio/mp4;codecs=mp4a.40.2', blobType: 'audio/mp4', ext: 'mp4' },
+      { mime: 'audio/mp4', blobType: 'audio/mp4', ext: 'mp4' },
+      { mime: 'audio/webm;codecs=opus', blobType: 'audio/webm', ext: 'webm' },
+    ];
+    for (const c of candidates) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c.mime)) {
+        return c;
+      }
+    }
+    return candidates[candidates.length - 1];
+  }
 
   async function getMic() {
     // 麦克风（自己的声音）。未授权/无设备时返回 null，录音降级为只录标签页。
@@ -31,6 +51,7 @@ const FlowGTRecorder = (() => {
     }
     tabStream = tab;
     micStream = mic;
+    hadMic = !!mic;
     recLabel = label || '';
     onDone = onStopped;
 
@@ -47,8 +68,9 @@ const FlowGTRecorder = (() => {
       audioCtx.createMediaStreamSource(micStream).connect(mixDest);
     }
 
+    recFormat = pickFormat();
     recorder = new MediaRecorder(mixDest.stream, {
-      mimeType: 'audio/webm;codecs=opus',
+      mimeType: recFormat.mime,
       audioBitsPerSecond: 128000,
     });
     chunks = [];
@@ -79,7 +101,7 @@ const FlowGTRecorder = (() => {
 
   async function onRecorderStopped() {
     try {
-      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const blob = new Blob(chunks, { type: recFormat.blobType });
       chunks = [];
       cleanupStreams();
       if (blob.size === 0) return;
@@ -89,7 +111,7 @@ const FlowGTRecorder = (() => {
         target: 'background',
         type: 'save-recording',
         url: blobUrl,
-        filename: buildFilename(),
+        filename: buildFilename(recLabel, hadMic, new Date(), recFormat.ext),
       });
     } catch (e) {
       console.error('[FlowGT] save failed:', e);
@@ -116,18 +138,20 @@ const FlowGTRecorder = (() => {
     blobUrl = null;
   }
 
-  function buildFilename() {
-    const d = new Date();
+  // 纯函数（便于单元测试直接调用）。无麦克风的录音在文件名带 _nomic 标记，
+  // 让"人声没录进去"在文件管理器里一眼可见，而不是听完才发现。
+  function buildFilename(rawLabel, micIncluded, d, ext) {
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
     // 过滤 Windows/macOS 均非法的字符，中文等 Unicode 保留
-    const label = recLabel
+    const label = (rawLabel || '')
       .trim()
       .replace(/[\\/:*?"<>|]/g, '')
       .replace(/\s+/g, '_')
       .slice(0, 60);
-    return label ? `${stamp}_${label}.webm` : `${stamp}_meeting.webm`;
+    const mic = micIncluded ? '' : '_nomic';
+    return `${stamp}_${label || 'meeting'}${mic}.${ext || 'webm'}`;
   }
 
-  return { getMic, start, stop, isActive, revokeBlobUrl };
+  return { getMic, start, stop, isActive, revokeBlobUrl, buildFilename, pickFormat };
 })();
