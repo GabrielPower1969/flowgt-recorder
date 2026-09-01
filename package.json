@@ -1,17 +1,17 @@
 {
   "name": "flowgt-recorder",
-  "version": "1.0.0",
-  "description": "Chrome 扩展：录制**浏览器里的网络会议**音频（对方声音 + 我的麦克风，混成一轨）， 保存到本地 `~/Downloads/flowgt-recordings/`，然后用 Claude Code + `interview-analysis` skill 转写、分析、出报告。**音频永不上传任何外部服务。**",
-  "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
+  "version": "0.2.0",
+  "description": "FlowGT Recorder — Chrome extension that records browser meeting audio (tab + mic) locally. Audio never leaves your machine.",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node test/unit.mjs",
+    "test:e2e": "node test/e2e.mjs",
+    "test:tabcapture": "node test/manual-tabcapture-check.mjs",
+    "shots": "node test/screenshot-ui.mjs"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "FlowGT",
+  "license": "UNLICENSED",
   "type": "commonjs",
   "dependencies": {
     "puppeteer-core": "^25.9.0"
