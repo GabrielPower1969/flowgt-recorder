@@ -57,6 +57,36 @@ Per the global CLAUDE.md rules this runs the full chain:
 → HTML report → archive. Both .mp4/AAC and .webm/Opus are consumed directly by
 ffmpeg/whisper; convert with `ffmpeg -i in.mp4 out.mp3` when the archive needs mp3.
 
+## Media downloader (dev build only) · 视频/音频下载（仅开发版）
+
+On a **YouTube or Bilibili video page**, the popup shows a download card with the
+platform's logo — detected automatically, nothing to choose. Pick **Video · best**
+(highest-quality video + AAC audio, merged to `.mp4`) or **Audio · m4a**. Files land in
+`~/Downloads/flowgt-downloads/`, named `<title> [<id>].<ext>`.
+在 **YouTube / B 站视频页**打开插件会自动出现下载卡（自动识别平台并显示 logo，无需选择）。
+选 **Video · best**（最高画质 + AAC 音轨合成 mp4）或 **Audio · m4a**，文件存到
+`~/Downloads/flowgt-downloads/`。
+
+**One-time setup (macOS) · 一次性安装：** the extension hands the actual download to
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) on your machine through a tiny local helper.
+插件本身不下载，交给本机 yt-dlp 干活，需要装一次本机助手：
+
+```bash
+python3 -m pip install --user "yt-dlp[default]"   # or: brew install yt-dlp
+host/install.sh
+```
+
+Then reload the extension at `chrome://extensions`. If you loaded the extension from a
+different folder, pass its ID: `host/install.sh <extension-id>`.
+然后到 `chrome://extensions` 刷新插件。若插件不是从本仓库 `extension/` 加载的，把扩展 ID 作为参数传给脚本。
+
+| Note · 说明 | |
+|---|---|
+| Bilibili HD | 1080P+ needs your Bilibili login: the helper reads your Chrome cookies (toggle in the card, on by default). macOS may ask once for Keychain access — if denied, it retries without login. · B 站高清需登录，默认读取 Chrome 登录态（可关）；首次可能弹钥匙串授权，拒绝则自动以未登录画质重试 |
+| 4K YouTube | Top-quality YouTube video is often AV1/VP9. QuickTime may not play it — use IINA or VLC. Audio is always AAC. · YouTube 最高画质多为 AV1/VP9，QuickTime 可能打不开，用 IINA/VLC；音轨始终是 AAC |
+| Scope | Single video only (no playlists). One download at a time; closing Chrome cancels it. · 只下单条，不下播放列表；同时只能一个任务 |
+| **Not in store builds** | Chrome Web Store policy does not allow YouTube downloaders, and YouTube's terms prohibit downloading. This feature ships only in this developer build — for personal use; respect each platform's terms and creators' rights. · 商店政策不允许 YouTube 下载器、YouTube 条款禁止下载：本功能只存在于开发版，仅限个人用途，请遵守平台条款与版权 |
+
 ## Boundaries · 已知边界
 
 | Scenario · 场景 | Works? | Notes · 说明 |
@@ -84,14 +114,21 @@ extension/            ← load this in Chrome
 ├── background.js       service worker: streamId, download, state, /api/session
 ├── recorder-core.js    mixing + MediaRecorder + save (shared prod/test)
 ├── offscreen.js/html   production capture entry (tabCapture + mic)
-├── popup.*             FlowGT-branded control panel
+├── platform.js         YouTube/Bilibili detection (single source, shared with host)
+├── popup.*             FlowGT-branded control panel (+ download card)
 ├── permission.*        one-time mic grant page
 ├── test-harness.*      test-only getDisplayMedia entry (excluded from store build)
 ├── icons/              official FlowGT mark (brand/png)
 └── fonts/              Space Grotesk subset (wordmark, OFL license)
+host/                  ← local download helper (Native Messaging, dev build only)
+├── flowgt-host.mjs     stdio host: framing, URL allow-list, runs yt-dlp
+├── ytdlp-args.mjs      yt-dlp args + output parsing (pure)
+├── ext-id.mjs          unpacked-extension ID from folder path
+└── install.sh          one-time macOS install (writes Chrome host manifest)
 test/
-├── unit.mjs                     pure-logic unit tests (filename, format pick; plain Node)
-├── e2e.mjs                      full pipeline E2E (25 checks, headless, real Chrome)
+├── unit.mjs                     pure-logic unit tests (81 checks; plain Node)
+├── host.test.mjs                host integration tests (38 checks; stub yt-dlp, no network)
+├── e2e.mjs                      full pipeline E2E (48 checks, headless, real Chrome + real Native Messaging)
 ├── screenshot-ui.mjs            UI state screenshots
 ├── manual-tabcapture-check.mjs  tabCapture handshake check (needs real invocation)
 └── tone.html                    440Hz test source (?silent=1 → mic-only test mode)
@@ -105,8 +142,8 @@ Run tests · 跑测试:
 npm test
 ```
 
-(`npm run test:unit` for the instant Node-only suite, `npm run test:e2e` for the
-full browser pipeline.)
+(`npm run test:unit` for the instant Node-only suite, `npm run test:host` for the
+download helper, `npm run test:e2e` for the full browser pipeline.)
 
 Requires the pinned Chrome for Testing under `.browsers/` (Chrome 137+ retail
 builds removed `--load-extension`): · 需要 `.browsers/` 里的 Chrome for Testing：
@@ -117,7 +154,9 @@ npx @puppeteer/browsers install chrome@stable --path ./.browsers
 
 ## Roadmap · 路线图
 
-- **Phase 2 — full automation**: Native Messaging host writes straight into
-  `flowgt-media/`, auto-triggers whisper + analysis. · 二期：Native 主机直写媒体库，录完自动转写分析。
+- **Phase 2 — full automation**: the Native Messaging host (shipped in v0.3 for
+  downloads) also receives recordings, writes straight into `flowgt-media/`, and
+  auto-triggers whisper + analysis. · 二期：复用 v0.3 已落地的 Native 主机，录音直写媒体库并自动转写分析。
+- Windows installer for the download helper (`install.ps1`, registry-based host manifest). · 下载助手的 Windows 安装脚本。
 - System-level capture fallback for desktop Zoom/Teams. · 系统级录音兜底桌面客户端。
 - Chrome Web Store listing + FlowGT account-gated premium features. · 上架商店，账号体系解锁高级功能。

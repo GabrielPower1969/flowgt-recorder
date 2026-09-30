@@ -159,6 +159,105 @@
       }
       #micWarn a { color: var(--warn); font-weight: 600; text-decoration: underline; }
 
+      [hidden] { display: none !important; }
+
+      /* Media download card — only on YouTube / Bilibili video pages */
+      .dl {
+        margin-top: 14px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface-2);
+      }
+      .dl-head {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        margin-bottom: 10px;
+        font-size: 12.5px;
+      }
+      .dl-logo { display: inline-flex; flex: none; }
+      .dl-logo svg { display: block; height: 16px; width: auto; }
+      .dl-platform { font-weight: 700; color: var(--ink); flex: none; }
+      .dl-title {
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .dl-actions { display: flex; gap: 8px; }
+      button.secondary {
+        flex: 1;
+        min-height: 36px;
+        padding: 6px 10px;
+        border: 1px solid var(--accent);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--accent);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      button.secondary:hover:not(:disabled) { background: var(--accent-bg); }
+      button.secondary:disabled { opacity: 0.5; cursor: default; }
+      .dl-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 9px;
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .dl-toggle input { margin: 0; accent-color: var(--accent); }
+      .bar {
+        height: 8px;
+        border-radius: 8px;
+        background: var(--line);
+        overflow: hidden;
+      }
+      .bar .fill {
+        height: 100%;
+        width: 0;
+        border-radius: 8px;
+        background: var(--signal);
+        transition: width 0.4s ease;
+      }
+      .dl-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 7px;
+        font-size: 12px;
+        color: var(--ink-2);
+        font-variant-numeric: tabular-nums;
+      }
+      button.link {
+        border: 0;
+        background: none;
+        padding: 0;
+        font: inherit;
+        font-weight: 600;
+        color: var(--accent);
+        cursor: pointer;
+      }
+      button.link:hover { text-decoration: underline; }
+      .dl-result {
+        margin-top: 9px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .dl-result.ok { color: var(--accent); }
+      .dl-result.err { color: var(--danger); }
+      .dl-result .actions { display: flex; gap: 10px; flex: none; }
+
       /* Footer */
       footer {
         margin-top: 14px;
@@ -206,11 +305,36 @@
       <a href="#" id="grantMic">Enable microphone →</a>
     </div>
 
+    <section id="dlCard" class="dl" hidden>
+      <div class="dl-head">
+        <span id="dlLogo" class="dl-logo"></span>
+        <span id="dlPlatform" class="dl-platform"></span>
+        <span id="dlTitle" class="dl-title"></span>
+      </div>
+      <div id="dlIdle" class="dl-actions">
+        <button id="dlVideo" class="secondary">Video · best</button>
+        <button id="dlAudio" class="secondary">Audio · m4a</button>
+      </div>
+      <label id="dlCookiesRow" class="dl-toggle" hidden>
+        <input type="checkbox" id="dlCookies" checked />
+        Use my Bilibili login for HD
+      </label>
+      <div id="dlBusy" hidden>
+        <div class="bar"><div id="dlBar" class="fill"></div></div>
+        <div class="dl-meta">
+          <span id="dlProgress"></span>
+          <button id="dlCancel" class="link">Cancel</button>
+        </div>
+      </div>
+      <div id="dlResult" class="dl-result" hidden></div>
+    </section>
+
     <footer>
       <span id="account">…</span>
       <span><kbd id="shortcutHint">⌘⇧9</kbd></span>
     </footer>
 
+    <script src="platform.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
