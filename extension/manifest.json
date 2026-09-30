@@ -1,11 +1,19 @@
 {
   "manifest_version": 3,
   "name": "FlowGT Recorder",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Record browser-based meetings locally — tab audio + your microphone, mixed and saved on your machine. Nothing is uploaded.",
   "minimum_chrome_version": "116",
-  "permissions": ["tabCapture", "offscreen", "downloads", "storage"],
-  "host_permissions": ["https://flowgt.co.nz/*"],
+  "permissions": [
+    "tabCapture",
+    "offscreen",
+    "downloads",
+    "storage",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "https://flowgt.co.nz/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "FlowGT Recorder",
@@ -22,10 +30,15 @@
     "48": "icons/48.png",
     "128": "icons/128.png"
   },
-  "background": { "service_worker": "background.js" },
+  "background": {
+    "service_worker": "background.js"
+  },
   "commands": {
     "_execute_action": {
-      "suggested_key": { "default": "Ctrl+Shift+9", "mac": "Command+Shift+9" },
+      "suggested_key": {
+        "default": "Ctrl+Shift+9",
+        "mac": "Command+Shift+9"
+      },
       "description": "Open FlowGT Recorder"
     }
   }

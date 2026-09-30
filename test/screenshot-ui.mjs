@@ -36,6 +36,29 @@ await shot('popup-idle-dark.png', { dark: true });
 await shot('popup-recording-light.png', { recState: { recording: true, startTime: Date.now() - 754000, label: 'Iris_Datacom_R2', micOk: true } });
 await shot('popup-recording-dark.png', { dark: true, recState: { recording: true, startTime: Date.now() - 754000, label: 'Iris_Datacom_R2', micOk: true } });
 
+// media download card (demo query param forces platform detection for review shots)
+async function dlShot(name, { demo, dark = false, dl = null }) {
+  await sw.evaluate(async () => chrome.storage.session.remove('rec'));
+  if (dl) await sw.evaluate(async (d) => chrome.storage.session.set({ dl: d }), dl);
+  else await sw.evaluate(async () => chrome.storage.session.remove('dl'));
+  const p = await b.newPage();
+  await p.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }]);
+  await p.setViewport({ width: 320, height: 300, deviceScaleFactor: 2 });
+  await p.goto(`chrome-extension://${extId}/popup.html?demo=${demo}`);
+  await new Promise((r) => setTimeout(r, 900));
+  await p.screenshot({ path: path.join(OUT, name), fullPage: true });
+  await p.close();
+}
+const busy = { active: true, platform: 'youtube', kind: 'video', title: 'Me at the zoo', percent: 63, speed: '4.97MiB/s', eta: '00:12' };
+await dlShot('download-youtube-light.png', { demo: 'youtube' });
+await dlShot('download-youtube-dark.png', { demo: 'youtube', dark: true });
+await dlShot('download-bilibili-light.png', { demo: 'bilibili' });
+await dlShot('download-bilibili-dark.png', { demo: 'bilibili', dark: true });
+await dlShot('download-progress-light.png', { demo: 'youtube', dl: busy });
+await dlShot('download-done-light.png', { demo: 'youtube', dl: { ...busy, active: false, done: true, percent: 100 } });
+await dlShot('download-error-light.png', { demo: 'youtube', dl: { platform: 'youtube', error: 'host-missing' } });
+await sw.evaluate(async () => chrome.storage.session.remove('dl'));
+
 // permission page
 const pp = await b.newPage();
 await pp.setViewport({ width: 720, height: 480, deviceScaleFactor: 2 });

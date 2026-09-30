@@ -3,3 +3,4 @@ node_modules/
 test/tabcapture-check.log
 design-shots/
 .DS_Store
+host/flowgt-host.sh

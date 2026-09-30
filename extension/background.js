@@ -2,7 +2,10 @@
 // 职责：拿 tabCapture streamId、管理 offscreen 文档、落盘下载、维护录音状态。
 // 真正的音频采集/混音/编码都在 offscreen.js 里（service worker 没有 DOM/AudioContext）。
 
+importScripts('platform.js');
+
 const OFFSCREEN_URL = 'offscreen.html';
+const REC_TYPES = new Set(['start-recording', 'stop-recording', 'save-recording', 'recording-finished']);
 
 async function ensureOffscreen() {
   const contexts = await chrome.runtime.getContexts({
@@ -131,12 +134,36 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           break;
         }
 
+        case 'host-status':
+          sendResponse(await hostStatus());
+          break;
+
+        case 'download-media':
+          sendResponse(await startDownload(msg));
+          break;
+
+        case 'cancel-download':
+          if (hostPort) hostPort.postMessage({ type: 'cancel' });
+          sendResponse({ ok: true });
+          break;
+
+        case 'clear-download':
+          await setDl(null);
+          sendResponse({ ok: true });
+          break;
+
+        case 'show-downloads':
+          chrome.downloads.showDefaultFolder();
+          sendResponse({ ok: true });
+          break;
+
         default:
           sendResponse({ ok: false, error: `未知消息类型: ${msg.type}` });
       }
     } catch (e) {
       console.error('[FlowGT]', e);
-      await clearRecState().catch(() => {});
+      // 只有录音链路的失败才清录音状态——下载出错不能抹掉正在进行的录音
+      if (REC_TYPES.has(msg.type)) await clearRecState().catch(() => {});
       await chrome.storage.session
         .set({ lastError: { msg: e.message || String(e), at: Date.now(), type: msg.type } })
         .catch(() => {});
@@ -159,4 +186,111 @@ function watchDownload(downloadId) {
     }
   };
   chrome.downloads.onChanged.addListener(listener);
+}
+
+// ---------- 下载助手：Native Messaging → 本机 yt-dlp（host/flowgt-host.mjs） ----------
+// 状态唯一真源：storage.session.dl = {active, platform, kind, title, percent, speed, eta,
+//   note, file, done, error, errorMsg, at}；popup 通过 storage.onChanged 渲染。
+// 端口只在"查询状态/下载中"打开，空闲即断开，避免 host 进程与 service worker 常驻。
+
+const HOST_NAME = 'nz.co.flowgt.recorder';
+let hostPort = null;
+let pendingPing = null;
+let dlState = null;
+
+async function setDl(next) {
+  dlState = next ? { ...next, at: Date.now() } : null;
+  if (dlState) await chrome.storage.session.set({ dl: dlState });
+  else await chrome.storage.session.remove('dl');
+}
+const patchDl = (patch) => setDl({ ...(dlState || {}), ...patch });
+
+// service worker 重启时端口必然已断，残留的 active 下载已被 host 收掉 → 标记为中断
+chrome.storage.session.get('dl').then(({ dl }) => {
+  if (dl?.active && !hostPort) setDl({ ...dl, active: false, error: 'interrupted', errorMsg: 'Download was interrupted' });
+  else if (dl && !dlState) dlState = dl;
+});
+
+function hostErrorCode(message) {
+  if (/not found/i.test(message)) return 'host-missing';
+  if (/forbidden/i.test(message)) return 'host-forbidden';
+  return 'host-disconnected';
+}
+
+function disconnectHost() {
+  if (!hostPort) return;
+  hostPort.disconnect();
+  hostPort = null;
+}
+
+function connectHost() {
+  if (hostPort) return hostPort;
+  const port = chrome.runtime.connectNative(HOST_NAME);
+  hostPort = port;
+  port.onMessage.addListener(onHostMessage);
+  port.onDisconnect.addListener(() => {
+    const err = chrome.runtime.lastError?.message || 'Local helper disconnected';
+    if (hostPort === port) hostPort = null;
+    if (pendingPing) pendingPing({ installed: false, error: hostErrorCode(err), errorMsg: err });
+    if (dlState?.active) patchDl({ active: false, error: hostErrorCode(err), errorMsg: err });
+  });
+  return port;
+}
+
+function onHostMessage(m) {
+  switch (m.type) {
+    case 'pong':
+      if (pendingPing) pendingPing({ installed: true, ytdlp: m.ytdlp, outDir: m.outDir });
+      if (!dlState?.active) disconnectHost();
+      break;
+    case 'progress':
+      patchDl({ percent: m.percent, speed: m.speed, eta: m.eta, note: m.note || '' });
+      break;
+    case 'done':
+      patchDl({ active: false, done: true, percent: 100, file: m.file, note: '', speed: '', eta: '' });
+      disconnectHost();
+      break;
+    case 'cancelled':
+      setDl(null);
+      disconnectHost();
+      break;
+    case 'error':
+      patchDl({ active: false, error: m.code, errorMsg: m.msg });
+      disconnectHost();
+      break;
+  }
+}
+
+function hostStatus() {
+  return new Promise((resolve) => {
+    const finish = (r) => {
+      pendingPing = null;
+      clearTimeout(timer);
+      resolve({ ok: true, ...r });
+    };
+    const timer = setTimeout(() => finish({ installed: false, error: 'host-timeout' }), 5000);
+    pendingPing = finish;
+    try {
+      connectHost().postMessage({ type: 'ping' });
+    } catch (e) {
+      finish({ installed: false, error: 'host-missing', errorMsg: e.message });
+    }
+  });
+}
+
+async function startDownload({ url, kind, useCookies, title }) {
+  if (dlState?.active) return { ok: false, error: 'busy' };
+  const platform = FlowGTPlatform.detectPlatform(url);
+  if (!platform) return { ok: false, error: 'url-not-allowed' };
+  if (kind !== 'video' && kind !== 'audio') return { ok: false, error: 'bad-kind' };
+  await setDl({
+    active: true, platform, kind, title: (title || '').slice(0, 200),
+    percent: 0, speed: '', eta: '', note: '', file: null, done: false, error: null, errorMsg: '',
+  });
+  try {
+    connectHost().postMessage({ type: 'download', url, kind, useCookies: !!useCookies });
+  } catch (e) {
+    await patchDl({ active: false, error: 'host-missing', errorMsg: e.message });
+  }
+  return { ok: true };
 }

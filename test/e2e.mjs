@@ -16,6 +16,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { unpackedExtensionId } from '../host/ext-id.mjs';
 
 const pexec = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,12 @@ const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'flowgt-e2e-'));
 const DOWNLOAD_DIR = path.join(WORK, 'downloads');
 const REC_DIR = path.join(DOWNLOAD_DIR, 'flowgt-recordings');
 fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+
+const MEDIA_DIR = path.join(WORK, 'media');
+const NM_MANIFEST = path.join(WORK, 'profile', 'NativeMessagingHosts', 'nz.co.flowgt.recorder.json');
+const STUB_MODE_FILE = path.join(WORK, 'stub-mode');
+const setStubMode = (m) => fs.writeFileSync(STUB_MODE_FILE, m);
+const EXPECTED_EXT_ID = unpackedExtensionId(EXT_DIR);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
@@ -107,6 +114,24 @@ try {
       profile: { exit_type: 'Normal' },
     })
   );
+  // 测试用 Native Messaging host：装进临时 profile 的 NativeMessagingHosts/
+  // （官方文档：用户级 host 在用户 profile 目录的该子目录查找），yt-dlp 换成 stub。
+  const wrapper = path.join(WORK, 'test-host.sh');
+  fs.writeFileSync(wrapper, [
+    '#!/bin/sh',
+    `export FLOWGT_YTDLP="${path.join(__dirname, 'fixtures', 'yt-dlp-stub.mjs')}"`,
+    `export FLOWGT_OUTDIR="${MEDIA_DIR}"`,
+    `export FLOWGT_STUB_MODE="$(cat "${STUB_MODE_FILE}" 2>/dev/null || echo ok)"`,
+    `export PATH="${path.dirname(process.execPath)}:/usr/bin:/bin"`,
+    `exec "${process.execPath}" "${path.join(ROOT, 'host', 'flowgt-host.mjs')}" "$@"`,
+  ].join('\n'), { mode: 0o755 });
+  fs.chmodSync(path.join(__dirname, 'fixtures', 'yt-dlp-stub.mjs'), 0o755);
+  fs.mkdirSync(path.dirname(NM_MANIFEST), { recursive: true });
+  fs.writeFileSync(NM_MANIFEST, JSON.stringify({
+    name: 'nz.co.flowgt.recorder', description: 'test host', path: wrapper, type: 'stdio',
+    allowed_origins: [`chrome-extension://${EXPECTED_EXT_ID}/`],
+  }));
+
   browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: HEADED ? false : 'new',
@@ -274,6 +299,109 @@ try {
   );
   check('T7 get-account 返回 signedIn 布尔', typeof acct?.signedIn === 'boolean',
     JSON.stringify(acct));
+
+  // ======== 下载助手：真 Native Messaging 链路（host 用 stub yt-dlp，不碰网络）========
+  const bg = (msg) => harness2.evaluate((m) => chrome.runtime.sendMessage({ target: 'background', ...m }), msg);
+  const getDl = () => sw.evaluate(async () => (await chrome.storage.session.get('dl')).dl ?? null);
+  async function waitDl(pred, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
+    let dl;
+    while (Date.now() < deadline) {
+      dl = await getDl();
+      if (pred(dl)) return dl;
+      await sleep(150);
+    }
+    return dl;
+  }
+
+  console.log('— 测试 8：扩展 ID 算法 —');
+  check('T8 install.sh 的扩展 ID 算法 = Chrome 实际分配', EXPECTED_EXT_ID === extId, `${EXPECTED_EXT_ID} vs ${extId}`);
+
+  console.log('— 测试 9：host 状态 —');
+  const hs = await bg({ type: 'host-status' });
+  check('T9 Native Messaging 连通，host 报 yt-dlp 版本', hs?.installed === true && hs?.ytdlp === 'stub-1.0', JSON.stringify(hs));
+
+  console.log('— 测试 10：YouTube 视频下载全链路 —');
+  setStubMode('ok');
+  const r10 = await bg({ type: 'download-media', url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', kind: 'video', title: 'Me at the zoo' });
+  check('T10 下载请求被接受', r10?.ok === true, JSON.stringify(r10));
+  const d10 = await waitDl((d) => d && !d.active);
+  check('T10 完成状态回写', d10?.done === true && d10?.platform === 'youtube' && d10?.kind === 'video', JSON.stringify(d10));
+  check('T10 文件落在下载目录', !!d10?.file && d10.file.startsWith(MEDIA_DIR) && fs.existsSync(d10.file), d10?.file);
+  check('T10 标题透传', d10?.title === 'Me at the zoo');
+
+  console.log('— 测试 11：B 站音频 —');
+  await bg({ type: 'clear-download' });
+  const r11 = await bg({ type: 'download-media', url: 'https://www.bilibili.com/video/BV1xx411c7mD', kind: 'audio', useCookies: true });
+  const d11 = await waitDl((d) => d && !d.active);
+  check('T11 B 站音频完成为 m4a', r11?.ok && d11?.done && d11.file.endsWith('.m4a'), d11?.file);
+
+  console.log('— 测试 12：后台白名单 —');
+  await bg({ type: 'clear-download' });
+  const r12 = await bg({ type: 'download-media', url: 'https://youtube.com.evil.com/watch?v=x', kind: 'video' });
+  check('T12 仿冒域在后台就被拒', r12?.ok === false && r12?.error === 'url-not-allowed', JSON.stringify(r12));
+  check('T12 被拒不产生下载状态', (await getDl()) === null);
+
+  console.log('— 测试 13：下载中取消 + 并发拒绝 —');
+  setStubMode('slow');
+  await bg({ type: 'download-media', url: 'https://youtu.be/jNQXAC9IVRw', kind: 'audio' });
+  const d13 = await waitDl((d) => d?.active && d.percent > 0);
+  check('T13 进度回写到状态', d13?.active && d13.percent > 0, JSON.stringify(d13));
+  const r13 = await bg({ type: 'download-media', url: 'https://youtu.be/jNQXAC9IVRw', kind: 'video' });
+  check('T13 下载中再发起被拒', r13?.ok === false && r13?.error === 'busy', JSON.stringify(r13));
+  await bg({ type: 'cancel-download' });
+  check('T13 取消后状态清空', (await waitDl((d) => d === null)) === null);
+
+  console.log('— 测试 14：下载失败不影响录音状态 —');
+  setStubMode('fail');
+  await sw.evaluate(() => chrome.storage.session.set({ rec: { recording: true, startTime: Date.now(), tabId: 1, label: 'keep' } }));
+  await bg({ type: 'download-media', url: 'https://youtu.be/jNQXAC9IVRw', kind: 'video' });
+  const d14 = await waitDl((d) => d && !d.active);
+  check('T14 失败回写错误原因', d14?.error === 'ytdlp-failed' && /boom/.test(d14.errorMsg), JSON.stringify(d14));
+  const rec14 = await sw.evaluate(async () => (await chrome.storage.session.get('rec')).rec);
+  check('T14 录音状态完好无损', rec14?.recording === true && rec14.label === 'keep', JSON.stringify(rec14));
+  await sw.evaluate(() => chrome.storage.session.remove('rec'));
+  await bg({ type: 'clear-download' });
+
+  console.log('— 测试 15：popup 下载卡 —');
+  const pop = await browser.newPage();
+  await pop.goto(`chrome-extension://${extId}/popup.html?demo=youtube`);
+  await sleep(600);
+  const ui15 = await pop.evaluate(() => ({
+    card: !document.getElementById('dlCard').hidden,
+    platform: document.getElementById('dlPlatform').textContent,
+    title: document.getElementById('dlTitle').textContent,
+    buttons: !document.getElementById('dlIdle').hidden,
+    cookies: !document.getElementById('dlCookiesRow').hidden,
+    logo: !!document.querySelector('#dlLogo svg'),
+    rec: document.getElementById('actionBtn').textContent,
+  }));
+  check('T15 YouTube 页自动显示下载卡 + logo', ui15.card && ui15.platform === 'YouTube' && ui15.logo, JSON.stringify(ui15));
+  check('T15 标题去掉 " - YouTube" 后缀', ui15.title === '· Me at the zoo', ui15.title);
+  check('T15 YouTube 不显示 cookies 开关', ui15.buttons && !ui15.cookies);
+  check('T15 录音按钮不受影响', ui15.rec === 'Start recording', ui15.rec);
+  await pop.goto(`chrome-extension://${extId}/popup.html?demo=bilibili`);
+  await sleep(600);
+  const ui15b = await pop.evaluate(() => ({
+    platform: document.getElementById('dlPlatform').textContent,
+    cookies: !document.getElementById('dlCookiesRow').hidden,
+    title: document.getElementById('dlTitle').textContent,
+  }));
+  check('T15 B 站页显示 Bilibili + cookies 开关', ui15b.platform === 'Bilibili' && ui15b.cookies, JSON.stringify(ui15b));
+  check('T15 标题去掉 B 站后缀', ui15b.title === '· 字幕君交流场所', ui15b.title);
+  await pop.goto(`chrome-extension://${extId}/popup.html`);
+  await sleep(600);
+  check('T15 非视频页不显示下载卡', await pop.evaluate(() => document.getElementById('dlCard').hidden));
+  await pop.close();
+
+  console.log('— 测试 16：host 未安装的引导 —');
+  fs.renameSync(NM_MANIFEST, NM_MANIFEST + '.off');
+  const hs16 = await bg({ type: 'host-status' });
+  check('T16 缺 host 报 host-missing', hs16?.installed === false && hs16?.error === 'host-missing', JSON.stringify(hs16));
+  const r16 = await bg({ type: 'download-media', url: 'https://youtu.be/jNQXAC9IVRw', kind: 'video' });
+  const d16 = await waitDl((d) => d && !d.active);
+  check('T16 缺 host 时下载转为 host-missing 错误', r16?.ok && d16?.error === 'host-missing', JSON.stringify(d16));
+  fs.renameSync(NM_MANIFEST + '.off', NM_MANIFEST);
 } catch (e) {
   check('未捕获异常', false, e.stack?.split('\n')[0] || String(e));
 } finally {

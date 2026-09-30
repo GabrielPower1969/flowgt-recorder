@@ -1,7 +1,7 @@
 # FlowGT Recorder — 架构设计
 
 > 读者：维护者与代码审查者。用户文档见根目录 README.md。
-> 最后核实：2026-09-02（v0.2.0，E2E 25/25 通过）
+> 最后核实：2026-09-30（v0.3.0，单元 81/81 · host 38/38 · E2E 48/48 通过）
 
 ## 1. 设计目标与硬约束
 
@@ -32,6 +32,10 @@ popup.js ──(user gesture)──► background.js ──streamId──► off
    │ 麦克风权限检查/引导          │  chrome.downloads 落盘      │                    │ 轨道结束监视→自动收尾
    │ flowgt.co.nz 登录态展示     │  REC 角标 + 状态机          │                    │ 文件名构造(纯函数)
 permission.html/js: 一次性麦克风授权页（offscreen 无法弹权限框，必须借普通扩展页）
+
+下载助手（v0.3，仅开发版，见 §8）：
+popup 下载卡 ──► background.js ──connectNative──► host/flowgt-host.mjs ──spawn──► yt-dlp (+ffmpeg)
+   platform.js 识别平台       dl 状态机             帧协议 / URL 白名单            → ~/Downloads/flowgt-downloads/
 ```
 
 **单一职责**：只有 `recorder-core.js` 碰音频；只有 `background.js` 碰状态与下载；
@@ -91,12 +95,64 @@ E2E 的关键技巧（都是踩坑换来的，别改回去）：
 
 - 录音数据流：标签页/麦克风 → AudioContext（内存）→ MediaRecorder → blob →
   `chrome.downloads` → 本地磁盘。**没有网络出口。**
-- 唯一网络请求：`GET https://flowgt.co.nz/api/session`（只读登录态、显示会员身份，
+- 扩展自身唯一网络请求：`GET https://flowgt.co.nz/api/session`（只读登录态、显示会员身份，
   不携带也不回传任何录音相关数据）。host_permissions 只声明这一个域。
-- 权限最小集：`tabCapture, offscreen, downloads, storage`；无 `<all_urls>`，无 content script。
+- 下载助手（开发版）的网络流量全部发生在本机 yt-dlp 进程里，方向只有"从 YouTube/B 站拉取"；
+  B 站 cookies 只在本机被 yt-dlp 读取并发给 B 站自己。录音链路与下载链路互不相通。
+- 权限最小集：`tabCapture, offscreen, downloads, storage`（开发版另加 `nativeMessaging`）；
+  无 `<all_urls>`，无 content script。
 
 ## 7. 已知边界与二期方向
 
 - 桌面版 Zoom/Teams 抓不到（扩展只及浏览器）→ 二期系统级录音兜底。
 - 二期全自动：Native Messaging host 直写 `flowgt-media/`，录完自动 whisper + 分析。
 - 上架 Chrome Web Store 时剔除 `extension/test-harness.*`。
+
+## 8. 下载助手（v0.3.0，仅开发版）
+
+**为什么是"扩展 UI + 本机 yt-dlp"**：扩展内解析 YouTube/B 站的流不可维护（签名算法常变、
+DASH 音视频分离要 ffmpeg 合流）。扩展只做识别与 UI，经 Native Messaging 交给本机 yt-dlp。
+这也是二期"录音直写 flowgt-media/ + 自动转写"要复用的同一个 host。
+
+**组件**
+
+| 文件 | 职责 |
+|---|---|
+| `extension/platform.js` | `detectPlatform`（域名白名单）/ `isMediaPage`（单视频页）。**唯一真源**：host 经 vm 加载同一份文件（注意 vm 上下文要注入 `URL`，否则全部判非法） |
+| `extension/background.js` | `download-media` / `cancel-download` / `host-status` / `clear-download` / `show-downloads`；状态 `storage.session.dl`；端口仅在查询/下载时打开，空闲即断 |
+| `host/flowgt-host.mjs` | 帧协议（4 字节长度前缀 + JSON，**stdout 只能写协议帧**）、URL 白名单、单任务、进程组取消、进度节流 ≤2 条/秒、cookies 失败自动无 cookies 重试 |
+| `host/ytdlp-args.mjs` | 参数构造与输出解析（纯函数） |
+| `host/install.sh` | 生成 wrapper（写死 node/yt-dlp 绝对路径——Chrome 启动 host 时没有 login shell PATH）+ 写 host manifest + 自检 ping |
+
+**yt-dlp 参数决策**
+
+- 视频 `-f "bv*+ba[ext=m4a]/bv*+ba/b" --merge-output-format mp4`：画质取最高；音轨优先 AAC。
+  实测（2026-09-30）`bestvideo+bestaudio` 合出 AV1+**Opus**，Opus-in-mp4 在 QuickTime/Windows 自带播放器没声音。
+  视频流仍可能是 AV1/VP9（为画质不降级），README 已提示用 IINA/VLC。
+- 音频 `-f ba/b -x --audio-format m4a --audio-quality 0`。
+- YouTube 加 `--js-runtimes node:<process.execPath>`：缺 JS 运行时 yt-dlp 会警告"部分格式缺失"，拿不到真正最高画质；
+  需要 `yt-dlp[default]`（含 yt-dlp-ejs）。YouTube **永不**带 cookies。
+- B 站可选 `--cookies-from-browser chrome`（未登录只给低画质）；读取失败（钥匙串拒绝）自动去掉重试一次。
+- `--windows-filenames`（文件会发给 Windows 用户）、`--no-mtime`（否则文件时间=上传日，下载目录里排到最底）、
+  `--no-playlist`、`--` 分隔 URL（防参数注入）。
+- 输出协议：`--progress-template "download:FLOWGT_PROGRESS …"` + `--print "after_move:FLOWGT_FILE:%(filepath)s"`，
+  host 只认这两个前缀，其余行作为错误上下文（报错时取最后一条 `ERROR` 行）。
+
+**安全**：host manifest `allowed_origins` 只含本扩展 ID；URL 在 background 和 host **两层**白名单校验；
+spawn 参数数组、无 shell；下载目录由 host 决定，扩展无法指定路径。
+
+**测试**：单元（platform/参数/解析/扩展 ID 格式）→ host 集成（真进程 + stub yt-dlp：粘包半包、节流、取消、
+并发拒绝、cookies 重试、缺 yt-dlp）→ E2E（Chrome for Testing 临时 profile 的 `NativeMessagingHosts/` 装测试 host，
+走真 connectNative 全链路；T8 用 CfT 实际分配的 ID 反证 `ext-id.mjs` 算法）。
+Native Messaging 路径与"用户级 host 在 profile 目录子目录查找"均来自官方文档
+`[A · developer.chrome.com/docs/extensions/develop/concepts/native-messaging · 核实 2026-09-30]`。
+
+**上架剔除清单**（Chrome Web Store 版必须全部移除）：
+- `extension/test-harness.*`
+- `host/` 整个目录
+- manifest 的 `nativeMessaging` 权限；`extension/platform.js`；popup 的下载卡 HTML/CSS/JS 与 background 的下载模块
+- 依据：CWS 常见拒审理由原文 *"The extension is facilitating download of YouTube videos."*
+  `[A · developer.chrome.com/docs/webstore/troubleshooting · 页面更新 2026-07-20 · 核实 2026-09-30]`
+
+**已知边界**：只有 macOS 安装脚本（Windows 需走注册表写 host manifest，待 `install.ps1`）；
+单任务、不下播放列表；Chrome 退出即取消下载。

@@ -1,14 +1,16 @@
 {
   "name": "flowgt-recorder",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "FlowGT Recorder — Chrome extension that records browser meeting audio (tab + mic) locally. Audio never leaves your machine.",
   "private": true,
   "scripts": {
-    "test": "npm run test:unit && npm run test:e2e",
+    "test": "npm run test:unit && npm run test:host && npm run test:e2e",
     "test:unit": "node test/unit.mjs",
+    "test:host": "node test/host.test.mjs",
     "test:e2e": "node test/e2e.mjs",
     "test:tabcapture": "node test/manual-tabcapture-check.mjs",
-    "shots": "node test/screenshot-ui.mjs"
+    "shots": "node test/screenshot-ui.mjs",
+    "install-host": "host/install.sh"
   },
   "author": "FlowGT",
   "license": "UNLICENSED",
