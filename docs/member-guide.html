@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlowGT Recorder 使用说明</title>
+<style>
+  /* FlowGT design tokens — docs/BRAND.md (flowgt-website) */
+  :root {
+    --ink: #0C1A14; --ink-2: #3A4A43; --muted: #67756D;
+    --surface: #FFFFFF; --surface-2: #F7F9F8; --line: #E2E8E5;
+    --accent: #00694B; --accent-bg: #EAF4F0;
+    --signal: #00C26D; --warn: #8A5A00; --warn-bg: #FBF3E4; --danger: #A3261C;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #F7F9F8; --ink-2: #E2E8E5; --muted: #8A9992;
+      --surface: #111815; --surface-2: #0B100E; --line: #25302B;
+      --accent: #5BC79E; --accent-bg: #16241E;
+      --warn: #D4A24C; --warn-bg: #241E10; --danger: #E5796B;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--surface-2); color: var(--ink);
+    font: 400 15px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
+  }
+  .page { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+  header.lockup {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 8px;
+  }
+  .wordmark { font-weight: 600; font-size: 26px; letter-spacing: -0.055em; }
+  .wordmark .gt { font-weight: 700; letter-spacing: -0.07em; }
+  .wordmark .dot { color: var(--signal); }
+  .product { color: var(--muted); font-size: 16px; font-weight: 500; }
+  h1 { font-size: 24px; line-height: 1.3; margin: 24px 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 8px; }
+  h2 {
+    font-size: 18px; margin: 40px 0 12px; display: flex; align-items: center; gap: 10px;
+    letter-spacing: -0.01em;
+  }
+  .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 999px; flex: none;
+    background: var(--signal); color: #0C1A14; font-size: 14px; font-weight: 750;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 18px 20px; margin: 12px 0;
+  }
+  ol.steps { margin: 0; padding-left: 22px; }
+  ol.steps li { margin: 8px 0; }
+  ul.tight { margin: 8px 0 0; padding-left: 22px; }
+  ul.tight li { margin: 6px 0; }
+  code, kbd {
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 1px 6px; font-size: 13px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  kbd { border-bottom-width: 2px; font-family: inherit; font-weight: 600; font-size: 12px; }
+  b, strong { font-weight: 650; }
+  .ok { color: var(--accent); font-weight: 650; }
+  .no { color: var(--danger); font-weight: 650; }
+  .callout {
+    border-left: 4px solid var(--warn); background: var(--warn-bg);
+    border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 12px 0; color: var(--ink);
+  }
+  .callout .t { color: var(--warn); font-weight: 700; }
+  .shots { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 4px; }
+  .shot { flex: 1 1 220px; max-width: 300px; }
+  .shot img {
+    width: 100%; display: block; border: 1px solid var(--line);
+    border-radius: 12px; background: #fff;
+  }
+  .shot .cap { text-align: center; color: var(--muted); font-size: 13px; margin-top: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--surface-2); font-weight: 650; font-size: 14px; }
+  td { background: var(--surface); font-size: 14px; }
+  .label-example {
+    display: inline-block; background: var(--accent-bg); color: var(--accent);
+    border-radius: 8px; padding: 2px 10px; font-weight: 650;
+  }
+  footer {
+    margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="lockup">
+  <span class="wordmark">Flow<span class="gt">GT</span><span class="dot">.</span></span>
+  <span class="product">Recorder · 使用说明</span>
+</header>
+
+<h1>面试录音插件，三分钟上手</h1>
+<p class="sub">把浏览器里的面试/会议录下来（对方声音 + 你的声音），文件只存在<b>你自己的电脑里</b>，不上传任何服务器。录完把文件发给 Gabriel，就能拿到完整的面试复盘报告。</p>
+
+<h2><span class="num">1</span>安装（只需一次，约 1 分钟）</h2>
+<div class="card">
+  <ol class="steps">
+    <li>把收到的 zip <b>解压</b>到一个<b>不会被删掉的位置</b>（比如「文档」文件夹；不要放在临时下载目录里，删了插件就失效）。</li>
+    <li>打开 Chrome，地址栏输入 <code>chrome://extensions</code> 回车。</li>
+    <li>打开右上角的 <b>开发者模式（Developer mode）</b> 开关。</li>
+    <li>点左上角 <b>加载已解压的扩展程序（Load unpacked）</b> → 选择解压出来的 <code>extension</code> 文件夹。</li>
+    <li>点浏览器右上角的拼图图标 🧩，把 <b>FlowGT Recorder</b> 旁边的图钉点亮，固定到工具栏。</li>
+  </ol>
+  <p style="margin:10px 0 0; color: var(--muted);">macOS 和 Windows 都可以用，步骤完全一样。</p>
+</div>
+
+<h2><span class="num">2</span>首次设置：授权麦克风（最重要的一步！）</h2>
+<div class="card">
+  <ol class="steps">
+    <li>点一下工具栏上的 FlowGT 图标，弹出小面板。</li>
+    <li>如果看到黄色提示 <i>“Microphone not enabled”</i> → 点 <b>Enable microphone →</b> → 在浏览器弹窗里选 <b>允许（Allow）</b>。只需要做一次。</li>
+  </ol>
+  <div class="callout">
+    <span class="t">为什么重要：</span>不授权麦克风也能录，但只会录到<b>对方的声音，没有你自己的</b>。
+    这种录音的文件名会带 <code>_nomic</code> 标记——看到它就说明你的声音没进去，回去把麦克风授权了再录。
+  </div>
+  <p style="margin:8px 0 0;">如果浏览器没弹授权框，是系统层没放行，去打开：<br>
+  · <b>macOS</b>：系统设置 → 隐私与安全性 → 麦克风 → 打开 Google Chrome<br>
+  · <b>Windows</b>：设置 → 隐私 → 麦克风 → 允许桌面应用访问</p>
+</div>
+
+<h2><span class="num">3</span>每次面试怎么用</h2>
+<div class="card">
+  <ol class="steps">
+    <li><b>用浏览器标签页入会</b>（Google Meet / Zoom 网页版 / Teams 网页版）。收到 Zoom 链接时选「从浏览器加入 / Join from your browser」。</li>
+    <li>切到会议标签页，点 FlowGT 图标（或快捷键 <kbd>⌘⇧9</kbd> / <kbd>Ctrl+Shift+9</kbd>）。</li>
+    <li>在输入框填标签，格式：<span class="label-example">你的名字_公司_R轮次</span>，例如 <code>Iris_Datacom_R2</code>。这会拼进文件名，方便归档。</li>
+    <li>点绿色的 <b>Start recording</b>。按钮变红、图标出现红色 <b>REC</b> 角标 = 正在录。</li>
+    <li>面试中<b>可以随手关掉小面板</b>，录音不会停；你也照常听得到对方说话。</li>
+    <li>面试结束：再点图标 → 红色的 <b>Stop & save</b>。文件自动保存到 <code>下载/Downloads → flowgt-recordings</code> 文件夹。</li>
+  </ol>
+  <div class="shots">
+    <div class="shot"><img src="../design-shots/popup-idle-light.png" alt="待机状态：绿色 Start recording 按钮"><div class="cap">待机（绿色 = 可以开始）</div></div>
+    <div class="shot"><img src="../design-shots/popup-recording-light.png" alt="录音中：红色 Stop &amp; save 按钮和计时器"><div class="cap">录音中（红色 + 计时）</div></div>
+  </div>
+  <p style="margin:6px 0 0; color: var(--muted);">就算面试页面被意外关掉，录音也会自动收尾保存，不会丢。</p>
+</div>
+
+<h2><span class="num">4</span>录完 30 秒自检</h2>
+<div class="card">
+  <ul class="tight">
+    <li>文件在 <code>Downloads/flowgt-recordings/</code>，名字类似 <code>2026-09-07_1430_Iris_Datacom_R2.mp4</code>。</li>
+    <li>文件名<b>不带</b> <code>_nomic</code> ✅（带了 = 你的声音没录进去）。</li>
+    <li>双击播放，能听到<b>对方和你自己</b>两边的声音 ✅（.mp4 任何电脑双击就能播）。</li>
+  </ul>
+</div>
+
+<h2><span class="num">5</span>发给 Gabriel 拿复盘报告</h2>
+<div class="card">
+  <p style="margin:0;">把那个 <code>.mp4</code> 文件直接发给 Gabriel（微信发文件即可），并附一句：<b>你的名字、公司、第几轮</b>。
+  会收到一份完整的 HTML 复盘报告：8 个维度评分、关键时刻回放、口头禅统计、下一轮该怎么答的 60 秒范例。</p>
+</div>
+
+<h2><span class="num">6</span>能录什么、不能录什么</h2>
+<div class="card">
+  <table>
+    <tr><th>场景</th><th>支持？</th><th>说明</th></tr>
+    <tr><td>Google Meet / Zoom 网页版 / Teams 网页版（浏览器标签页）</td><td class="ok">✅</td><td>主战场</td></tr>
+    <tr><td>Zoom / Teams <b>桌面客户端</b></td><td class="no">❌</td><td>插件够不到浏览器外的声音。让 HR 发浏览器入会链接，或入会时选「从浏览器加入」</td></tr>
+    <tr><td>手机</td><td class="no">❌</td><td>不支持</td></tr>
+  </table>
+  <div class="callout" style="margin-bottom:0;">
+    <span class="t">合规提醒：</span>录音前请<b>告知面试官</b>（比如：“方便的话我想录音，仅用于自己复盘”）。
+    新西兰法律允许录制自己参与的对话，但主动告知永远是更职业、更稳妥的做法。录音只存你本机，不会上传。
+  </div>
+</div>
+
+<h2><span class="num">7</span>常见问题</h2>
+<div class="card">
+  <ul class="tight" style="margin-top:0;">
+    <li><b>点了 Start 没反应 / 报错？</b> 确认当前是会议标签页（不能是 chrome:// 页面），刷新会议页面再试。</li>
+    <li><b>面板关了是不是就停了？</b> 没有。录音一直在跑，直到你点 Stop & save 或会议页被关闭。看图标上的红色 REC 角标就知道在录。</li>
+    <li><b>录音有回声？</b> 建议戴耳机面试，音质最好、也不会串音。</li>
+    <li><b>Chrome 提示「请移除此扩展」？</b> 开发者模式加载的扩展每次重启 Chrome 可能弹一次提示，点关闭即可，不影响使用。</li>
+  </ul>
+</div>
+
+<footer>FlowGT Recorder v0.2.0 · 2026-09 · 录音只保存在你自己的电脑上，绝不上传 · 问题找 Gabriel</footer>
+
+</div>
+</body>
+</html>
