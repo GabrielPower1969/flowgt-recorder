@@ -1,0 +1,51 @@
+[package]
+name = "flowgt-recorder"
+version = "0.1.0"
+description = "FlowGT Recorder — screen + camera PiP + audio, ~400 MB/hour HEVC"
+authors = ["Gabriel Chen"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.80"
+
+[workspace]
+members = ["crates/core"]
+
+[lib]
+name = "flowgt_recorder_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+recorder-core = { path = "crates/core" }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-os = "2"
+tauri-plugin-store = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt-multi-thread", "fs"] }
+thiserror = "2"
+log = "0.4"
+env_logger = "0.11"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+fs2 = "0.4"
+uuid = { version = "1", features = ["v4"] }
+which = "7"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat"] }
+core-graphics = "0.24"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
