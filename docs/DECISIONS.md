@@ -68,3 +68,17 @@ name; Windows requires an explicit dshow name, which the app crate resolves from
 (e) Synthetic `lavfi` inputs run in real time only via `command::realtime_lavfi` (adds `-re`), so
 `recording_command` stays a pure mapping. (f) `amix` uses `normalize=0` (needs ffmpeg ≥ 7.0; the
 bundled LGPL build must be ≥ 7.0).
+
+D16 · 2026-11-04 · **App crate design (src-tauri/src).** (a) `recorder.rs` is generic over an
+`EventSink` so the same supervisor runs under Tauri (`TauriSink`) and headless (`--selftest`, tests).
+(b) `start` returns only after the first `-progress` block arrives (≤ 12 s), so an immediate ffmpeg
+failure is reported as `error.start` with the stderr tail instead of a silent "recording". (c) An
+ffmpeg exit nobody asked for, with a camera in the plan and after the 3-second quick-failure window,
+is treated as "camera lost": warn, drop the camera, open the next segment; a clean exit (exit 0, e.g.
+an input ended) finishes the session; disk-full output finishes it early. (d) The window dance
+(main hidden, floating shown) is driven by phase changes inside `TauriSink::state`, so tray and
+shortcut starts behave exactly like the button. (e) The default display id "0" from the core
+defaults is not an avfoundation screen index; `build_params` falls back to the first screen when the
+stored id is not in the device list. (f) Screen size on macOS is probed with a 1-frame ffmpeg run at
+start (needs the screen-recording permission, otherwise `error.permission`); the OS monitor size is
+the fallback. (g) Settings use `tauri-plugin-store` (D12) but always pass through `settings::from_json`.
