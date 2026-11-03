@@ -161,7 +161,7 @@ pub struct Region {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
 pub enum CaptureTarget {
     /// Whole display. `display_id` is the device id from DeviceList.screens.
     Display { display_id: String },
@@ -269,7 +269,7 @@ pub struct BitrateBudget {
 
 /// A video or audio input as ffmpeg sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
 pub enum InputSource {
     /// macOS `-f avfoundation -i "<video>:<audio>"`; either side may be None.
     AvFoundation { video_index: Option<String>, audio_index: Option<String>, capture_cursor: bool },
