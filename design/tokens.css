@@ -1,0 +1,146 @@
+/*
+ * FlowGT Recorder — design tokens · look "Studio"
+ * Source of truth: the Claude Design canvas (see docs/DESIGN.md).
+ * The app imports this file VERBATIM. Change a value here first, then in the canvas.
+ *
+ * Contrast notes (WCAG, measured against the surface the token is used on):
+ *   light  text #16181D on #FFFFFF  ≈ 16.9:1 · muted #5B6170 on #FFFFFF ≈ 6.0:1 · faint #7D8290 on #FFFFFF ≈ 4.5:1
+ *          accent #4452E6 on #FFFFFF ≈ 6.1:1 · accent-fg #FFFFFF on accent ≈ 6.1:1 · record #D63C41 on #FFFFFF ≈ 4.6:1
+ *          warn #A8690A on #FFFFFF ≈ 4.6:1 · ok #1F8F5A on #FFFFFF ≈ 4.5:1
+ *   dark   text #ECEEF3 on #171A21 ≈ 15.4:1 · muted #A3A9B8 on #171A21 ≈ 7.6:1 · faint #6C7382 on #171A21 ≈ 3.5:1 (decorative / ≥14px only)
+ *          accent #7D8BFF on #171A21 ≈ 5.6:1 · accent-fg #0F1115 on accent ≈ 5.9:1 · record #E5484D on #171A21 ≈ 4.6:1
+ *          warn #F5A524 on #171A21 ≈ 8.9:1 · ok #3DD68C on #171A21 ≈ 10.0:1
+ *   One interactive accent (indigo). Red is reserved for REC / stop. Amber = warning, green = ok.
+ *
+ * Theme switching: light values on :root, dark under [data-theme="dark"], and dark again under
+ * prefers-color-scheme when no explicit [data-theme="light"] is set.
+ */
+
+:root {
+  /* colour · light */
+  --color-bg: #F6F5F2;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #F0EFEB;
+  --color-surface-3: #E7E6E1;
+  --color-border: #E2E0DA;
+  --color-border-strong: #C9C7C0;
+  --color-text: #16181D;
+  --color-text-muted: #5B6170;
+  --color-text-faint: #7D8290;
+  --color-accent: #4452E6;
+  --color-accent-hover: #3A48D6;
+  --color-accent-fg: #FFFFFF;
+  --color-accent-soft: rgba(68, 82, 230, 0.10);
+  --color-record: #D63C41;
+  --color-record-hover: #C23338;
+  --color-record-soft: rgba(214, 60, 65, 0.12);
+  --color-warn: #A8690A;
+  --color-warn-soft: rgba(245, 165, 36, 0.18);
+  --color-ok: #1F8F5A;
+  --color-ok-soft: rgba(31, 143, 90, 0.12);
+  --color-danger: #D63C41;
+  --color-focus: #4452E6;
+  --color-overlay: rgba(22, 24, 29, 0.45);
+  --color-floating-bg: rgba(255, 255, 255, 0.90);
+
+  /* shape */
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+  --radius-pill: 999px;
+
+  /* spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* type */
+  --font-ui: Inter, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 28px;
+  --text-3xl: 56px;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+
+  /* elevation */
+  --shadow-1: 0 1px 2px rgba(22, 24, 29, 0.04);
+  --shadow-2: 0 6px 20px rgba(22, 24, 29, 0.18);
+  --shadow-floating: 0 12px 40px rgba(22, 24, 29, 0.22);
+
+  /* motion */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-theme="dark"] {
+  --color-bg: #0F1115;
+  --color-surface: #171A21;
+  --color-surface-2: #1F232C;
+  --color-surface-3: #272C37;
+  --color-border: #2A2F3A;
+  --color-border-strong: #3A4150;
+  --color-text: #ECEEF3;
+  --color-text-muted: #A3A9B8;
+  --color-text-faint: #6C7382;
+  --color-accent: #7D8BFF;
+  --color-accent-hover: #93A0FF;
+  --color-accent-fg: #0F1115;
+  --color-accent-soft: rgba(125, 139, 255, 0.14);
+  --color-record: #E5484D;
+  --color-record-hover: #F05A5F;
+  --color-record-soft: rgba(229, 72, 77, 0.16);
+  --color-warn: #F5A524;
+  --color-warn-soft: rgba(245, 165, 36, 0.14);
+  --color-ok: #3DD68C;
+  --color-ok-soft: rgba(61, 214, 140, 0.14);
+  --color-danger: #E5484D;
+  --color-focus: #93A0FF;
+  --color-overlay: rgba(0, 0, 0, 0.60);
+  --color-floating-bg: rgba(23, 26, 33, 0.86);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.45);
+  --shadow-floating: 0 12px 40px rgba(0, 0, 0, 0.50);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #0F1115;
+    --color-surface: #171A21;
+    --color-surface-2: #1F232C;
+    --color-surface-3: #272C37;
+    --color-border: #2A2F3A;
+    --color-border-strong: #3A4150;
+    --color-text: #ECEEF3;
+    --color-text-muted: #A3A9B8;
+    --color-text-faint: #6C7382;
+    --color-accent: #7D8BFF;
+    --color-accent-hover: #93A0FF;
+    --color-accent-fg: #0F1115;
+    --color-accent-soft: rgba(125, 139, 255, 0.14);
+    --color-record: #E5484D;
+    --color-record-hover: #F05A5F;
+    --color-record-soft: rgba(229, 72, 77, 0.16);
+    --color-warn: #F5A524;
+    --color-warn-soft: rgba(245, 165, 36, 0.14);
+    --color-ok: #3DD68C;
+    --color-ok-soft: rgba(61, 214, 140, 0.14);
+    --color-danger: #E5484D;
+    --color-focus: #93A0FF;
+    --color-overlay: rgba(0, 0, 0, 0.60);
+    --color-floating-bg: rgba(23, 26, 33, 0.86);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30);
+    --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.45);
+    --shadow-floating: 0 12px 40px rgba(0, 0, 0, 0.50);
+  }
+}

@@ -1,0 +1,12 @@
+[avfoundation @ 0x7576c30000] Selected framerate (999.000000) is not supported by the device.
+[avfoundation @ 0x7576c30000] Supported modes:
+[avfoundation @ 0x7576c30000]   1920x1080@[15.000000 30.000000]fps
+[avfoundation @ 0x7576c30000]   1280x720@[15.000000 30.000000]fps
+[avfoundation @ 0x7576c30000]   1080x1920@[15.000000 30.000000]fps
+[avfoundation @ 0x7576c30000]   1760x1328@[15.000000 30.000000]fps
+[avfoundation @ 0x7576c30000]   640x480@[15.000000 30.000000]fps
+[avfoundation @ 0x7576c30000]   1328x1760@[15.000000 30.000000]fps
+[avfoundation @ 0x7576c30000]   1552x1552@[15.000000 30.000000]fps
+[in#0 @ 0x7576c2c000] Error opening input: Input/output error
+Error opening input file 0:.
+Error opening input files: Input/output error

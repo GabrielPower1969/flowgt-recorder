@@ -1,0 +1,16 @@
+[AVFoundation indev @ 0x759cc24000] AVFoundation video devices:
+[AVFoundation indev @ 0x759cc24000] [0] FaceTime高清相机
+[AVFoundation indev @ 0x759cc24000] [1] Insta360 Virtual Camera
+[AVFoundation indev @ 0x759cc24000] [2] Casablanca Virtual Camera
+[AVFoundation indev @ 0x759cc24000] [3] Capture screen 0
+[AVFoundation indev @ 0x759cc24000] AVFoundation audio devices:
+[AVFoundation indev @ 0x759cc24000] [0] RØDE Connect System
+[AVFoundation indev @ 0x759cc24000] [1] MacBook Pro麦克风
+[AVFoundation indev @ 0x759cc24000] [2] RØDE Connect Stream
+[AVFoundation indev @ 0x759cc24000] [3] WeMeet Audio Device
+[AVFoundation indev @ 0x759cc24000] [4] Microsoft Teams Audio
+[AVFoundation indev @ 0x759cc24000] [5] MOTIV Mix Virtual
+[AVFoundation indev @ 0x759cc24000] [6] RØDE Connect Virtual
+[in#0 @ 0x759cc1c000] Error opening input: Input/output error
+Error opening input file .
+Error opening input files: Input/output error
