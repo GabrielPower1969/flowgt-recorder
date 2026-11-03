@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>FlowGT Recorder shows your camera as a picture-in-picture in your recordings.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>FlowGT Recorder records your voice together with the screen.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>FlowGT Recorder records your screen locally. Nothing is uploaded.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>FlowGT Recorder records the meeting's system audio locally.</string>
+</dict>
+</plist>
