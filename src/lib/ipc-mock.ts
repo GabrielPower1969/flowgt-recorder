@@ -375,12 +375,11 @@ export class MockBackend implements Transport {
   }
 
   private syntheticInfo(path: string, bytes: number, durationMs: number): MediaInfo {
+    const capture = this.settings.capture;
     const selected =
-      this.settings.capture.kind === "window"
+      capture.kind === "window"
         ? null
-        : this.devices.screens.find((s) => s.id === this.settings.capture.displayId) ??
-          this.devices.screens.find((s) => s.isDefault) ??
-          null;
+        : (this.devices.screens.find((s) => s.id === capture.displayId) ?? this.devices.screens.find((s) => s.isDefault) ?? null);
     const size = outputSize(selected, this.settings.video.maxWidth);
     const tracks = this.settings.audio.tracks === "separate" && this.settings.audio.systemAudio.kind !== "off" ? 2 : 1;
     return {
