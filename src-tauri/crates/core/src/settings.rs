@@ -85,7 +85,7 @@ pub fn validate(settings: &Settings) -> crate::Result<()> {
             MAX_WIDTH_RANGE.end(),
             s.video.max_width
         ));
-    } else if s.video.max_width % 2 != 0 {
+    } else if !s.video.max_width.is_multiple_of(2) {
         problems.push(format!("video.maxWidth: must be even, got {}", s.video.max_width));
     }
     if !TARGET_MB_RANGE.contains(&s.video.target_mb_per_hour) {
@@ -243,6 +243,7 @@ pub fn migrate(value: &mut Value, from_version: u32) {
     };
     let mut version = from_version;
     while version < SETTINGS_VERSION {
+        #[allow(clippy::single_match)] // grows a new arm with every schema bump
         match version {
             // 0 → 1: the first persisted schema. Files written before the version key existed
             // already have the v1 layout, so nothing is renamed. Later bumps go here as

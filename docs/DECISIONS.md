@@ -57,3 +57,14 @@ verbatim. Look named "Studio": graphite/off-white grounds, one indigo accent, re
 
 D14 · 2026-11-04 · **No GitHub remote yet.** Local commits only; creating the remote is a human decision
 listed in `00-START-HERE.md`.
+
+D15 · 2026-11-04 · **Takeover decisions in core.** (a) Manifest file is `<work_dir>/manifest.json`
+(constant `MANIFEST_FILE`), matching ARCHITECTURE.md; `MANIFEST_SUFFIX` stays for tooling. (b) The
+rounded/circle PiP mask is drawn by `geq` on ONE frame and looped, then merged with `alphamerge`;
+per-frame `geq` measured 11.5 s CPU vs 0.5 s for 300 frames (ffmpeg 7.1.1, M1 Pro, lavfi, 2026-11-04).
+(c) Windows `ddagrab` frames always go through `hwdownload,format=bgra` (CPU scale/overlay) in v0.1;
+a GPU-resident NVENC path is future work. (d) macOS default devices use avfoundation's `default`
+name; Windows requires an explicit dshow name, which the app crate resolves from the device list.
+(e) Synthetic `lavfi` inputs run in real time only via `command::realtime_lavfi` (adds `-re`), so
+`recording_command` stays a pure mapping. (f) `amix` uses `normalize=0` (needs ffmpeg ≥ 7.0; the
+bundled LGPL build must be ≥ 7.0).
