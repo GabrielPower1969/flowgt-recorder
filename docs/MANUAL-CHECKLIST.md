@@ -5,6 +5,14 @@
 > `docs/reports/01-首版验收报告-2026-11-04.html`，整合者负责生成）。
 > 本清单写于 2026-11-04，当时代码还在并行搭建，「期望值」是按设计推出来的，不是实测——实测以报告为准。
 
+## 速查勾选（人工项，细节见下面各节）
+
+- [ ] 首次 `npm run tauri dev` 时点掉三个 TCC 弹窗（屏幕录制 ／ 摄像头 ／ 麦克风）——见 (a)
+- [ ] 真录 2 分钟，回报体积、时长、CPU（含 `bash scripts/bench.sh --app --seconds 60`）——见 (b)
+- [ ] Windows 真机验证（按 `docs/WINDOWS-VERIFY.md`）——见 (e)
+- [ ] 决定是否建 GitHub 远程（私有／公开、账号、仓库名）——见 (f)
+- [ ] 系统声音：BlackHole 还是 SCK 助手的决定（见 `docs/SYSTEM-AUDIO.md`，目前建议先 BlackHole）——见 (g)
+
 | # | 事 | 状态 | 日期 |
 |---|---|---|---|
 | a | macOS 三个权限弹窗 | [ ] | |
@@ -190,7 +198,7 @@ brew install blackhole-2ch     # 装完提示重启
 它用屏幕录制权限直接抓系统音频。在一个真的 Zoom／Teams／Meet 通话里录 2 分钟，看对方声音是否完整、有没有断。
 细节见 `docs/SYSTEM-AUDIO.md`。
 
-**完成的样子。** 决定写进 `docs/DECISIONS.md` 成 D15（选 A、选 B、还是「A 为默认 B 继续试验」），并把 (b) 用选定的
+**完成的样子。** 决定写进 `docs/DECISIONS.md` 成 D17（D15、D16 已被占用；选 A、选 B、还是「A 为默认 B 继续试验」），并把 (b) 用选定的
 系统声音再录一次，确认音轨里有对方的声音。
 
 ---

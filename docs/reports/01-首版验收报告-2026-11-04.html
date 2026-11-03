@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlowGT Recorder 首版验收</title>
+<style>
+:root{--bg:#F6F5F2;--sf:#fff;--tx:#16181D;--mu:#5B6170;--bd:#E2E0DA;--ac:#4452E6;--rec:#D63C41;--wn:#A8690A;--ok:#1F8F5A;--wns:rgba(245,165,36,.18);--oks:rgba(31,143,90,.12)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0F1115;--sf:#171A21;--tx:#ECEEF3;--mu:#A3A9B8;--bd:#2A2F3A;--ac:#7D8BFF;--rec:#E5484D;--wn:#F5A524;--ok:#3DD68C;--wns:rgba(245,165,36,.14);--oks:rgba(61,214,140,.14)}}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.6 Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:16px}
+main{max-width:980px;margin:0 auto}
+h1{font-size:28px;margin:8px 0}h2{font-size:20px;margin:32px 0 12px;border-left:4px solid var(--ac);padding-left:10px}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:16px;margin:12px 0}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px 10px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}th{color:var(--mu);font-weight:600}
+.m{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:13px}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.A{background:var(--oks);color:var(--ok)}.B{background:rgba(68,82,230,.12);color:var(--ac)}.C,.D{background:var(--wns);color:var(--wn)}
+.ok{color:var(--ok)}.warn{color:var(--wn)}.rec{color:var(--rec)}
+.flow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.flow .box{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:8px 12px;font-size:14px}.flow .arr{color:var(--mu)}
+.bar{height:14px;border-radius:7px;background:var(--bd);overflow:hidden;position:relative}.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--ac)}.bar b{position:absolute;right:0;top:0;bottom:0;background:var(--ok)}
+pre{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:12px;overflow:auto;font-size:12.5px}
+.muted{color:var(--mu)}
+</style>
+</head>
+<body><main>
+<p class="muted">FlowGT Recorder · 报告 01 · 2026-11-04 · 作者：Steward（接手会话）</p>
+<h1>首版验收报告：MacBook 版全流程已跑通</h1>
+<p>一句话：<b>录屏 + 摄像头画中画 + 麦克风 → 1080p30 HEVC → 约 400 MB/小时</b> 的整条链路，在本机用合成输入（不弹权限框）从头到尾跑通了；真实抓屏、Windows、系统声音三项还没人工验证。</p>
+
+<div class="card">
+<h3 style="margin:0 0 8px">来源等级说明</h3>
+<span class="tag A">A</span> 命令输出原文　<span class="tag B">B</span> 官方页面转述　<span class="tag C">C</span> 第三方　<span class="tag D">D</span> 我的推断，需验证
+</div>
+
+<h2>一、架构（给非工程读者）</h2>
+<div class="card">
+<div class="flow">
+<span class="box">界面<br><small class="muted">Svelte 5 网页</small></span><span class="arr">⇄ IPC ⇄</span>
+<span class="box">Rust 壳 (Tauri 2)<br><small class="muted">监管 ffmpeg · 托盘 · 快捷键 · 权限</small></span><span class="arr">→ 启动 →</span>
+<span class="box">ffmpeg<br><small class="muted">抓屏 + 摄像头 + 麦克风 → HEVC 分段 MP4</small></span><span class="arr">→</span>
+<span class="box">~/Movies/FlowGT Recorder/<br><span class="m">2026-11-04 1430 周会.mp4</span></span>
+</div>
+<p class="muted" style="margin-top:12px">纯逻辑都在 <span class="m">recorder-core</span>（不做 I/O，任何系统上都能跑单元测试，Windows 路径就是这样在 Mac 上测的）。暂停 = 关掉当前分段、继续 = 开新段、停止 = 无损拼接；每段都是 fragmented MP4，断电/崩溃也能恢复。</p>
+</div>
+
+<h2>二、码率预算（为什么是 400 MB）</h2>
+<div class="card">
+<p class="m">400 MB × 8 ÷ 3600 s = 888.9 kbps ≈ <b>889 kbps</b> 总码率；减去 96 kbps 音频 = <b>793 kbps</b> 视频　<span class="tag A">A</span> budget.rs 单测 · 2026-11-04</p>
+<div class="bar" title="视频 793 / 音频 96"><i style="width:89.2%"></i><b style="width:10.8%"></b></div>
+<p class="muted">蓝 = 视频 89 %，绿 = 音频 11 %。合成输入 5 秒自测实测 900 kbps，超预算 1.3 %　<span class="tag A">A</span> --selftest 输出</p>
+</div>
+
+<h2>三、测试与自测（原文）</h2>
+<div class="card">
+<table><tr><th>项</th><th>结果</th><th>来源</th></tr>
+<tr><td>Rust core 单测</td><td class="ok">112 passed, 0 failed</td><td><span class="tag A">A</span> cargo test -p recorder-core</td></tr>
+<tr><td>Rust app 单测（含真 ffmpeg 生命周期：开始→暂停→继续→停止、kill -9 后续录、坏输入干净失败）</td><td class="ok">19 passed, 0 failed</td><td><span class="tag A">A</span> cargo test --workspace</td></tr>
+<tr><td>clippy -D warnings</td><td class="ok">0 warnings</td><td><span class="tag A">A</span></td></tr>
+<tr><td>前端 vitest</td><td>见文末「测试汇总」（提交时的原文）</td><td><span class="tag A">A</span> npm test</td></tr>
+<tr><td>svelte-check / vite build</td><td class="ok">0 errors · built</td><td><span class="tag A">A</span></td></tr>
+<tr><td>端到端自测 <span class="m">--selftest 5 --pause-at 2 --resume-at 4</span></td><td class="ok">两段拼接成功，1920×1080 hevc/aac，exit 0</td><td><span class="tag A">A</span></td></tr>
+</table>
+<pre class="m">$ ./src-tauri/target/debug/flowgt-recorder --selftest 5
+"bytes": 688844, "durationMs": 6121, "width": 1920, "height": 1080, "fps": 29.9,
+"videoCodec": "hevc", "audioCodec": "aac", "audioTracks": 1, "bitrateKbps": 900.25,
+"budget": { "totalKbps": 889, "videoKbps": 793, "maxrateKbps": 1190, "bufsizeKbps": 1586 },
+"overBudgetRatio": 0.0128</pre>
+</div>
+
+<h2>四、性能基准（合成输入 = pipeline 模式，<b>不是</b>真实抓屏）</h2>
+<div class="card">
+<table><tr><th>场景（300 帧 1080p + 264px 画中画，M1 Pro）</th><th>CPU user 秒</th><th>结论</th></tr>
+<tr><td>无画中画</td><td class="m">0.16</td><td>基线</td></tr>
+<tr><td>方形画中画</td><td class="m">0.51</td><td>可接受</td></tr>
+<tr><td>圆角：每帧 geq 算 alpha</td><td class="m rec">11.47</td><td class="rec">≈ 20 倍，否决</td></tr>
+<tr><td>圆角：一帧 geq 循环 + alphamerge（已采用，D15b）</td><td class="m ok">0.53</td><td class="ok">与方形持平</td></tr>
+</table>
+<p class="muted">全部 <span class="tag A">A</span> ffmpeg 7.1.1 实测 · 2026-11-04。真实抓屏的 CPU / 内存 / 每小时 MB 需要 Gabriel 真录 2 分钟同时跑 <span class="m">bash scripts/bench.sh --app</span>（脚本未写，见「没做成」）。</p>
+</div>
+
+<h2>五、Windows 声明</h2>
+<div class="card"><p><b>Windows 侧没有任何东西在真机上跑过。</b> ddagrab / dshow / NVENC 命令行只有 fixture 单元测试覆盖（<span class="m">b-dshow-list.txt</span> 是手写的，首行已标注）。验证步骤见 <span class="m">docs/WINDOWS-VERIFY.md</span>。<span class="tag D">D</span></p></div>
+
+<h2>六、没做成 / 跳过的（按 13:00 截止取舍）</h2>
+<div class="card"><ul>
+<li>第 4 步脚本：size-check / quality-check / bench / crash-test / integration / CI yml 未写（有 cargo 里的 lavfi 冒烟测试和 selftest 顶替一部分）。</li>
+<li>第 6 步 Swift 系统声音助手未编译验证（源码在 <span class="m">helpers/sck-audio</span>，上一轮留下）。</li>
+<li>结算页的视频预览只显示路径，不内嵌播放（asset 协议未接）。</li>
+<li>真机 <span class="m">npm run tauri dev</span> 五个页面的实际行为未由人确认。</li>
+</ul></div>
+
+<h2>七、我没把握的 3 条</h2>
+<div class="card"><table><tr><th>结论</th><th>等级</th><th>怎么验证</th></tr>
+<tr><td>真实抓屏时 hevc_videotoolbox 也能把 1 小时压在 350–450 MB</td><td><span class="tag D">D</span></td><td>真录 2 分钟静态+动态各一段，看 Finder 体积 ×30</td></tr>
+<tr><td>avfoundation 显示器索引与 macOS 显示器列表顺序一致（主窗口里选的就是录的那块屏）</td><td><span class="tag D">D</span></td><td>双显示器下各录 5 秒，看文件内容</td></tr>
+<tr><td>摄像头拔掉时 ffmpeg 会自行退出（而不是卡住）</td><td><span class="tag D">D</span>（测试里是 kill -9 模拟）</td><td>录制中物理拔掉 USB 摄像头，看悬浮条是否提示并继续</td></tr>
+</table></div>
+
+<h2>八、只有 Gabriel 能做的</h2>
+<div class="card"><ol>
+<li>首次 <span class="m">npm run tauri dev</span> 后点「屏幕录制 / 摄像头 / 麦克风」三个系统弹窗。</li>
+<li>真录 2 分钟，把体积 / 时长交回来。</li>
+<li>Windows 机按 <span class="m">docs/WINDOWS-VERIFY.md</span> 实测。</li>
+<li>决定是否建 GitHub 远程。</li>
+<li>系统声音：装 BlackHole 还是等 SCK 助手。</li>
+</ol></div>
+<p class="muted">测试汇总原文、commit 列表见仓库 <span class="m">git log</span> 与 <span class="m">docs/BENCH.md</span>。</p>
+</main></body></html>

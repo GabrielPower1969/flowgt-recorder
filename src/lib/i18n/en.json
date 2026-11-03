@@ -1,13 +1,11 @@
 {
   "app.name": "FlowGT Recorder",
-
   "status.idle": "Ready",
   "status.countdown": "Countdown",
   "status.starting": "Starting",
   "status.recording": "Recording",
   "status.paused": "Paused",
   "status.finalizing": "Saving",
-
   "common.cancel": "Cancel",
   "common.ok": "OK",
   "common.close": "Close",
@@ -33,19 +31,15 @@
   "common.theme": "Theme",
   "common.settings": "Settings",
   "common.seconds": "{n} s",
-
   "theme.system": "System",
   "theme.light": "Light",
   "theme.dark": "Dark",
-
   "lang.auto": "Auto",
   "lang.zh": "中文",
   "lang.en": "English",
-
   "platform.macos": "macOS",
   "platform.windows": "Windows",
   "platform.linux": "Linux",
-
   "onboarding.title": "Before you start",
   "onboarding.subtitle": "Recording needs three system permissions. Each one can be skipped.",
   "onboarding.stepOf": "Step {current} of {total}",
@@ -60,12 +54,10 @@
   "onboarding.finish": "Start recording",
   "onboarding.windowsNote": "Windows needs no screen-recording permission; camera and microphone are enabled under Settings → Privacy → Camera / Microphone.",
   "onboarding.illustrationAlt": "Sketch of the system privacy pane",
-
   "permission.granted": "Granted",
   "permission.denied": "Denied",
   "permission.notDetermined": "Not granted",
   "permission.notApplicable": "Not applicable",
-
   "main.source": "Source",
   "main.source.display": "Display",
   "main.source.region": "Region",
@@ -79,7 +71,6 @@
   "main.source.primary": "Main display",
   "main.noScreens": "No displays found",
   "main.devices.refresh": "Refresh devices",
-
   "main.camera": "Camera",
   "main.camera.enable": "Enable camera",
   "main.camera.device": "Camera device",
@@ -98,7 +89,6 @@
   "corner.top-right": "Top right",
   "corner.bottom-left": "Bottom left",
   "corner.bottom-right": "Bottom right",
-
   "main.mic": "Microphone",
   "main.mic.enable": "Record microphone",
   "main.mic.device": "Microphone device",
@@ -112,7 +102,6 @@
   "main.systemAudio.hint.helper": "ScreenCaptureKit helper on macOS 13+, experimental.",
   "main.systemAudio.hint.device": "Recorded through a loopback device (e.g. BlackHole).",
   "main.systemAudio.hint.unavailable": "Not available on this device.",
-
   "main.meetingName": "Meeting name",
   "main.meetingName.placeholder": "e.g. Weekly sync",
   "main.meetingName.hint": "File name: {example}",
@@ -127,7 +116,6 @@
   "main.shortcutHint": "Shortcut",
   "main.recover.title": "{count} unfinished recording(s) found",
   "main.recover.item": "{name} · {segments} segment(s) · {size}",
-
   "floating.cancelHint": "Press Esc to cancel",
   "floating.countdownLabel": "Countdown",
   "floating.rec": "REC",
@@ -139,7 +127,6 @@
   "floating.cameraNextSegment": "Takes effect from the next segment",
   "floating.estimate": "≈ {size}",
   "floating.drag": "Drag",
-
   "summary.title": "Recording finished",
   "summary.preview": "Recording preview",
   "summary.duration": "Duration",
@@ -159,7 +146,6 @@
   "summary.again": "Record another",
   "summary.recovered": "Recovered after a crash",
   "summary.empty": "Nothing recorded yet.",
-
   "settings.title": "Settings",
   "settings.nav.general": "General",
   "settings.nav.video": "Video",
@@ -211,7 +197,6 @@
   "settings.about.lgpl": "FlowGT Recorder uses ffmpeg and ffprobe, both licensed under the LGPL v2.1 or later. The binaries are unmodified; source code and licence at ffmpeg.org/legal.html.",
   "settings.about.docs": "Documentation",
   "settings.saved": "Settings saved",
-
   "warn.lowDisk": "Low disk space",
   "warn.cameraLost": "Camera disconnected, continuing without it",
   "warn.frameDrop": "Dropping frames",
@@ -226,12 +211,10 @@
   "error.noSpace": "Not enough space in the output folder",
   "error.unknown": "Something went wrong",
   "error.start": "Could not start recording",
-
   "toast.pathCopied": "Path copied",
   "toast.recovered": "Recovered",
   "toast.discarded": "Discarded",
   "toast.compressFailed": "Compression failed",
-
   "a11y.pip": "Picture-in-picture (arrow keys move, Shift+arrows resize)",
   "a11y.pipResize": "Resize picture-in-picture",
   "a11y.stage": "Picture-in-picture preview stage",
@@ -239,5 +222,17 @@
   "a11y.toasts": "Notifications",
   "a11y.nav": "Settings navigation",
   "a11y.steps": "Steps",
-  "a11y.dismiss": "Dismiss notification"
+  "a11y.dismiss": "Dismiss notification",
+  "error.busy": "Not possible in the current state",
+  "error.io": "File read/write failed",
+  "error.parse": "Could not parse ffmpeg output",
+  "error.unsupported": "Not supported on this platform",
+  "error.recovery": "Recovery failed",
+  "error.json": "Bad data format",
+  "error.tauri": "Window system error",
+  "error.invalidSettings": "Invalid settings",
+  "error.invalidArgument": "Invalid argument",
+  "warn.systemAudioOff": "System audio unavailable, turned off",
+  "main.settings": "Settings",
+  "main.encoderWait": "Detecting encoder…"
 }
