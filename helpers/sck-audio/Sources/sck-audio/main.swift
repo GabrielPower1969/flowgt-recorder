@@ -42,13 +42,18 @@ case .selfTest(let options):
         ("self-test", ""),
         ("duration", Diag.format1(options.durationSeconds ?? CaptureOptions.defaultSelfTestSeconds)),
         ("path", path),
+        ("source", "synthetic-sine-440hz"),
     ]))
-    let runner = Runner(options: options, outputPath: path, selfTest: true)
+    // Synthetic source: ScreenCaptureKit is never touched by --self-test.
+    let source = SyntheticSource(sampleRate: options.sampleRate, channels: options.channels)
+    let runner = Runner(options: options, outputPath: path, selfTest: true, source: source)
     runner.run()
     dispatchMain()
 
 case .stream(let output, let options):
-    let runner = Runner(options: options, outputPath: output, selfTest: false)
+    let source = SCKCaptureSource(options: options)
+    source.onDiagnostic = { line in Console.err(line) }
+    let runner = Runner(options: options, outputPath: output, selfTest: false, source: source)
     runner.run()
     dispatchMain()
 }

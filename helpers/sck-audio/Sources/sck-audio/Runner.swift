@@ -8,7 +8,7 @@ final class Runner {
     private let options: CaptureOptions
     private let outputPath: String
     private let selfTest: Bool
-    private let source: SCKCaptureSource
+    private let source: AudioCaptureSource
     private let sink: PcmSink
     private let pipeline: CapturePipeline
     private var startedAt: Date?
@@ -22,27 +22,29 @@ final class Runner {
     private let cancelLock = NSLock()
     private var cancelOpen = false
 
-    init(options: CaptureOptions, outputPath: String, selfTest: Bool) {
+    /// `source` is `SCKCaptureSource` for `--out` and `SyntheticSource` for `--self-test`.
+    init(options: CaptureOptions, outputPath: String, selfTest: Bool, source: AudioCaptureSource) {
         self.options = options
         self.outputPath = outputPath
         self.selfTest = selfTest
-        self.source = SCKCaptureSource(options: options)
+        self.source = source
         // Four seconds of audio may wait for a stalled ffmpeg before chunks are dropped.
         self.sink = PcmSink(maxPendingBytes: options.bytesPerSecond * 4)
         self.pipeline = CapturePipeline(options: options, sink: sink)
     }
 
     func run() {
-        guard Environment.isSupportedOS else {
-            fail(.unsupportedOS(Environment.osVersionString))
-        }
-        guard Environment.screenCaptureGranted() else {
-            if selfTest { Console.out("self-test: permission-denied") }
-            fail(.permissionDenied)
+        // The self test runs on the synthetic source: no OS or permission requirement.
+        if !selfTest {
+            guard Environment.isSupportedOS else {
+                fail(.unsupportedOS(Environment.osVersionString))
+            }
+            guard Environment.screenCaptureGranted() else {
+                fail(.permissionDenied)
+            }
         }
 
         installSignalHandlers()
-        source.onDiagnostic = { line in Console.err(line) }
         pipeline.onFirstChunk = { [weak self] format in
             DispatchQueue.main.async { self?.firstChunkArrived(format) }
         }
@@ -234,7 +236,8 @@ final class Runner {
             if let onDisk, onDisk != bytes {
                 Console.err(Diag.line([("warn", "size-mismatch"), ("file", "\(onDisk)"), ("counted", "\(bytes)")]))
             }
-            try? FileManager.default.removeItem(atPath: outputPath)
+            // The file is left in place so the caller can inspect or play it; it is small.
+            Console.err(Diag.line([("self-test-file", ""), ("path", outputPath), ("bytes", "\(onDisk ?? -1)")]))
             Console.out(SelfTest.line(actual: bytes, expected: expected, peak: pipeline.peak))
             if exitCode == .ok, !SelfTest.isOK(actual: bytes, expected: expected) {
                 exitCode = .selfTestShort

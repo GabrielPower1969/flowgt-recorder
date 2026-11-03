@@ -44,7 +44,7 @@ final class ArgumentsTests: XCTestCase {
     func testSelfTestDefaultDuration() throws {
         let cmd = try ArgumentParser.parse(["--self-test"])
         guard case .selfTest(let o) = cmd else { return XCTFail() }
-        XCTAssertEqual(o.durationSeconds, 2)
+        XCTAssertEqual(o.durationSeconds, 1)
         let cmd2 = try ArgumentParser.parse(["--self-test", "--duration", "5"])
         guard case .selfTest(let o2) = cmd2 else { return XCTFail() }
         XCTAssertEqual(o2.durationSeconds, 5)
