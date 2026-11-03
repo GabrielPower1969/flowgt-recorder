@@ -1,11 +1,12 @@
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { svelteTesting } from "@testing-library/svelte/vite";
 
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte(), svelteTesting()],
   clearScreen: false,
   server: {
     port: 1420,
@@ -22,6 +23,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // CSS is irrelevant to behaviour tests; this also lets vitest run before
+    // design/tokens.css exists (it is imported from src/app.css only).
+    css: false,
     setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.{test,spec}.ts"],
     coverage: { reporter: ["text", "html"], include: ["src/**"] },

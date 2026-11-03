@@ -5,7 +5,8 @@ description = "FlowGT Recorder — screen + camera PiP + audio, ~400 MB/hour HEV
 authors = ["Gabriel Chen"]
 license = "MIT"
 edition = "2021"
-rust-version = "1.80"
+# tauri 2.12 / tray-icon 0.25 / muda 0.20 require rustc 1.90; verified with 1.99.1 on 2026-11-04.
+rust-version = "1.90"
 
 [workspace]
 members = ["crates/core"]
@@ -40,8 +41,8 @@ which = "7"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString"] }
-objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat"] }
-core-graphics = "0.24"
+objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat", "block2"] }
+block2 = "0.6"
 
 [profile.release]
 opt-level = 3

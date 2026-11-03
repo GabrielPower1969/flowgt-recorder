@@ -1,0 +1,7 @@
+# SwiftPM build products and the staged binary produced by build.sh
+.build/
+bin/
+.swiftpm/
+*.xcodeproj
+# self-test scratch output
+*.pcm

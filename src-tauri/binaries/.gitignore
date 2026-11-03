@@ -1,0 +1,4 @@
+# Dev copies of ffmpeg/ffprobe live here (see README.md). Never commit binaries.
+*
+!.gitignore
+!README.md
