@@ -31,6 +31,9 @@ pub mod recovery;
 pub mod settings;
 pub mod types;
 
+#[cfg(test)]
+pub(crate) mod testutil;
+
 pub use types::*;
 
 /// Crate-wide error type. Keep variants coarse; the UI maps them to i18n keys.

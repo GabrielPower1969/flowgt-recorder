@@ -83,23 +83,18 @@ pub enum AudioTracks {
     Separate,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "id")]
 pub enum SystemAudioSource {
     /// Do not record system audio.
     Off,
     /// Pick the best available: ScreenCaptureKit helper (macOS 13+) → loopback device → off.
+    #[default]
     Auto,
     /// A specific audio input device (e.g. BlackHole 2ch, "Stereo Mix").
     Device(String),
     /// The bundled ScreenCaptureKit audio helper (macOS).
     Helper,
-}
-
-impl Default for SystemAudioSource {
-    fn default() -> Self {
-        SystemAudioSource::Auto
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
