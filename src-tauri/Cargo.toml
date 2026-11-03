@@ -20,7 +20,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 recorder-core = { path = "crates/core" }
-tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api", "protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
@@ -37,6 +37,9 @@ dirs = "6"
 fs2 = "0.4"
 uuid = { version = "1", features = ["v4"] }
 which = "7"
+
+[dev-dependencies]
+tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
