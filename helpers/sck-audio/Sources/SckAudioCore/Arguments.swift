@@ -18,7 +18,7 @@ public enum SampleFormat: String, Equatable, CaseIterable {
 public struct CaptureOptions: Equatable {
     public static let defaultSampleRate = 48_000
     public static let defaultChannels = 2
-    public static let defaultSelfTestSeconds = 2.0
+    public static let defaultSelfTestSeconds = 1.0
     public static let defaultProgressInterval = 5.0
 
     public var sampleRate: Int
@@ -88,7 +88,7 @@ public enum ArgumentParser {
       sck-audio --out <fifo-or-file|-> [--rate 48000] [--channels 2] [--format s16le|f32le]
                 [--duration <s>] [--open-timeout <s>] [--progress-interval <s>]
       sck-audio --check
-      sck-audio --self-test [--duration 2] [--rate …] [--channels …] [--format …]
+      sck-audio --self-test [--duration 1] [--rate …] [--channels …] [--format …]
       sck-audio --help | --version
 
     OPTIONS
@@ -98,7 +98,8 @@ public enum ArgumentParser {
       --channels <n>          Channel count, 1–8. Default 2.
       --format <fmt>          s16le (default) or f32le, interleaved, little-endian.
       --duration <s>          Stop after this many seconds of audio. Default: until SIGINT/SIGTERM
-                              (self-test default 2).
+                              (self-test default 1; the self test uses a synthetic sine,
+                              never ScreenCaptureKit).
       --open-timeout <s>      Give up waiting for a FIFO reader after this long. 0 = forever (default).
       --progress-interval <s> Stderr progress line interval. Default 5.
 
