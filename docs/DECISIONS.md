@@ -127,3 +127,9 @@ home page, at least one on. A recording is always written locally first, so "Dri
 while recording: there is no streaming upload. The local copy goes only after Drive reports exactly the bytes on
 disk; a failure, a missing `size` or a quit during upload keeps it. The removal is a real delete, not the Trash,
 because the point of the option is to free the disk. Signed out, the checkboxes cannot apply and the file stays.
+
+D22 · 2026-11-05 · **Local builds use a stable self-signed identity.** macOS ties privacy grants to the signature.
+An ad-hoc signature's requirement is its cdhash, so every rebuild silently voids the grant while the switch in
+System Settings still shows on (seen 2026-11-05: stored `49e5342e…`, build `f920ea04…`). `scripts/setup-signing.sh`
+makes an identity in its own keychain under `.signing/` (git-ignored), not in the user's search list. Development
+only; distribution still needs a Developer ID.
