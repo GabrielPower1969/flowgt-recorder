@@ -12,4 +12,16 @@ else
 fi
 bash scripts/build-helper.sh
 npm run tauri build -- --bundles app
-echo "Built: src-tauri/target/release/bundle/macos/FlowGT Recorder.app"
+APP="src-tauri/target/release/bundle/macos/FlowGT Recorder.app"
+# A stable signature keeps macOS privacy grants across rebuilds; see setup-signing.sh.
+bash scripts/setup-signing.sh
+KC="$ROOT/.signing/flowgt-dev.keychain-db"
+security unlock-keychain -p "$(cat .signing/keychain-password)" "$KC"
+ID="$(cat .signing/identity)"
+for tool in "$APP"/Contents/MacOS/*; do
+  [ "$(basename "$tool")" = "flowgt-recorder" ] && continue
+  codesign --force --keychain "$KC" -s "$ID" "$tool"
+done
+codesign --force --keychain "$KC" -s "$ID" -i nz.co.flowgt.recorder "$APP"
+codesign --verify --strict "$APP" && echo "Signed: $(codesign -d -r- "$APP" 2>&1 | tail -1)"
+echo "Built: $APP"

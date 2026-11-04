@@ -18,3 +18,6 @@ tests/out/
 
 # Google OAuth client for builds
 .env.google
+
+# Local code-signing identity
+.signing/
