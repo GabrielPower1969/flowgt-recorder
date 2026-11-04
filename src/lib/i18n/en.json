@@ -269,5 +269,14 @@
   "home.saveDrive": "Google Drive",
   "home.driveOnlyLine": "Saved only to the \"{folder}\" folder in Google Drive; the copy here is removed once the upload is confirmed",
   "home.hintCloud": "About {mb} MB per hour · recorded here first, removed after upload",
-  "summary.driveOnly": "This recording is only in Google Drive; the copy on this computer was removed"
+  "summary.driveOnly": "This recording is only in Google Drive; the copy on this computer was removed",
+  "marker.label": "This screen will be recorded (Screen {n})",
+  "picker.willRecord": "Will record",
+  "picker.markerHint": "The chosen screen gets a blue outline. It disappears when recording starts, so it stays out of the video.",
+  "home.btMic": "Your mic is a Bluetooth headset, which sounds much worse in its phone-call mode. For better sound, choose the MacBook or an external mic above.",
+  "history.title": "History",
+  "history.empty": "No recordings yet.",
+  "history.play": "Play",
+  "history.reveal": "Show in Finder",
+  "history.driveError": "Could not read the Google Drive list, so only recordings on this computer are shown: {detail}"
 }

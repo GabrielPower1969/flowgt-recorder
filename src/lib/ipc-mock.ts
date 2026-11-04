@@ -6,6 +6,7 @@
  *
  * Tests drive it through the exported `mock` (reset(), emit(), calls, knobs).
  */
+import type { RecordingHistory } from "./types";
 import type {
   AppInfo,
   Device,
@@ -81,6 +82,7 @@ function loadPersisted(): Settings | null {
 export class MockBackend implements Transport {
   settings: Settings = defaultSettings("macos");
   devices: DeviceList = mockDevices();
+  history: RecordingHistory = { entries: [], driveError: null };
   permissions: PermissionStatus = { screen: "notDetermined", camera: "notDetermined", microphone: "notDetermined" };
   appInfo: AppInfo = mockAppInfo();
   disk = { freeBytes: 120_000_000_000, totalBytes: 1_000_000_000_000 };
@@ -124,6 +126,7 @@ export class MockBackend implements Transport {
       /* ignore */
     }
     this.devices = mockDevices();
+    this.history = { entries: [], driveError: null };
     this.permissions = { screen: "notDetermined", camera: "notDetermined", microphone: "notDetermined" };
     this.appInfo = mockAppInfo();
     this.disk = { freeBytes: 120_000_000_000, totalBytes: 1_000_000_000_000 };
@@ -254,6 +257,9 @@ export class MockBackend implements Transport {
     set_floating_visible: (_args: { visible: boolean }) => undefined,
     screen_thumbnail: (_args: { id: string }) => null,
     relaunch_app: () => undefined,
+    show_screen_marker: () => undefined,
+    hide_screen_marker: () => undefined,
+    list_recordings: () => this.history,
     drive_status: () => this.drive,
     drive_sign_in: () => {
       this.drive = { configured: this.drive.configured, email: "demo@gmail.com" };

@@ -269,5 +269,14 @@
   "home.saveDrive": "Google Drive",
   "home.driveOnlyLine": "只存 Google Drive 的「{folder}」文件夹，上传确认后删除本机这份",
   "home.hintCloud": "1 小时约 {mb} MB · 先录到本机，上传后删除",
-  "summary.driveOnly": "这段录像只在 Google Drive 里，本机这份已删除"
+  "summary.driveOnly": "这段录像只在 Google Drive 里，本机这份已删除",
+  "marker.label": "将录制这块屏幕（屏幕 {n}）",
+  "picker.willRecord": "将录制",
+  "picker.markerHint": "被选中的屏幕四周会亮起蓝框。开始录制时蓝框自动消失，不会录进视频。",
+  "home.btMic": "当前麦克风是蓝牙耳机，音质会明显变差（通话模式）。要更好的声音，在上面选 MacBook 麦克风或外接麦克风。",
+  "history.title": "录制历史",
+  "history.empty": "还没有录像。",
+  "history.play": "播放",
+  "history.reveal": "在访达中显示",
+  "history.driveError": "读不到 Google Drive 的列表，下面只显示本机的录像：{detail}"
 }

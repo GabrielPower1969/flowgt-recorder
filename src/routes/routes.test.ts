@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/svelte";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/svelte";
 import { setTransport } from "../lib/ipc";
 import { mock } from "../lib/ipc-mock";
 import { __setLastResult, __setRecorderState, bindRecorderEvents, unbindRecorderEvents } from "../lib/stores/recorder.svelte";
@@ -8,6 +8,7 @@ import { defaultSettings, idleRecorderState } from "../lib/defaults";
 import { __resetDrive, bindDriveEvents, refreshDrive, signInToGoogle } from "../lib/stores/drive.svelte";
 import { getToasts, clearToasts } from "../lib/stores/toasts.svelte";
 import Main from "./Main.svelte";
+import History from "./History.svelte";
 import Floating from "./Floating.svelte";
 import Summary from "./Summary.svelte";
 
@@ -31,10 +32,10 @@ const openPicker = async () => {
 };
 
 describe("home", () => {
-  it("offers exactly one way forward: record, plus mic, camera and settings", async () => {
+  it("offers exactly one way forward: record, plus mic, camera, history and settings", async () => {
     render(Main, { settings: defaultSettings("macos") });
     expect(record()).toBeEnabled();
-    expect(screen.getAllByRole("button")).toHaveLength(5);
+    expect(screen.getAllByRole("button")).toHaveLength(6);
     expect(screen.getByRole("button", { name: "登录 Google" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关闭麦克风" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关闭摄像头" })).toBeInTheDocument();
@@ -56,6 +57,53 @@ describe("home", () => {
     render(Main, { settings: defaultSettings("macos") });
     await fireEvent.click(screen.getByRole("button", { name: "关闭麦克风" }));
     await waitFor(() => expect(mock.settings.audio.micEnabled).toBe(false));
+  });
+});
+
+describe("which screen will be recorded", () => {
+  it("the picker outlines the chosen screen and removes the outline on cancel", async () => {
+    mock.permissions.screen = "granted";
+    const dialog = await openPicker();
+    await waitFor(() => expect(mock.callsTo("show_screen_marker").length).toBeGreaterThan(0));
+    expect(await screen.findByText("将录制")).toBeInTheDocument();
+    await fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(mock.callsTo("hide_screen_marker")).toHaveLength(1));
+  });
+});
+
+describe("history", () => {
+  it("lists recordings newest first and offers what each one can do", async () => {
+    mock.history = { driveError: null, entries: [
+      { name: "old.mp4", path: "/m/old.mp4", bytes: 10, modifiedMs: 1000, driveUrl: null, driveCreated: null },
+      { name: "new.mp4", path: null, bytes: 20, modifiedMs: null, driveUrl: "https://drive.google.com/file/d/n/view", driveCreated: "2026-11-05T01:00:00Z" },
+    ] };
+    render(History);
+    const rows = await screen.findAllByTestId("history-row");
+    expect(rows[0]).toHaveTextContent("new.mp4");
+    expect(within(rows[0]).queryByRole("button", { name: "播放" })).toBeNull();
+    await fireEvent.click(within(rows[0]).getByRole("button", { name: "在 Google Drive 中打开" }));
+    await waitFor(() => expect(mock.callsTo("open_drive_link")).toHaveLength(1));
+    expect(within(rows[1]).getByRole("button", { name: "播放" })).toBeInTheDocument();
+  });
+
+  it("a Drive failure still shows the local list and says why", async () => {
+    mock.history = { driveError: "boom", entries: [{ name: "a.mp4", path: "/m/a.mp4", bytes: 1, modifiedMs: 1, driveUrl: null, driveCreated: null }] };
+    render(History);
+    expect(await screen.findByTestId("history-error")).toHaveTextContent("boom");
+    expect(screen.getAllByTestId("history-row")).toHaveLength(1);
+  });
+});
+
+describe("bluetooth microphones", () => {
+  it("warns only when the mic in use is a Bluetooth headset", async () => {
+    const base = defaultSettings("macos");
+    const air = render(Main, { settings: { ...base, audio: { ...base.audio, micDeviceId: "AirPods Pro" } } });
+    expect(await screen.findByTestId("bt-mic")).toBeInTheDocument();
+    air.unmount();
+    render(Main, { settings: base });
+    await waitFor(() => expect(mock.callsTo("list_devices").length).toBeGreaterThan(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("bt-mic")).toBeNull();
   });
 });
 

@@ -187,6 +187,8 @@ export interface AppInfo {
 }
 
 export interface DriveStatus { configured: boolean; email: string | null }
+export interface RecordingEntry { name: string; path: string | null; bytes: number; modifiedMs: number | null; driveUrl: string | null; driveCreated: string | null }
+export interface RecordingHistory { entries: RecordingEntry[]; driveError: string | null }
 export interface DriveProgress { path: string; percent: number; done: boolean; url: string | null; error: string | null; localRemoved: boolean }
 
 /** Tauri command names (snake_case) and their signatures. Implemented in src-tauri/src/commands.rs. */
@@ -216,6 +218,9 @@ export interface Commands {
   set_floating_visible: (args: { visible: boolean }) => void;
   screen_thumbnail: (args: { id: string }) => string | null; // data URL; null = no permission yet
   relaunch_app: () => void;
+  show_screen_marker: (a: { index: number }) => void;
+  hide_screen_marker: () => void;
+  list_recordings: () => RecordingHistory;
   drive_status: () => DriveStatus;
   drive_sign_in: () => DriveStatus;
   drive_sign_out: () => DriveStatus;

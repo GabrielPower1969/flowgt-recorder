@@ -18,8 +18,13 @@ bash scripts/setup-signing.sh
 KC="$ROOT/.signing/flowgt-dev.keychain-db"
 security unlock-keychain -p "$(cat .signing/keychain-password)" "$KC"
 ID="$(cat .signing/identity)"
+# In Contents/MacOS, macOS treats each tool as the app itself and shows a Dock icon for it.
+mkdir -p "$APP/Contents/Helpers"
 for tool in "$APP"/Contents/MacOS/*; do
   [ "$(basename "$tool")" = "flowgt-recorder" ] && continue
+  mv "$tool" "$APP/Contents/Helpers/"
+done
+for tool in "$APP"/Contents/Helpers/*; do
   codesign --force --keychain "$KC" -s "$ID" "$tool"
 done
 codesign --force --keychain "$KC" -s "$ID" -i nz.co.flowgt.recorder "$APP"

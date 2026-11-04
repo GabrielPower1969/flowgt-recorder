@@ -534,6 +534,27 @@ pub struct DriveStatus {
     pub email: Option<String>,
 }
 
+/// One recording in the history: on this computer, in Google Drive, or both (matched by name).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingEntry {
+    pub name: String,
+    pub path: Option<String>,
+    pub bytes: u64,
+    /// Local modified time, milliseconds since the epoch.
+    pub modified_ms: Option<u64>,
+    pub drive_url: Option<String>,
+    /// Drive's RFC 3339 creation time.
+    pub drive_created: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingHistory {
+    pub entries: Vec<RecordingEntry>,
+    pub drive_error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DriveProgress {

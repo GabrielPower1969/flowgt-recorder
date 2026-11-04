@@ -11,13 +11,15 @@
   import Settings from "./routes/Settings.svelte";
   import Summary from "./routes/Summary.svelte";
   import Floating from "./routes/Floating.svelte";
+  import Marker from "./routes/Marker.svelte";
+  import History from "./routes/History.svelte";
 
   const route = $derived(getRoute());
-  const isFloating = $derived(route === "/floating");
+  const isFloating = $derived(route === "/floating" || route === "/marker");
 
   onMount(() => {
     const unbindRouter = bindRouter();
-    document.body.dataset.window = getRoute() === "/floating" ? "floating" : "main";
+    document.body.dataset.window = getRoute() === "/floating" || getRoute() === "/marker" ? "floating" : "main";
     void initPlatform();
     const unbindEvents = bindRecorderEvents((r) => {
       if (getRoute() !== "/floating" && r) navigate("/summary");
@@ -33,7 +35,9 @@
   });
 </script>
 
-{#if isFloating}
+{#if route === "/marker"}
+  <Marker />
+{:else if isFloating}
   <Floating />
 {:else if !isLoaded()}
   <div class="page muted">{t("common.loading")}</div>
@@ -41,6 +45,8 @@
   <Settings />
 {:else if route === "/summary"}
   <Summary />
+{:else if route === "/history"}
+  <History />
 {:else}
   <Main settings={getSettings()} />
 {/if}

@@ -19,6 +19,13 @@
 
   const allowed = $derived(permission === "granted" || permission === "notApplicable");
 
+  // Outline the real screen while choosing. The backend removes it before capture starts.
+  let keepMarker = false;
+  $effect(() => {
+    const index = screens.findIndex((s) => s.id === selected);
+    if (allowed && index >= 0) void invoke("show_screen_marker", { index });
+  });
+
   async function loadThumbs() {
     for (const s of screens) {
       void invoke("screen_thumbnail", { id: s.id }).then((url) => {
@@ -36,6 +43,7 @@
   async function start() {
     if (!selected || starting) return;
     starting = true;
+    keepMarker = true;
     const id = selected;
     await updateSettings((s) => {
       s.capture = { kind: "display", displayId: id };
@@ -43,6 +51,7 @@
     const st = await startRecording(name);
     starting = false;
     if (st) onclose();
+    else keepMarker = false;
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") onclose();
@@ -59,7 +68,10 @@
       selected = screens.find((s) => s.id === saved)?.id ?? screens.find((s) => s.isDefault)?.id ?? screens[0]?.id ?? null;
       if (perms.screen === "granted" || perms.screen === "notApplicable") void loadThumbs();
     })();
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (!keepMarker) void invoke("hide_screen_marker");
+    };
   });
 </script>
 
@@ -87,10 +99,11 @@
             <span class="thumb">
               {#if thumbs[s.id]}<img src={thumbs[s.id]} alt="" />{/if}
             </span>
-            <span>{t("picker.screen", { n: i + 1 })}</span>
+            <span class="caption"><span>{t("picker.screen", { n: i + 1 })}</span>{#if selected === s.id}<span class="chip chip-ok">{t("picker.willRecord")}</span>{/if}</span>
           </button>
         {/each}
       </div>
+      <p class="faint hint" data-testid="marker-hint">{t("picker.markerHint")}</p>
       <label class="field">
         <span>{t("picker.name")}</span>
         <input class="input" bind:value={name} data-testid="name" />
@@ -110,6 +123,9 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-3); }
   .tile { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2); border: 2px solid transparent; border-radius: var(--radius-m); background: var(--color-surface-2); text-align: left; }
   .tile[aria-checked="true"] { border-color: var(--color-accent); background: var(--color-accent-soft); }
+  .tile[aria-checked="true"] { border-width: 4px; }
+  .caption { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .hint { margin: 0; }
   .thumb { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: var(--radius-s); background: var(--color-surface-3); overflow: hidden; }
   .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .loading { height: 200px; aspect-ratio: auto; }

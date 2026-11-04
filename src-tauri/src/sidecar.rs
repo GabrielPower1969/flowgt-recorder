@@ -1,7 +1,7 @@
 //! Locating and running the ffmpeg / ffprobe sidecars.
 //!
-//! Search order: next to the executable (a bundled release build; Tauri strips the target
-//! triple), `src-tauri/binaries/<tool>-<triple>` (development, copied by scripts/fetch-ffmpeg.sh),
+//! Search order: Contents/Helpers or next to the executable (a bundled release build; Tauri strips
+//! the target triple; on macOS a tool left in Contents/MacOS gets its own Dock icon), `src-tauri/binaries/<tool>-<triple>` (development, copied by scripts/fetch-ffmpeg.sh),
 //! then `PATH`.
 
 use crate::error::{CmdResult, CommandError};
@@ -45,9 +45,10 @@ impl Tools {
         let find = |tool: &str| -> Option<(PathBuf, bool)> {
             if let Ok(exe) = std::env::current_exe() {
                 if let Some(dir) = exe.parent() {
-                    let p = dir.join(exe_name(tool));
-                    if p.is_file() {
-                        return Some((p, true));
+                    for p in [dir.join("../Helpers").join(exe_name(tool)), dir.join(exe_name(tool))] {
+                        if p.is_file() {
+                            return Some((p, true));
+                        }
                     }
                 }
             }

@@ -346,6 +346,7 @@ pub fn find_helper() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(d) = exe.parent() {
+            candidates.push(d.join("../Helpers/sck-audio"));
             candidates.push(d.join("sck-audio"));
         }
     }
@@ -485,6 +486,11 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
         if state.recorder.phase().await != Phase::Countdown {
             return;
         }
+        // Neither the outline nor the countdown may end up in the recording. The bar comes back
+        // once the recording is running.
+        crate::windows::hide_marker(&handle);
+        crate::windows::hide_floating(&handle);
+        tokio::time::sleep(Duration::from_millis(150)).await;
         let started = match build_params(&handle, &state, &meeting_name).await {
             Ok(p) => start_with_fallbacks(&handle, &state, p).await,
             Err(e) => Err(e),
@@ -602,6 +608,59 @@ pub async fn screen_thumbnail(state: State<'_, AppState>, id: String) -> CmdResu
     Ok(Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(&out.stdout))))
 }
 
+/// Recordings on this computer and in Drive, merged by file name. A Drive failure must not hide
+/// the local list, so it is reported alongside it.
+#[tauri::command]
+pub async fn list_recordings(app: AppHandle) -> CmdResult<RecordingHistory> {
+    let s = load_settings(&app)?;
+    let mut entries = local_recordings(&effective_output_dir(&s));
+    let mut drive_error = None;
+    if let (Some(account), Some(client)) = (crate::drive::load_account(&app), crate::drive::oauth_client()) {
+        match crate::drive::list_recordings(&crate::drive::Endpoints::google(), Some(&client), &account.refresh_token, None).await {
+            Ok(remote) => merge_recordings(&mut entries, remote),
+            Err(e) => drive_error = Some(e),
+        }
+    }
+    Ok(RecordingHistory { entries, drive_error })
+}
+
+fn local_recordings(dir: &Path) -> Vec<RecordingEntry> {
+    let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
+    read.flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || !name.to_lowercase().ends_with(".mp4") {
+                return None;
+            }
+            let meta = e.metadata().ok().filter(std::fs::Metadata::is_file)?;
+            let modified_ms = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as u64;
+            Some(RecordingEntry { name, path: Some(e.path().to_string_lossy().into_owned()), bytes: meta.len(), modified_ms: Some(modified_ms), ..Default::default() })
+        })
+        .collect()
+}
+
+fn merge_recordings(entries: &mut Vec<RecordingEntry>, remote: Vec<RecordingEntry>) {
+    for r in remote {
+        match entries.iter_mut().find(|e| e.name == r.name) {
+            Some(e) => {
+                e.drive_url = r.drive_url;
+                e.drive_created = r.drive_created;
+            }
+            None => entries.push(r),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn show_screen_marker(app: AppHandle, index: usize) -> CmdResult<()> {
+    crate::windows::show_marker(&app, index).map_err(|e| CommandError::io(e.to_string()))
+}
+
+#[tauri::command]
+pub fn hide_screen_marker(app: AppHandle) {
+    crate::windows::hide_marker(&app);
+}
+
 /// macOS applies a newly granted screen-recording permission only after a restart.
 #[tauri::command]
 pub fn relaunch_app(app: AppHandle) {
@@ -683,6 +742,23 @@ pub async fn drive_sign_out(app: AppHandle) -> CmdResult<DriveStatus> {
 mod save_tests {
     use super::*;
     use crate::drive::Uploaded;
+
+    #[test]
+    fn history_merges_by_name_and_skips_everything_but_recordings() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.mp4"), b"12345").unwrap();
+        std::fs::write(dir.path().join("notes.txt"), b"x").unwrap();
+        std::fs::write(dir.path().join(".hidden.mp4"), b"x").unwrap();
+        std::fs::create_dir(dir.path().join("sub.mp4")).unwrap();
+        let mut e = local_recordings(dir.path());
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].bytes, 5);
+        let cloud = |name: &str| RecordingEntry { name: name.into(), bytes: 9, drive_url: Some("u".into()), ..Default::default() };
+        merge_recordings(&mut e, vec![cloud("a.mp4"), cloud("b.mp4")]);
+        assert_eq!(e.len(), 2);
+        assert_eq!((e[0].bytes, e[0].drive_url.as_deref()), (5, Some("u")));
+        assert!(e[0].path.is_some() && e[1].path.is_none());
+    }
 
     #[test]
     fn local_copy_goes_only_when_drive_confirms_its_size() {
@@ -904,6 +980,9 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         set_floating_visible,
         screen_thumbnail,
         relaunch_app,
+        list_recordings,
+        show_screen_marker,
+        hide_screen_marker,
         drive_status,
         drive_sign_in,
         drive_sign_out,

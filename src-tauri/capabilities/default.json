@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capabilities for the main and floating windows",
-  "windows": ["main", "floating"],
+  "windows": ["main", "floating", "marker"],
   "permissions": [
     "core:default",
     "core:window:default",
