@@ -10,6 +10,7 @@ import type { RecordingHistory } from "./types";
 import type {
   AppInfo,
   Device,
+  WindowInfo,
   DeviceList,
   DiskStatus,
   DriveStatus,
@@ -56,6 +57,14 @@ export function mockDevices(): DeviceList {
   };
 }
 
+export function mockWindows(): WindowInfo[] {
+  return [
+    { id: 101, title: "Weekly sync - Zoom", app: "zoom.us", bundleId: "us.zoom.xos", pid: 501, width: 2560, height: 1600, icon: null },
+    { id: 102, title: "Quarterly plan.key", app: "Keynote", bundleId: "com.apple.iWork.Keynote", pid: 502, width: 2048, height: 1280, icon: null },
+    { id: 103, title: "", app: "Finder", bundleId: "com.apple.finder", pid: 503, width: 1200, height: 800, icon: null },
+  ];
+}
+
 export function mockAppInfo(): AppInfo {
   return {
     version: "0.1.0",
@@ -84,6 +93,7 @@ export class MockBackend implements Transport {
   devices: DeviceList = mockDevices();
   history: RecordingHistory = { entries: [], driveError: null };
   permissions: PermissionStatus = { screen: "notDetermined", camera: "notDetermined", microphone: "notDetermined" };
+  windows: WindowInfo[] = mockWindows();
   appInfo: AppInfo = mockAppInfo();
   disk = { freeBytes: 120_000_000_000, totalBytes: 1_000_000_000_000 };
   drive: DriveStatus = { configured: true, email: null };
@@ -126,6 +136,7 @@ export class MockBackend implements Transport {
       /* ignore */
     }
     this.devices = mockDevices();
+    this.windows = mockWindows();
     this.history = { entries: [], driveError: null };
     this.permissions = { screen: "notDetermined", camera: "notDetermined", microphone: "notDetermined" };
     this.appInfo = mockAppInfo();
@@ -256,6 +267,8 @@ export class MockBackend implements Transport {
     },
     set_floating_visible: (_args: { visible: boolean }) => undefined,
     screen_thumbnail: (_args: { id: string }) => null,
+    list_windows: () => (this.permissions.screen === "granted" ? this.windows : []),
+    window_thumbnail: (_args: { id: number }) => null,
     relaunch_app: () => undefined,
     show_screen_marker: () => undefined,
     hide_screen_marker: () => undefined,

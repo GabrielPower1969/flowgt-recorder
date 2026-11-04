@@ -95,8 +95,23 @@ public struct RecordOptions: Equatable {
     }
 }
 
+/// `--snapshot`: one still of a window or display, as a JPEG no wider than `maxWidth`.
+public struct SnapshotOptions: Equatable {
+    public var source: CaptureSource
+    public var output: String
+    public var maxWidth: Int
+
+    public init(source: CaptureSource, output: String, maxWidth: Int) {
+        self.source = source
+        self.output = output
+        self.maxWidth = maxWidth
+    }
+}
+
 public enum Command: Equatable {
     case record(RecordOptions)
+    /// `--snapshot (--window <id> | --display <id>) --out <file.jpg> [--max-width 480]`.
+    case snapshot(SnapshotOptions)
     /// `--list`: displays, windows, apps, cameras and microphones as JSON on stdout.
     case list
     /// `--check`: OS and screen permission, one word on stdout.
@@ -133,6 +148,7 @@ public enum ArgumentParser {
                  [--crop x,y,w,h] [--system-audio] [--mic] [--mic-device <name>]
                  [--camera] [--camera-device <name>] [--pip x,y,size,square|rounded|circle,0|1]
                  [--no-cursor] [--exclude-pid <pid>] [--duration <s>] [--fragment <s>]
+      sck-record --snapshot (--display <id> | --window <id>) --out <file.jpg> [--max-width 480]
       sck-record --list
       sck-record --check
       sck-record --help | --version
@@ -149,7 +165,7 @@ public enum ArgumentParser {
     private static let valued: Set<String> = [
         "--display", "--window", "--app", "--out", "-o", "--size", "--fps", "--codec", "--video-kbps",
         "--audio-kbps", "--crop", "--mic-device", "--camera-device", "--pip", "--exclude-pid", "--duration",
-        "--fragment", "--progress-interval",
+        "--fragment", "--progress-interval", "--max-width",
     ]
 
     public static func parse(_ arguments: [String]) throws -> Command {
@@ -174,6 +190,8 @@ public enum ArgumentParser {
         var progressInterval: Double?
         var list = false
         var check = false
+        var snapshot = false
+        var maxWidth: Int?
         var help = false
         var version = false
 
@@ -200,6 +218,8 @@ public enum ArgumentParser {
             case "--version", "-V": version = true
             case "--list": list = true
             case "--check": check = true
+            case "--snapshot": snapshot = true
+            case "--max-width": maxWidth = try parseInt(name, try value(), range: 16...8192)
             case "--display":
                 if source != nil { throw ArgumentError.conflicting(["--display", "--window", "--app"]) }
                 source = .display(UInt32(try parseInt(name, try value(), range: 0...Int(UInt32.max))))
@@ -268,10 +288,16 @@ public enum ArgumentParser {
         var modes: [String] = []
         if list { modes.append("--list") }
         if check { modes.append("--check") }
-        if source != nil || output != nil { modes.append("--out") }
+        if snapshot { modes.append("--snapshot") } else if source != nil || output != nil { modes.append("--out") }
         guard modes.count <= 1 else { throw ArgumentError.conflicting(modes) }
         if list { return .list }
         if check { return .check }
+        if snapshot {
+            guard let source else { throw ArgumentError.missing("--display or --window") }
+            if case .app = source { throw ArgumentError.invalidValue(option: "--snapshot", value: "--app", reason: "snapshots take a display or a window") }
+            guard let output, !output.isEmpty else { throw ArgumentError.missing("--out <file.jpg>") }
+            return .snapshot(SnapshotOptions(source: source, output: output, maxWidth: maxWidth ?? 480))
+        }
 
         guard let source else { throw ArgumentError.missing("one of --display, --window, --app") }
         guard let output, !output.isEmpty else { throw ArgumentError.missing("--out <file.mp4>") }

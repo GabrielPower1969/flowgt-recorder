@@ -136,9 +136,14 @@ fn busy(what: &str) -> CommandError {
 
 fn snapshot(inner: &Inner) -> RecorderState {
     let Some(s) = &inner.session else {
-        return RecorderState { phase: inner.phase, ..RecorderState::default() };
+        return RecorderState {
+            phase: inner.phase,
+            ..RecorderState::default()
+        };
     };
-    let live_ms = s.seg_started.map_or(0, |t| u64::try_from(t.elapsed().as_millis()).unwrap_or(0));
+    let live_ms = s
+        .seg_started
+        .map_or(0, |t| u64::try_from(t.elapsed().as_millis()).unwrap_or(0));
     let elapsed_ms = s.elapsed_before_ms + live_ms;
     let bytes = s.closed_bytes + s.live_bytes;
     RecorderState {
@@ -164,7 +169,16 @@ async fn write_manifest(m: &SessionManifest) -> CmdResult<()> {
 
 impl Recorder {
     pub fn new(sink: Arc<dyn EventSink>) -> Self {
-        Recorder { shared: Arc::new(Shared { inner: Mutex::new(Inner { phase: Phase::Idle, transition: false, session: None }), sink }) }
+        Recorder {
+            shared: Arc::new(Shared {
+                inner: Mutex::new(Inner {
+                    phase: Phase::Idle,
+                    transition: false,
+                    session: None,
+                }),
+                sink,
+            }),
+        }
     }
 
     pub async fn state(&self) -> RecorderState {
@@ -230,8 +244,16 @@ impl Recorder {
 
     async fn start_inner(&self, params: StartParams) -> CmdResult<RecorderState> {
         tokio::fs::create_dir_all(&params.work_dir).await?;
-        let camera = params.plan.camera.is_some() || params.native.as_ref().is_some_and(|n| n.camera.is_some());
-        let mut manifest = recovery::new_manifest(&params.session_id, &params.meeting_name, params.final_output.clone(), params.work_dir.clone(), params.plan.clone(), Utc::now());
+        let camera = params.plan.camera.is_some()
+            || params.native.as_ref().is_some_and(|n| n.camera.is_some());
+        let mut manifest = recovery::new_manifest(
+            &params.session_id,
+            &params.meeting_name,
+            params.final_output.clone(),
+            params.work_dir.clone(),
+            params.plan.clone(),
+            Utc::now(),
+        );
         manifest.native_audio = params.native.as_ref().map(native::NativeAudio::of);
         let (first_tx, first_rx) = oneshot::channel();
         {
@@ -273,14 +295,23 @@ impl Recorder {
                 let (tail, code) = {
                     let inner = self.shared.inner.lock().await;
                     let s = inner.session.as_ref();
-                    (s.map(|s| s.last_error_tail.join("\n")).unwrap_or_default(), s.and_then(|s| s.native_error.clone()))
+                    (
+                        s.map(|s| s.last_error_tail.join("\n")).unwrap_or_default(),
+                        s.and_then(|s| s.native_error.clone()),
+                    )
                 };
                 let code = code.unwrap_or_else(|| "error.start".to_string());
-                Err(CommandError::new(&code, format!("the recorder exited before recording started:\n{tail}")))
+                Err(CommandError::new(
+                    &code,
+                    format!("the recorder exited before recording started:\n{tail}"),
+                ))
             }
             Err(_) => {
                 self.kill_live().await;
-                Err(CommandError::new("error.start", "the recorder produced no frames within 12 seconds"))
+                Err(CommandError::new(
+                    "error.start",
+                    "the recorder produced no frames within 12 seconds",
+                ))
             }
         }
     }
@@ -307,14 +338,28 @@ impl Recorder {
             }
             let args = native::helper_args(&cap, &s.params.plan, &path);
             let mut c = Command::new(&cap.helper);
-            c.args(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-            let mut child = c.spawn().map_err(|e| CommandError::new("error.start", format!("cannot start the recorder helper: {e}")))?;
+            c.args(&args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+            let mut child = c.spawn().map_err(|e| {
+                CommandError::new(
+                    "error.start",
+                    format!("cannot start the recorder helper: {e}"),
+                )
+            })?;
             let stdout = child.stdout.take();
             let stderr = child.stderr.take();
             let stdin = child.stdin.take();
             let (stop_tx, stop_rx) = oneshot::channel::<()>();
             let (done_tx, done_rx) = oneshot::channel::<SegmentOutcome>();
-            s.live = Some(Live { index, stop_tx: Some(stop_tx), done_rx, started: Instant::now() });
+            s.live = Some(Live {
+                index,
+                stop_tx: Some(stop_tx),
+                done_rx,
+                started: Instant::now(),
+            });
             s.seg_started = Some(Instant::now());
             s.live_bytes = 0;
             s.native_error = None;
@@ -323,31 +368,74 @@ impl Recorder {
         }
 
         // The ScreenCaptureKit helper feeds a FIFO that ffmpeg reads; one pair per segment.
-        if let (Some(helper), Some(InputSource::PcmPipe { path: _, sample_rate, channels })) = (s.params.helper.clone(), plan.system_audio.clone()) {
+        if let (
+            Some(helper),
+            Some(InputSource::PcmPipe {
+                path: _,
+                sample_rate,
+                channels,
+            }),
+        ) = (s.params.helper.clone(), plan.system_audio.clone())
+        {
             let fifo = s.params.work_dir.join(format!("sys-{index:03}.pcm"));
             let _ = tokio::fs::remove_file(&fifo).await;
-            let made = Command::new("mkfifo").arg(&fifo).status().await.map(|st| st.success()).unwrap_or(false);
+            let made = Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .await
+                .map(|st| st.success())
+                .unwrap_or(false);
             if made {
-                plan.system_audio = Some(InputSource::PcmPipe { path: fifo.to_string_lossy().into_owned(), sample_rate, channels });
-                let child = Command::new(&helper).arg("--out").arg(&fifo).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true).spawn();
+                plan.system_audio = Some(InputSource::PcmPipe {
+                    path: fifo.to_string_lossy().into_owned(),
+                    sample_rate,
+                    channels,
+                });
+                let child = Command::new(&helper)
+                    .arg("--out")
+                    .arg(&fifo)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .kill_on_drop(true)
+                    .spawn();
                 s.helper_child = child.ok();
             } else {
                 plan.system_audio = None;
-                s.warnings.push(Warning { code: "warn.systemAudioOff".into(), detail: "could not create the audio FIFO".into() });
+                s.warnings.push(Warning {
+                    code: "warn.systemAudioOff".into(),
+                    detail: "could not create the audio FIFO".into(),
+                });
             }
         }
 
         if let Some((helper, name)) = s.params.mic_helper.clone().filter(|_| plan.mic.is_some()) {
             let fifo = s.params.work_dir.join(format!("mic-{index:03}.pcm"));
             let _ = tokio::fs::remove_file(&fifo).await;
-            if Command::new("mkfifo").arg(&fifo).status().await.map(|st| st.success()).unwrap_or(false) {
-                plan.mic = Some(InputSource::PcmPipe { path: fifo.to_string_lossy().into_owned(), sample_rate: 48_000, channels: 2 });
+            if Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .await
+                .map(|st| st.success())
+                .unwrap_or(false)
+            {
+                plan.mic = Some(InputSource::PcmPipe {
+                    path: fifo.to_string_lossy().into_owned(),
+                    sample_rate: 48_000,
+                    channels: 2,
+                });
                 let mut h = Command::new(&helper);
                 h.arg("--out").arg(&fifo).arg("--mic");
                 if let Some(n) = name {
                     h.arg("--mic-device").arg(n);
                 }
-                s.mic_child = h.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true).spawn().ok();
+                s.mic_child = h
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .kill_on_drop(true)
+                    .spawn()
+                    .ok();
             }
         }
 
@@ -356,17 +444,28 @@ impl Recorder {
             command::realtime_lavfi(&mut cmd);
         }
         let mut c = Command::new(&cmd.program);
-        c.args(&cmd.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+        c.args(&cmd.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
         #[cfg(windows)]
         c.creation_flags(0x0800_0000);
-        let mut child = c.spawn().map_err(|e| CommandError::new("error.noFfmpeg", format!("cannot start ffmpeg: {e}")))?;
+        let mut child = c.spawn().map_err(|e| {
+            CommandError::new("error.noFfmpeg", format!("cannot start ffmpeg: {e}"))
+        })?;
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let stdin = child.stdin.take();
         let (stop_tx, stop_rx) = oneshot::channel::<()>();
         let (done_tx, done_rx) = oneshot::channel::<SegmentOutcome>();
-        s.live = Some(Live { index, stop_tx: Some(stop_tx), done_rx, started: Instant::now() });
+        s.live = Some(Live {
+            index,
+            stop_tx: Some(stop_tx),
+            done_rx,
+            started: Instant::now(),
+        });
         s.seg_started = Some(Instant::now());
         s.live_bytes = 0;
 
@@ -449,7 +548,12 @@ impl Recorder {
             };
             let _ = out_task.await;
             let (tail, classes) = err_task.await.unwrap_or_default();
-            let outcome = SegmentOutcome { success: status.as_ref().is_ok_and(|s| s.success()), code: status.ok().and_then(|s| s.code()), stderr_tail: tail, classes };
+            let outcome = SegmentOutcome {
+                success: status.as_ref().is_ok_and(|s| s.success()),
+                code: status.ok().and_then(|s| s.code()),
+                stderr_tail: tail,
+                classes,
+            };
             if requested {
                 let _ = done_tx.send(outcome);
             } else {
@@ -480,8 +584,23 @@ impl Recorder {
                 let mut lines = BufReader::new(out).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     match native::parse_event(&line) {
-                        Some(NativeEvent::Started { .. }) => rec_out.on_progress(native::progress_from(0.0, 0, 0, 0, false)).await,
-                        Some(NativeEvent::Progress { seconds, bytes, frames, dropped }) => rec_out.on_progress(native::progress_from(seconds, bytes, frames, dropped, false)).await,
+                        Some(NativeEvent::Started { .. }) => {
+                            rec_out
+                                .on_progress(native::progress_from(0.0, 0, 0, 0, false))
+                                .await
+                        }
+                        Some(NativeEvent::Progress {
+                            seconds,
+                            bytes,
+                            frames,
+                            dropped,
+                        }) => {
+                            rec_out
+                                .on_progress(native::progress_from(
+                                    seconds, bytes, frames, dropped, false,
+                                ))
+                                .await
+                        }
                         Some(NativeEvent::Warning { code, detail }) => {
                             if code == "warn.cameraLost" {
                                 rec_out.camera_gone().await;
@@ -535,7 +654,12 @@ impl Recorder {
             };
             let mut tail = err_task.await.unwrap_or_default();
             tail.extend(out_task.await.unwrap_or_default());
-            let outcome = SegmentOutcome { success: status.as_ref().is_ok_and(|s| s.success()), code: status.ok().and_then(|s| s.code()), stderr_tail: tail, classes: Vec::new() };
+            let outcome = SegmentOutcome {
+                success: status.as_ref().is_ok_and(|s| s.success()),
+                code: status.ok().and_then(|s| s.code()),
+                stderr_tail: tail,
+                classes: Vec::new(),
+            };
             if requested {
                 let _ = done_tx.send(outcome);
             } else {
@@ -554,7 +678,9 @@ impl Recorder {
 
     async fn on_progress(&self, p: Progress) {
         let mut inner = self.shared.inner.lock().await;
-        let Some(s) = inner.session.as_mut() else { return };
+        let Some(s) = inner.session.as_mut() else {
+            return;
+        };
         s.live_bytes = p.total_size;
         if let Some(tx) = s.first_progress.take() {
             let _ = tx.send(());
@@ -569,11 +695,16 @@ impl Recorder {
 
     async fn push_warning(&self, code: &str, detail: &str) {
         let mut inner = self.shared.inner.lock().await;
-        let Some(s) = inner.session.as_mut() else { return };
+        let Some(s) = inner.session.as_mut() else {
+            return;
+        };
         if s.warnings.iter().any(|w| w.code == code) {
             return;
         }
-        let w = Warning { code: code.to_string(), detail: detail.to_string() };
+        let w = Warning {
+            code: code.to_string(),
+            detail: detail.to_string(),
+        };
         s.warnings.push(w.clone());
         self.shared.sink.warning(&w);
         let st = snapshot(&inner);
@@ -584,7 +715,9 @@ impl Recorder {
 
     /// Ask the live segment to stop and wait for it. Returns its outcome.
     async fn stop_live(live: Live) -> SegmentOutcome {
-        let Live { stop_tx, done_rx, .. } = live;
+        let Live {
+            stop_tx, done_rx, ..
+        } = live;
         if let Some(tx) = stop_tx {
             let _ = tx.send(());
         }
@@ -608,14 +741,27 @@ impl Recorder {
     async fn close_current(&self, index: u32) {
         let (path, tools) = {
             let inner = self.shared.inner.lock().await;
-            let Some(s) = inner.session.as_ref() else { return };
-            let Some(seg) = s.manifest.segments.iter().find(|g| g.index == index) else { return };
+            let Some(s) = inner.session.as_ref() else {
+                return;
+            };
+            let Some(seg) = s.manifest.segments.iter().find(|g| g.index == index) else {
+                return;
+            };
             (seg.path.clone(), s.params.tools.clone())
         };
         let bytes = tokio::fs::metadata(&path).await.map(|m| m.len()).ok();
-        let duration = if bytes.unwrap_or(0) > 0 { sidecar::probe(&tools, &path).await.ok().map(|i| i.duration_ms) } else { None };
+        let duration = if bytes.unwrap_or(0) > 0 {
+            sidecar::probe(&tools, &path)
+                .await
+                .ok()
+                .map(|i| i.duration_ms)
+        } else {
+            None
+        };
         let mut inner = self.shared.inner.lock().await;
-        let Some(s) = inner.session.as_mut() else { return };
+        let Some(s) = inner.session.as_mut() else {
+            return;
+        };
         recovery::close_segment(&mut s.manifest, Utc::now(), duration, bytes);
         s.closed_bytes += bytes.unwrap_or(0);
         s.live_bytes = 0;
@@ -706,20 +852,31 @@ impl Recorder {
     // ───────────────────────────── unexpected exit ─────────────────────────────
 
     async fn on_unexpected_exit(&self, index: u32, outcome: SegmentOutcome) {
-        let (starting, camera, quick) = {
+        let (starting, camera, quick, native_error) = {
             let mut inner = self.shared.inner.lock().await;
             let phase = inner.phase;
-            let Some(s) = inner.session.as_mut() else { return };
+            let Some(s) = inner.session.as_mut() else {
+                return;
+            };
             if s.live.as_ref().map(|l| l.index) != Some(index) {
                 return; // a stale segment from before a restart
             }
-            let quick = s.live.as_ref().is_some_and(|l| l.started.elapsed() < QUICK_FAIL);
+            let quick = s
+                .live
+                .as_ref()
+                .is_some_and(|l| l.started.elapsed() < QUICK_FAIL);
             s.last_error_tail = outcome.stderr_tail.clone();
             s.live = None;
+            let native_error = s.native_error.take();
             if let Some(tx) = s.first_progress.take() {
                 drop(tx); // wakes start()/resume() with an error
             }
-            (phase == Phase::Starting || (inner.transition && phase != Phase::Recording), s_camera(&inner), quick)
+            (
+                phase == Phase::Starting || (inner.transition && phase != Phase::Recording),
+                s_camera(&inner),
+                quick,
+                native_error,
+            )
         };
         if starting {
             self.close_current(index).await;
@@ -733,13 +890,19 @@ impl Recorder {
             return;
         }
         if outcome.classes.contains(&"error.diskFull") {
-            self.shared.sink.error("error.diskFull", "the disk is full; the recording so far is being saved");
+            self.shared.sink.error(
+                "error.diskFull",
+                "the disk is full; the recording so far is being saved",
+            );
             self.auto_finish().await;
             return;
         }
         if camera && !quick {
             // Most likely the camera was unplugged: carry on without it.
-            let w = Warning { code: "warn.cameraLost".into(), detail: outcome.stderr_tail.last().cloned().unwrap_or_default() };
+            let w = Warning {
+                code: "warn.cameraLost".into(),
+                detail: outcome.stderr_tail.last().cloned().unwrap_or_default(),
+            };
             let mut inner = self.shared.inner.lock().await;
             if let Some(s) = inner.session.as_mut() {
                 s.camera_connected = false;
@@ -761,8 +924,18 @@ impl Recorder {
                     self.shared.sink.error(&e.code, &e.detail);
                 }
             }
+        } else if native_error.as_deref() == Some("error.windowGone") {
+            // The recorded window was closed: the recording so far is saved, nothing is wrong.
+            self.shared.sink.error(
+                "error.windowGone",
+                "the window being recorded was closed; the recording so far is being saved",
+            );
         } else {
-            let detail = format!("the recorder exited with code {:?}: {}", outcome.code, outcome.stderr_tail.last().cloned().unwrap_or_default());
+            let detail = format!(
+                "the recorder exited with code {:?}: {}",
+                outcome.code,
+                outcome.stderr_tail.last().cloned().unwrap_or_default()
+            );
             self.shared.sink.error("error.ffmpegExit", &detail);
         }
         self.auto_finish().await;
@@ -782,7 +955,9 @@ impl Recorder {
 
     fn start_monitor(&self, inner: &mut Inner) {
         let rec = self.clone();
-        let Some(s) = inner.session.as_mut() else { return };
+        let Some(s) = inner.session.as_mut() else {
+            return;
+        };
         let dir = s.params.work_dir.clone();
         let low_gb = u64::from(s.params.low_disk_warn_gb);
         s.monitor = Some(tokio::spawn(async move {
@@ -790,22 +965,31 @@ impl Recorder {
                 tokio::time::sleep(MONITOR_EVERY).await;
                 if let Ok((free, _)) = crate::disk::space(&dir) {
                     if free < HARD_FLOOR_BYTES {
-                        rec.shared.sink.error("error.diskFull", "less than 300 MB free; finishing the recording now");
+                        rec.shared.sink.error(
+                            "error.diskFull",
+                            "less than 300 MB free; finishing the recording now",
+                        );
                         rec.auto_finish().await;
                         return;
                     }
                     if free < low_gb * disk_gib() {
-                        rec.push_warning("warn.lowDisk", &format!("{} MB free", free / 1_000_000)).await;
+                        rec.push_warning("warn.lowDisk", &format!("{} MB free", free / 1_000_000))
+                            .await;
                     }
                 }
                 let (over, phase) = {
                     let inner = rec.shared.inner.lock().await;
                     let st = snapshot(&inner);
-                    let over = st.elapsed_ms > 120_000 && st.bytes_written as f64 > st.estimated_total_bytes as f64 * 1.25;
+                    let over = st.elapsed_ms > 120_000
+                        && st.bytes_written as f64 > st.estimated_total_bytes as f64 * 1.25;
                     (over, inner.phase)
                 };
                 if over && phase == Phase::Recording {
-                    rec.push_warning("warn.overBudget", "the file is growing faster than the size budget").await;
+                    rec.push_warning(
+                        "warn.overBudget",
+                        "the file is growing faster than the size budget",
+                    )
+                    .await;
                 }
             }
         }));
@@ -821,7 +1005,9 @@ impl Recorder {
     async fn finish(&self, user_initiated: bool) -> CmdResult<RecordingResult> {
         let live = {
             let mut inner = self.shared.inner.lock().await;
-            if !matches!(inner.phase, Phase::Recording | Phase::Paused) || inner.transition && user_initiated {
+            if !matches!(inner.phase, Phase::Recording | Phase::Paused)
+                || inner.transition && user_initiated
+            {
                 return Err(busy("nothing to stop"));
             }
             if inner.phase == Phase::Finalizing {
@@ -849,7 +1035,12 @@ impl Recorder {
             let mut inner = self.shared.inner.lock().await;
             let s = inner.session.as_mut().ok_or_else(|| busy("no session"))?;
             let _ = write_manifest(&s.manifest).await;
-            (s.manifest.clone(), s.params.tools.clone(), s.params.target_mb_per_hour, s.params.plan.budget.clone())
+            (
+                s.manifest.clone(),
+                s.params.tools.clone(),
+                s.params.target_mb_per_hour,
+                s.params.plan.budget.clone(),
+            )
         };
 
         let result = assemble(&manifest, &tools, target_mb, recovered_budget, false).await;
@@ -891,7 +1082,10 @@ impl Recorder {
                 self.shared.sink.state(&st);
                 return Ok(st);
             }
-            if !matches!(inner.phase, Phase::Recording | Phase::Paused | Phase::Starting) {
+            if !matches!(
+                inner.phase,
+                Phase::Recording | Phase::Paused | Phase::Starting
+            ) {
                 return Err(busy("nothing to cancel"));
             }
             inner.transition = true;
@@ -927,7 +1121,10 @@ impl Recorder {
 }
 
 fn s_camera(inner: &Inner) -> bool {
-    inner.session.as_ref().is_some_and(|s| s.camera_connected && s.params.plan.camera.is_some())
+    inner
+        .session
+        .as_ref()
+        .is_some_and(|s| s.camera_connected && s.params.plan.camera.is_some())
 }
 
 fn disk_gib() -> u64 {
@@ -936,16 +1133,30 @@ fn disk_gib() -> u64 {
 
 fn has_lavfi(plan: &RecordingPlan) -> bool {
     let l = |s: &InputSource| matches!(s, InputSource::Lavfi { .. });
-    l(&plan.screen) || plan.camera.as_ref().is_some_and(l) || plan.mic.as_ref().is_some_and(l) || plan.system_audio.as_ref().is_some_and(l)
+    l(&plan.screen)
+        || plan.camera.as_ref().is_some_and(l)
+        || plan.mic.as_ref().is_some_and(l)
+        || plan.system_audio.as_ref().is_some_and(l)
 }
 
 /// Turn the segments of a manifest into the final file and describe it.
 /// Used by stop and by crash recovery (`recovered = true`).
-pub async fn assemble(manifest: &SessionManifest, tools: &Tools, target_mb_per_hour: u32, planned_budget: BitrateBudget, recovered: bool) -> CmdResult<RecordingResult> {
+pub async fn assemble(
+    manifest: &SessionManifest,
+    tools: &Tools,
+    target_mb_per_hour: u32,
+    planned_budget: BitrateBudget,
+    recovered: bool,
+) -> CmdResult<RecordingResult> {
     let sizes = |p: &Path| std::fs::metadata(p).ok().map(|m| m.len());
     let segments = match recovery::decide(manifest, &sizes) {
         recovery::RecoveryAction::Concat { segments, .. } => segments,
-        recovery::RecoveryAction::Discard => return Err(CommandError::new("error.recovery", "no recorded data to save")),
+        recovery::RecoveryAction::Discard => {
+            return Err(CommandError::new(
+                "error.recovery",
+                "no recorded data to save",
+            ))
+        }
     };
     if let Some(parent) = manifest.final_output.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -961,17 +1172,35 @@ pub async fn assemble(manifest: &SessionManifest, tools: &Tools, target_mb_per_h
     };
     let cmd = match manifest.native_audio {
         // Native segments: copy the video, level the mic and mix at the end (D27).
-        Some(audio) => native::finish_command(&ffmpeg, &input, concat, &manifest.final_output, audio, manifest.plan.audio_tracks, manifest.plan.audio_bitrate_kbps),
+        Some(audio) => native::finish_command(
+            &ffmpeg,
+            &input,
+            concat,
+            &manifest.final_output,
+            audio,
+            manifest.plan.audio_tracks,
+            manifest.plan.audio_bitrate_kbps,
+        ),
         None if concat => command::concat_command(&ffmpeg, &input, &manifest.final_output),
         None => command::remux_command(&ffmpeg, &input, &manifest.final_output),
     };
     let out = sidecar::run(&cmd).await?;
     if !out.success {
-        return Err(CommandError::new("error.ffmpegExit", format!("joining the segments failed: {}", out.stderr.trim())));
+        return Err(CommandError::new(
+            "error.ffmpegExit",
+            format!("joining the segments failed: {}", out.stderr.trim()),
+        ));
     }
     let info = sidecar::probe(tools, &manifest.final_output).await?;
     let ratio = budget::over_budget_ratio(info.bytes, info.duration_ms, target_mb_per_hour);
-    Ok(RecordingResult { session_id: manifest.session_id.clone(), path: info.path.clone(), info, budget: planned_budget, over_budget_ratio: ratio, recovered })
+    Ok(RecordingResult {
+        session_id: manifest.session_id.clone(),
+        path: info.path.clone(),
+        info,
+        budget: planned_budget,
+        over_budget_ratio: ratio,
+        recovered,
+    })
 }
 
 #[cfg(test)]
@@ -1031,20 +1260,33 @@ mod tests {
         assert_eq!((res.info.width, res.info.height), (1920, 1080));
         // Each segment also contains ffmpeg's start-up lag (up to ~1.5 s before the first progress
         // block), so two segments of 2.2 s of sleeping land between 4.4 s and 9 s; the paused 0.5 s is absent.
-        assert!((4_400..=9_000).contains(&res.info.duration_ms), "duration {}", res.info.duration_ms);
+        assert!(
+            (4_400..=9_000).contains(&res.info.duration_ms),
+            "duration {}",
+            res.info.duration_ms
+        );
         assert_eq!(res.info.audio_tracks, 1);
-        assert!(!dir.path().join("work").exists(), "work dir is removed after success");
+        assert!(
+            !dir.path().join("work").exists(),
+            "work dir is removed after success"
+        );
         assert_eq!(rec.phase().await, Phase::Idle);
         let phases = sink.states.lock().unwrap().clone();
         assert!(phases.contains(&Phase::Paused) && phases.contains(&Phase::Finalizing));
         assert_eq!(sink.finished.lock().unwrap().len(), 1);
-        assert!(sink.errors.lock().unwrap().is_empty(), "{:?}", sink.errors.lock().unwrap());
+        assert!(
+            sink.errors.lock().unwrap().is_empty(),
+            "{:?}",
+            sink.errors.lock().unwrap()
+        );
     }
 
     #[tokio::test]
     async fn manifest_tracks_segments_on_disk() {
         let dir = tempfile::tempdir().unwrap();
-        let Some(params) = lavfi_params(dir.path(), false) else { return };
+        let Some(params) = lavfi_params(dir.path(), false) else {
+            return;
+        };
         let rec = Recorder::new(Arc::new(NullSink));
         rec.start(params).await.unwrap();
         tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -1055,28 +1297,48 @@ mod tests {
         assert_eq!(m.status, SessionStatus::Recording);
         assert!(dir.path().join("work/seg-000.mp4").is_file());
         rec.cancel().await.unwrap();
-        assert!(!dir.path().join("work").exists(), "cancel deletes the work dir");
+        assert!(
+            !dir.path().join("work").exists(),
+            "cancel deletes the work dir"
+        );
     }
 
     #[tokio::test]
     async fn killed_ffmpeg_with_camera_continues_without_it() {
         let dir = tempfile::tempdir().unwrap();
-        let Some(params) = lavfi_params(dir.path(), true) else { return };
+        let Some(params) = lavfi_params(dir.path(), true) else {
+            return;
+        };
         let sink = Arc::new(Collect::default());
         let rec = Recorder::new(sink.clone());
         rec.start(params).await.unwrap();
         tokio::time::sleep(Duration::from_millis(4000)).await; // past the quick-failure window
-        // Simulate the camera vanishing: ffmpeg dies by itself.
-        let pids = std::process::Command::new("pgrep").args(["-f", "work/seg-000.mp4"]).output().unwrap();
-        let pid = String::from_utf8_lossy(&pids.stdout).lines().next().unwrap_or("").trim().to_string();
+                                                               // Simulate the camera vanishing: ffmpeg dies by itself.
+        let pids = std::process::Command::new("pgrep")
+            .args(["-f", "work/seg-000.mp4"])
+            .output()
+            .unwrap();
+        let pid = String::from_utf8_lossy(&pids.stdout)
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
         assert!(!pid.is_empty(), "no ffmpeg process found");
-        std::process::Command::new("kill").args(["-9", &pid]).status().unwrap();
+        std::process::Command::new("kill")
+            .args(["-9", &pid])
+            .status()
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(3500)).await;
         let st = rec.state().await;
         assert_eq!(st.phase, Phase::Recording);
         assert!(!st.camera_connected);
         assert_eq!(st.segments, 2);
-        assert!(sink.warnings.lock().unwrap().contains(&"warn.cameraLost".to_string()));
+        assert!(sink
+            .warnings
+            .lock()
+            .unwrap()
+            .contains(&"warn.cameraLost".to_string()));
         let res = rec.stop().await.unwrap();
         assert!(res.info.duration_ms >= 4_000, "{}", res.info.duration_ms);
     }
@@ -1084,8 +1346,12 @@ mod tests {
     #[tokio::test]
     async fn bad_input_fails_start_cleanly() {
         let dir = tempfile::tempdir().unwrap();
-        let Some(mut params) = lavfi_params(dir.path(), false) else { return };
-        params.plan.screen = InputSource::Lavfi { graph: "nosuchsource=1".into() };
+        let Some(mut params) = lavfi_params(dir.path(), false) else {
+            return;
+        };
+        params.plan.screen = InputSource::Lavfi {
+            graph: "nosuchsource=1".into(),
+        };
         let rec = Recorder::new(Arc::new(NullSink));
         let err = rec.start(params).await.unwrap_err();
         assert_eq!(err.code, "error.start");

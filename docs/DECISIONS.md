@@ -193,3 +193,35 @@ Measured the same way as D26 (real app, camera on, mic + computer audio, flash p
 Known: the first camera frames can be dark (the camera's own warm-up), so the PiP may start black for a moment. The
 floating window must exist before the helper builds its filter; the helper also rebuilds the filter every 3 s, because a
 window the excluded app opens later is not excluded until then (seen in run 1).
+
+## D28 · Recording one app window (2026-11-05)
+
+**Decision:** the picker gets a second tab, "One app window", on macOS only. Each tile is one on-screen window
+(app icon, app name, window title, a thumbnail), front-most first. The native helper records it with
+`SCContentFilter(desktopIndependentWindow:)`: the video follows the window when it moves or resizes
+(`scalesToFit`), nothing else is in the picture, and the output size is the window's pixel size at start (capped by
+the width setting, even). Closing the window ends the recording; what was recorded is saved and the app says
+`error.windowGone` instead of a generic ffmpeg error. The helper's `--app <bundle>` mode (all windows of one app on
+the display, black elsewhere) stays available on the command line but has no UI.
+
+**Why a window, not "the app":** a Meet-style share is a window; an app filter renders the whole display with the
+rest black, which nobody wants to watch. The tab is still called "App window" because that is how Gabriel asked for it.
+
+**Listing and thumbnails:** `sck-record --list` now carries each window's pixel size (point size × the scale of the
+display under its centre) and a 32 px PNG icon per app that owns a window; `sck-record --snapshot --window <id>
+--out x.jpg [--max-width 480]` takes one JPEG through `SCScreenshotManager` (macOS 14+; null on 13). Two things bit:
+
+- `SCScreenshotManager` and `SCStream` assert with `CGS_REQUIRE_INIT` unless something touched CoreGraphics first
+  (the display path happened to, through `CGDisplayPixelsWide`); both now call `CGMainDisplayID()` first.
+- Three snapshot helpers at once leave the capture daemon (`replayd`) reconnecting for ever and none returns. The app
+  serialises `window_thumbnail` with a mutex, the picker asks one at a time, and the helper exits by itself after 4 s.
+
+**Settings:** `capture.kind = "window"` is saved like before, but a CGWindowID changes whenever the window is reopened,
+so the picker only remembers the tab; the first window is preselected. `make_plan` accepts `Window` now (the caller
+passes the window's pixel size; the ffmpeg input is a placeholder). Without the native helper (Windows, macOS 12) a
+window target fails at start with `error.start`; the tab is not shown there.
+
+**Measured (A · 2026-11-05, this Mac):** WeChat window 872×886 recorded 25.7 s in the real app, HEVC + one AAC track,
+only the window in the picture, shown on the Summary page. Quitting Calculator 5 s into a command-line window
+recording: helper reports `sourceNotFound`, then `stopped`, and leaves a playable 4.8 s file.
+

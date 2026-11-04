@@ -7,7 +7,7 @@ use crate::recorder::{EventSink, StartParams};
 use crate::sidecar::{self, Tools};
 use crate::state::AppState;
 use chrono::Local;
-use recorder_core::native::{NativeCapture, NativeSource};
+use recorder_core::native::{self, NativeCapture, NativeSource, WindowInfo};
 use recorder_core::*;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -29,7 +29,10 @@ pub struct TauriSink {
 
 impl TauriSink {
     pub fn new(app: AppHandle) -> Self {
-        TauriSink { app, last_phase: std::sync::Mutex::new(Phase::Idle) }
+        TauriSink {
+            app,
+            last_phase: std::sync::Mutex::new(Phase::Idle),
+        }
     }
 }
 
@@ -66,15 +69,24 @@ impl EventSink for TauriSink {
         let _ = self.app.emit("recorder://warning", w);
     }
     fn error(&self, code: &str, detail: &str) {
-        let _ = self.app.emit("recorder://error", json!({ "code": code, "detail": detail }));
+        let _ = self.app.emit(
+            "recorder://error",
+            json!({ "code": code, "detail": detail }),
+        );
     }
     fn finished(&self, r: &RecordingResult) {
         let _ = self.app.emit("recorder://finished", r);
         let signed_in = crate::drive::load_account(&self.app).is_some();
-        let Ok(s) = load_settings(&self.app) else { return };
+        let Ok(s) = load_settings(&self.app) else {
+            return;
+        };
         let plan = recorder_core::settings::save_plan(s.save_local, s.save_drive, signed_in);
         if plan.upload {
-            spawn_upload(self.app.clone(), r.path.clone(), plan.remove_local_after_upload);
+            spawn_upload(
+                self.app.clone(),
+                r.path.clone(),
+                plan.remove_local_after_upload,
+            );
         }
     }
 }
@@ -82,7 +94,10 @@ impl EventSink for TauriSink {
 // ───────────────────────────── settings ─────────────────────────────
 
 pub fn default_output_dir() -> PathBuf {
-    dirs::video_dir().or_else(dirs::home_dir).unwrap_or_else(|| PathBuf::from(".")).join("FlowGT Recorder")
+    dirs::video_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("FlowGT Recorder")
 }
 
 pub fn effective_output_dir(s: &Settings) -> PathBuf {
@@ -142,7 +157,11 @@ pub async fn tools(state: &AppState) -> CmdResult<Tools> {
 }
 
 /// First encoder of the fallback chain that really encodes one test frame (cached).
-pub async fn resolve_encoder(state: &AppState, tools: &Tools, pref: EncoderPreference) -> CmdResult<EncoderChoice> {
+pub async fn resolve_encoder(
+    state: &AppState,
+    tools: &Tools,
+    pref: EncoderPreference,
+) -> CmdResult<EncoderChoice> {
     let mut cache = state.encoder.lock().await;
     if let Some(e) = cache.as_ref() {
         let wanted_codec = match pref {
@@ -163,15 +182,25 @@ pub async fn resolve_encoder(state: &AppState, tools: &Tools, pref: EncoderPrefe
             *cache = Some(choice.clone());
             return Ok(choice);
         }
-        log::warn!("encoder {} failed its test frame, trying the next one", choice.name);
+        log::warn!(
+            "encoder {} failed its test frame, trying the next one",
+            choice.name
+        );
         names.retain(|n| n != &choice.name);
     }
-    Err(CommandError::new("error.noEncoder", "no encoder passed its test frame"))
+    Err(CommandError::new(
+        "error.noEncoder",
+        "no encoder passed its test frame",
+    ))
 }
 
 pub async fn devices(app: &AppHandle, tools: &Tools) -> CmdResult<DeviceList> {
     let platform = Platform::current();
-    let out = sidecar::run(&command::list_devices_command(&tools.ffmpeg_str(), platform)).await?;
+    let out = sidecar::run(&command::list_devices_command(
+        &tools.ffmpeg_str(),
+        platform,
+    ))
+    .await?;
     // Device listings go to stderr and ffmpeg exits non-zero by design.
     let mut list = match platform {
         Platform::MacOs => devices::parse_avfoundation(&out.stderr),
@@ -183,11 +212,26 @@ pub async fn devices(app: &AppHandle, tools: &Tools) -> CmdResult<DeviceList> {
         .unwrap_or_default()
         .iter()
         .enumerate()
-        .map(|(i, m)| (i as u32, m.name().cloned().unwrap_or_else(|| format!("Display {}", i + 1)), m.size().width, m.size().height))
+        .map(|(i, m)| {
+            (
+                i as u32,
+                m.name()
+                    .cloned()
+                    .unwrap_or_else(|| format!("Display {}", i + 1)),
+                m.size().width,
+                m.size().height,
+            )
+        })
         .collect();
     // "Default" is whatever the system uses right now, not the first entry of ffmpeg's list.
-    mark_system_default(&mut list.cameras, permissions::default_device_name(Kind::Camera));
-    mark_system_default(&mut list.microphones, permissions::default_device_name(Kind::Microphone));
+    mark_system_default(
+        &mut list.cameras,
+        permissions::default_device_name(Kind::Camera),
+    );
+    mark_system_default(
+        &mut list.microphones,
+        permissions::default_device_name(Kind::Microphone),
+    );
     if platform == Platform::Windows {
         list.screens = devices::windows_screens(&monitors);
     } else {
@@ -232,7 +276,9 @@ pub async fn get_app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
     let t = tools(&state).await;
     let (path, version, bundled, encoder) = match &t {
         Ok(t) => {
-            let enc = resolve_encoder(&state, t, EncoderPreference::Auto).await.ok();
+            let enc = resolve_encoder(&state, t, EncoderPreference::Auto)
+                .await
+                .ok();
             (t.ffmpeg_str(), t.version().await, t.bundled, enc)
         }
         Err(_) => (String::new(), String::new(), false, None),
@@ -251,7 +297,12 @@ pub async fn get_app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
 // ───────────────────────────── permissions ─────────────────────────────
 
 fn kind_of(s: &str) -> CmdResult<Kind> {
-    Kind::parse(s).ok_or_else(|| CommandError::new("error.invalidArgument", format!("unknown permission kind {s:?}")))
+    Kind::parse(s).ok_or_else(|| {
+        CommandError::new(
+            "error.invalidArgument",
+            format!("unknown permission kind {s:?}"),
+        )
+    })
 }
 
 #[tauri::command]
@@ -262,7 +313,9 @@ pub async fn check_permissions() -> CmdResult<PermissionStatus> {
 #[tauri::command]
 pub async fn request_permission(kind: String) -> CmdResult<PermissionState> {
     let k = kind_of(&kind)?;
-    tokio::task::spawn_blocking(move || permissions::request(k)).await.map_err(|e| CommandError::new("error.unknown", e.to_string()))
+    tokio::task::spawn_blocking(move || permissions::request(k))
+        .await
+        .map_err(|e| CommandError::new("error.unknown", e.to_string()))
 }
 
 #[tauri::command]
@@ -276,17 +329,30 @@ pub async fn open_privacy_settings(kind: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn pick_output_dir(app: AppHandle) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
-    let picked = tokio::task::spawn_blocking(move || app.dialog().file().blocking_pick_folder()).await.map_err(|e| CommandError::new("error.unknown", e.to_string()))?;
-    Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
+    let picked = tokio::task::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+        .await
+        .map_err(|e| CommandError::new("error.unknown", e.to_string()))?;
+    Ok(picked
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
 pub async fn check_disk(app: AppHandle, path: Option<String>) -> CmdResult<DiskStatus> {
     let s = load_settings(&app)?;
-    let dir = path.filter(|p| !p.is_empty()).map(PathBuf::from).unwrap_or_else(|| effective_output_dir(&s));
+    let dir = path
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| effective_output_dir(&s));
     let (free, total) = crate::disk::space(&dir)?;
     let b = budget::budget_for(s.video.target_mb_per_hour, s.audio.bitrate_kbps, 1);
-    Ok(recorder_core::disk::status(&dir.to_string_lossy(), free, total, &b, s.low_disk_warn_gb))
+    Ok(recorder_core::disk::status(
+        &dir.to_string_lossy(),
+        free,
+        total,
+        &b,
+        s.low_disk_warn_gb,
+    ))
 }
 
 fn fallback_name(s: &Settings) -> &'static str {
@@ -300,12 +366,18 @@ fn fallback_name(s: &Settings) -> &'static str {
 #[tauri::command]
 pub async fn preview_filename(app: AppHandle, name: String) -> CmdResult<String> {
     let s = load_settings(&app)?;
-    Ok(filename::build_stem(&s.filename_template, &name, fallback_name(&s), Local::now()))
+    Ok(filename::build_stem(
+        &s.filename_template,
+        &name,
+        fallback_name(&s),
+        Local::now(),
+    ))
 }
 
 #[tauri::command]
 pub async fn reveal_in_file_manager(path: String) -> CmdResult<()> {
-    tauri_plugin_opener::reveal_item_in_dir(PathBuf::from(path)).map_err(|e| CommandError::io(e.to_string()))
+    tauri_plugin_opener::reveal_item_in_dir(PathBuf::from(path))
+        .map_err(|e| CommandError::io(e.to_string()))
 }
 
 #[tauri::command]
@@ -321,11 +393,30 @@ pub async fn probe_file(state: State<'_, AppState>, path: String) -> CmdResult<M
 async fn screen_size(tools: &Tools, device: &Device) -> CmdResult<(u32, u32)> {
     if Platform::current() == Platform::MacOs {
         if permissions::check().screen != PermissionState::Granted {
-            return Err(CommandError::new("error.permission", "screen recording permission is not granted"));
+            return Err(CommandError::new(
+                "error.permission",
+                "screen recording permission is not granted",
+            ));
         }
         let cmd = FfmpegCommand {
             program: tools.ffmpeg_str(),
-            args: ["-hide_banner", "-f", "avfoundation", "-framerate", "30", "-i", &format!("{}:none", device.id), "-frames:v", "1", "-f", "null", "-"].iter().map(|s| s.to_string()).collect(),
+            args: [
+                "-hide_banner",
+                "-f",
+                "avfoundation",
+                "-framerate",
+                "30",
+                "-i",
+                &format!("{}:none", device.id),
+                "-frames:v",
+                "1",
+                "-f",
+                "null",
+                "-",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
         };
         // Never let a stuck device hold the countdown forever; the OS size is a fine fallback.
         if let Ok(out) = tokio::time::timeout(Duration::from_secs(8), sidecar::run(&cmd)).await {
@@ -336,7 +427,10 @@ async fn screen_size(tools: &Tools, device: &Device) -> CmdResult<(u32, u32)> {
     }
     match (device.width, device.height) {
         (Some(w), Some(h)) if w > 0 && h > 0 => Ok((w, h)),
-        _ => Err(CommandError::new("error.start", "cannot determine the screen size")),
+        _ => Err(CommandError::new(
+            "error.start",
+            "cannot determine the screen size",
+        )),
     }
 }
 
@@ -366,19 +460,37 @@ fn find_tool(name: &str) -> Option<PathBuf> {
         }
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    candidates.push(root.join("binaries").join(format!("{name}-{}", sidecar::host_triple())));
+    candidates.push(
+        root.join("binaries")
+            .join(format!("{name}-{}", sidecar::host_triple())),
+    );
     candidates.push(root.join(format!("../helpers/{name}/.build/release/{name}")));
     candidates.into_iter().find(|p| p.is_file())
 }
 
 /// Pick the system-audio input for the current settings and machine.
-pub fn resolve_system_audio(s: &Settings, list: &DeviceList, helper: Option<&Path>) -> Option<InputSource> {
+pub fn resolve_system_audio(
+    s: &Settings,
+    list: &DeviceList,
+    helper: Option<&Path>,
+) -> Option<InputSource> {
     let platform = Platform::current();
     let by_id = |id: &str| match platform {
-        Platform::Windows => InputSource::DShow { video: None, audio: Some(id.to_string()) },
-        _ => InputSource::AvFoundation { video_index: None, audio_index: Some(id.to_string()), capture_cursor: false },
+        Platform::Windows => InputSource::DShow {
+            video: None,
+            audio: Some(id.to_string()),
+        },
+        _ => InputSource::AvFoundation {
+            video_index: None,
+            audio_index: Some(id.to_string()),
+            capture_cursor: false,
+        },
     };
-    let pipe = || InputSource::PcmPipe { path: String::new(), sample_rate: 48_000, channels: 2 };
+    let pipe = || InputSource::PcmPipe {
+        path: String::new(),
+        sample_rate: 48_000,
+        channels: 2,
+    };
     match &s.audio.system_audio {
         SystemAudioSource::Off => None,
         SystemAudioSource::Device(id) => Some(by_id(id)),
@@ -392,16 +504,45 @@ pub fn resolve_system_audio(s: &Settings, list: &DeviceList, helper: Option<&Pat
 }
 
 /// Everything needed to start: tools, encoder, devices, sizes, paths.
-pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str) -> CmdResult<StartParams> {
+pub async fn build_params(
+    app: &AppHandle,
+    state: &AppState,
+    meeting_name: &str,
+) -> CmdResult<StartParams> {
     let mut s = load_settings(app)?;
     let t = tools(state).await?;
     let list = devices(app, &t).await?;
     let platform = Platform::current();
     let encoder = resolve_encoder(state, &t, s.video.encoder_preference).await?;
 
+    // Native path (D27): the display id and its pixel size come from CoreGraphics, no probe.
+    let record_helper = find_record_helper().filter(|_| platform == Platform::MacOs);
+
+    // A window: only the native helper can record one, and it must still be open.
+    let window = match (&s.capture, &record_helper) {
+        (CaptureTarget::Window { window_id }, Some(h)) => {
+            let id = window_id.parse::<u32>().map_err(|_| {
+                CommandError::new("error.windowGone", format!("bad window id {window_id:?}"))
+            })?;
+            let list = window_list(h).await?;
+            Some(list.into_iter().find(|w| w.id == id).ok_or_else(|| {
+                CommandError::new("error.windowGone", format!("window {id} is not on screen"))
+            })?)
+        }
+        (CaptureTarget::Window { .. }, None) => {
+            return Err(CommandError::new(
+                "error.start",
+                "recording one window needs the native recorder (macOS 13 or newer)",
+            ))
+        }
+        _ => None,
+    };
+
     // Screen: the chosen one, else the first.
     let wanted_id = match &s.capture {
-        CaptureTarget::Display { display_id } | CaptureTarget::Region { display_id, .. } => Some(display_id.clone()),
+        CaptureTarget::Display { display_id } | CaptureTarget::Region { display_id, .. } => {
+            Some(display_id.clone())
+        }
         CaptureTarget::Window { .. } => None,
     };
     let screen = list
@@ -412,15 +553,22 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
         .cloned()
         .ok_or_else(|| CommandError::new("error.start", "no screen to record"))?;
     s.capture = match s.capture.clone() {
-        CaptureTarget::Region { region, .. } => CaptureTarget::Region { display_id: screen.id.clone(), region },
+        CaptureTarget::Region { region, .. } => CaptureTarget::Region {
+            display_id: screen.id.clone(),
+            region,
+        },
         CaptureTarget::Window { window_id } => CaptureTarget::Window { window_id },
-        CaptureTarget::Display { .. } => CaptureTarget::Display { display_id: screen.id.clone() },
+        CaptureTarget::Display { .. } => CaptureTarget::Display {
+            display_id: screen.id.clone(),
+        },
     };
-    // Native path (D27): the display id and its pixel size come from CoreGraphics, no probe.
-    let record_helper = find_record_helper().filter(|_| platform == Platform::MacOs);
-    let native_display = record_helper.as_ref().and_then(|_| list.screens.iter().position(|d| d.id == screen.id)).and_then(crate::windows::display_at);
-    let (sw, sh) = match native_display {
-        Some((_, w, h)) if w > 0 && h > 0 => (w, h),
+    let native_display = record_helper
+        .as_ref()
+        .and_then(|_| list.screens.iter().position(|d| d.id == screen.id))
+        .and_then(crate::windows::display_at);
+    let (sw, sh) = match (&window, native_display) {
+        (Some(w), _) => (w.width, w.height),
+        (None, Some((_, w, h))) if w > 0 && h > 0 => (w, h),
         _ => screen_size(&t, &screen).await?,
     };
 
@@ -454,12 +602,26 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
 
     let helper = find_helper();
     // A chosen mic goes to the helper by name; none chosen follows the system.
-    let chosen_mic = s.audio.mic_device_id.as_deref().filter(|_| wanted_mic).and_then(|id| list.microphones.iter().find(|d| d.id == id)).map(|d| d.name.clone());
-    let camera_name = s.camera.device_id.as_deref().and_then(|id| list.cameras.iter().find(|d| d.id == id)).map(|d| d.name.clone());
+    let chosen_mic = s
+        .audio
+        .mic_device_id
+        .as_deref()
+        .filter(|_| wanted_mic)
+        .and_then(|id| list.microphones.iter().find(|d| d.id == id))
+        .map(|d| d.name.clone());
+    let camera_name = s
+        .camera
+        .device_id
+        .as_deref()
+        .and_then(|id| list.cameras.iter().find(|d| d.id == id))
+        .map(|d| d.name.clone());
     let native = match (record_helper, native_display) {
         (Some(h), Some((display_id, _, _))) => Some(NativeCapture {
             helper: h,
-            source: NativeSource::Display(display_id),
+            source: match &window {
+                Some(w) => NativeSource::Window(w.id),
+                None => NativeSource::Display(display_id),
+            },
             crop: match &s.capture {
                 CaptureTarget::Region { region, .. } => Some(*region),
                 _ => None,
@@ -472,10 +634,17 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
         }),
         _ => None,
     };
-    let mic_helper = helper.clone().filter(|_| native.is_none() && platform == Platform::MacOs && s.audio.mic_enabled).map(|h| (h, chosen_mic));
+    let mic_helper = helper
+        .clone()
+        .filter(|_| native.is_none() && platform == Platform::MacOs && s.audio.mic_enabled)
+        .map(|h| (h, chosen_mic));
     let system = match &native {
         // The plan needs an audio source for the budget; the helper records it itself.
-        Some(n) if n.system_audio => Some(InputSource::PcmPipe { path: String::new(), sample_rate: 48_000, channels: 2 }),
+        Some(n) if n.system_audio => Some(InputSource::PcmPipe {
+            path: String::new(),
+            sample_rate: 48_000,
+            channels: 2,
+        }),
         Some(_) => None,
         None => resolve_system_audio(&s, &list, helper.as_deref()),
     };
@@ -489,12 +658,26 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
     plan.duration_limit_s = None;
 
     let (free, total) = crate::disk::space(&out_dir)?;
-    let ds = recorder_core::disk::status(&out_dir.to_string_lossy(), free, total, &b, s.low_disk_warn_gb);
+    let ds = recorder_core::disk::status(
+        &out_dir.to_string_lossy(),
+        free,
+        total,
+        &b,
+        s.low_disk_warn_gb,
+    );
     if recorder_core::disk::refuse_start(&ds) {
-        return Err(CommandError::new("error.noSpace", format!("{} MB free", free / 1_000_000)));
+        return Err(CommandError::new(
+            "error.noSpace",
+            format!("{} MB free", free / 1_000_000),
+        ));
     }
 
-    let stem = filename::build_stem(&s.filename_template, meeting_name, fallback_name(&s), Local::now());
+    let stem = filename::build_stem(
+        &s.filename_template,
+        meeting_name,
+        fallback_name(&s),
+        Local::now(),
+    );
     let final_output = filename::unique_path(&out_dir, &stem, "mp4", &|p| p.exists());
     let session_id = uuid::Uuid::new_v4().to_string();
     let work_dir = out_dir.join(".flowgt-recorder").join(&session_id);
@@ -516,8 +699,13 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
 /// Countdown, then start. Used by the command, the tray and the shortcut.
 pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderState> {
     let state = app.state::<AppState>();
-    if Platform::current() == Platform::MacOs && permissions::check().screen != PermissionState::Granted {
-        return Err(CommandError::new("error.permission", "screen recording permission is not granted"));
+    if Platform::current() == Platform::MacOs
+        && permissions::check().screen != PermissionState::Granted
+    {
+        return Err(CommandError::new(
+            "error.permission",
+            "screen recording permission is not granted",
+        ));
     }
     let st = state.recorder.begin_countdown().await?;
     *state.last_meeting.lock().expect("meeting lock") = meeting_name.clone();
@@ -550,7 +738,10 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
         };
         if let Err(e) = started {
             state.recorder.abort_countdown().await;
-            let _ = handle.emit("recorder://error", json!({ "code": e.code, "detail": e.detail }));
+            let _ = handle.emit(
+                "recorder://error",
+                json!({ "code": e.code, "detail": e.detail }),
+            );
         }
     });
     Ok(st)
@@ -558,7 +749,11 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
 
 /// A camera that will not open or a silent audio helper must not cost the recording: try again
 /// with less, and say what was dropped.
-async fn start_with_fallbacks(app: &AppHandle, state: &AppState, full: StartParams) -> CmdResult<RecorderState> {
+async fn start_with_fallbacks(
+    app: &AppHandle,
+    state: &AppState,
+    full: StartParams,
+) -> CmdResult<RecorderState> {
     let has_camera = full.plan.camera.is_some();
     // The native helper drops a failing camera by itself; only the ffmpeg path retries without the helper.
     let has_helper = full.native.is_none() && (full.helper.is_some() || full.mic_helper.is_some());
@@ -614,7 +809,10 @@ pub async fn toggle_recording(app: &AppHandle) {
             let name = state.last_meeting.lock().expect("meeting lock").clone();
             if let Err(e) = begin(app, name).await {
                 crate::windows::show_main(app);
-                let _ = app.emit("recorder://error", json!({ "code": e.code, "detail": e.detail }));
+                let _ = app.emit(
+                    "recorder://error",
+                    json!({ "code": e.code, "detail": e.detail }),
+                );
             }
         }
         Phase::Countdown => {
@@ -640,30 +838,161 @@ pub async fn toggle_pause(app: &AppHandle) {
     }
 }
 
+/// The helper's `--list`, parsed to the windows a user can pick.
+async fn window_list(helper: &Path) -> CmdResult<Vec<WindowInfo>> {
+    let mut c = tokio::process::Command::new(helper);
+    c.arg("--list")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(Duration::from_secs(8), c.output())
+        .await
+        .map_err(|_| CommandError::new("error.start", "listing windows took too long"))?
+        .map_err(|e| {
+            CommandError::new(
+                "error.start",
+                format!("cannot run the recorder helper: {e}"),
+            )
+        })?;
+    if !out.status.success() {
+        return Err(CommandError::new(
+            "error.start",
+            format!("listing windows failed ({})", out.status),
+        ));
+    }
+    Ok(native::parse_window_list(&String::from_utf8_lossy(
+        &out.stdout,
+    ))?)
+}
+
+/// The windows on screen that can be recorded on their own (macOS with the native helper;
+/// empty elsewhere and while the screen permission is missing).
+#[tauri::command]
+pub async fn list_windows() -> CmdResult<Vec<WindowInfo>> {
+    let Some(helper) = find_record_helper().filter(|_| Platform::current() == Platform::MacOs)
+    else {
+        return Ok(Vec::new());
+    };
+    if permissions::check().screen != PermissionState::Granted {
+        return Ok(Vec::new());
+    }
+    window_list(&helper).await
+}
+
+/// A small JPEG of one window as a data URL, for the picker. `None` when it cannot be taken
+/// (no helper, no permission, the window closed, macOS 13).
+#[tauri::command]
+pub async fn window_thumbnail(id: u32) -> CmdResult<Option<String>> {
+    use base64::Engine;
+    // One at a time: several SCScreenshotManager clients at once leave the capture daemon
+    // (replayd) reconnecting forever and none of them finishes.
+    static ONE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _turn = ONE.lock().await;
+    let Some(helper) = find_record_helper().filter(|_| Platform::current() == Platform::MacOs)
+    else {
+        return Ok(None);
+    };
+    if permissions::check().screen != PermissionState::Granted {
+        return Ok(None);
+    }
+    let file = std::env::temp_dir().join(format!(
+        "flowgt-thumb-{}-{}.jpg",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let mut c = tokio::process::Command::new(&helper);
+    c.args(["--snapshot", "--window", &id.to_string(), "--out"])
+        .arg(&file)
+        .args(["--max-width", "480"]);
+    c.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let ok = match tokio::time::timeout(Duration::from_secs(5), c.output()).await {
+        Ok(Ok(out)) if out.status.success() => true,
+        Ok(Ok(out)) => {
+            log::warn!(
+                "window thumbnail {id} failed: {} {}",
+                String::from_utf8_lossy(&out.stdout).trim(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+            false
+        }
+        Ok(Err(e)) => {
+            log::warn!("window thumbnail {id}: cannot run the helper: {e}");
+            false
+        }
+        Err(_) => {
+            log::warn!("window thumbnail {id}: the helper took more than 5 s");
+            false
+        }
+    };
+    let bytes = if ok {
+        tokio::fs::read(&file).await.ok()
+    } else {
+        None
+    };
+    let _ = tokio::fs::remove_file(&file).await;
+    Ok(bytes.filter(|b| !b.is_empty()).map(|b| {
+        format!(
+            "data:image/jpeg;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(b)
+        )
+    }))
+}
+
 /// A small JPEG of one screen as a data URL, for the screen picker. `None` when the
 /// screen-recording permission is missing (asking ffmpeg would only fail) or on other platforms.
 #[tauri::command]
 pub async fn screen_thumbnail(state: State<'_, AppState>, id: String) -> CmdResult<Option<String>> {
     use base64::Engine;
-    if Platform::current() != Platform::MacOs || permissions::check().screen != PermissionState::Granted {
+    if Platform::current() != Platform::MacOs
+        || permissions::check().screen != PermissionState::Granted
+    {
         return Ok(None);
     }
     let t = tools(&state).await?;
     let mut c = tokio::process::Command::new(&t.ffmpeg);
-    c.args(["-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30", "-capture_cursor", "0", "-i"])
-        .arg(format!("{id}:none"))
-        // The first frames from a screen input can be black; take a later one.
-        .args(["-vf", "select=gte(n\\,5),scale=480:-2", "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "5", "-f", "image2pipe", "-"])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
+    c.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "avfoundation",
+        "-framerate",
+        "30",
+        "-capture_cursor",
+        "0",
+        "-i",
+    ])
+    .arg(format!("{id}:none"))
+    // The first frames from a screen input can be black; take a later one.
+    .args([
+        "-vf",
+        "select=gte(n\\,5),scale=480:-2",
+        "-frames:v",
+        "1",
+        "-c:v",
+        "mjpeg",
+        "-q:v",
+        "5",
+        "-f",
+        "image2pipe",
+        "-",
+    ])
+    .stdin(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null())
+    .kill_on_drop(true);
     let Ok(Ok(out)) = tokio::time::timeout(Duration::from_secs(5), c.output()).await else {
         return Ok(None);
     };
     if !out.status.success() || out.stdout.is_empty() {
         return Ok(None);
     }
-    Ok(Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(&out.stdout))))
+    Ok(Some(format!(
+        "data:image/jpeg;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&out.stdout)
+    )))
 }
 
 /// Recordings on this computer and in Drive, merged by file name. A Drive failure must not hide
@@ -673,17 +1002,32 @@ pub async fn list_recordings(app: AppHandle) -> CmdResult<RecordingHistory> {
     let s = load_settings(&app)?;
     let mut entries = local_recordings(&effective_output_dir(&s));
     let mut drive_error = None;
-    if let (Some(account), Some(client)) = (crate::drive::load_account(&app), crate::drive::oauth_client()) {
-        match crate::drive::list_recordings(&crate::drive::Endpoints::google(), Some(&client), &account.refresh_token, None).await {
+    if let (Some(account), Some(client)) = (
+        crate::drive::load_account(&app),
+        crate::drive::oauth_client(),
+    ) {
+        match crate::drive::list_recordings(
+            &crate::drive::Endpoints::google(),
+            Some(&client),
+            &account.refresh_token,
+            None,
+        )
+        .await
+        {
             Ok(remote) => merge_recordings(&mut entries, remote),
             Err(e) => drive_error = Some(e),
         }
     }
-    Ok(RecordingHistory { entries, drive_error })
+    Ok(RecordingHistory {
+        entries,
+        drive_error,
+    })
 }
 
 fn local_recordings(dir: &Path) -> Vec<RecordingEntry> {
-    let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     read.flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -691,8 +1035,19 @@ fn local_recordings(dir: &Path) -> Vec<RecordingEntry> {
                 return None;
             }
             let meta = e.metadata().ok().filter(std::fs::Metadata::is_file)?;
-            let modified_ms = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as u64;
-            Some(RecordingEntry { name, path: Some(e.path().to_string_lossy().into_owned()), bytes: meta.len(), modified_ms: Some(modified_ms), ..Default::default() })
+            let modified_ms = meta
+                .modified()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_millis() as u64;
+            Some(RecordingEntry {
+                name,
+                path: Some(e.path().to_string_lossy().into_owned()),
+                bytes: meta.len(),
+                modified_ms: Some(modified_ms),
+                ..Default::default()
+            })
         })
         .collect()
 }
@@ -768,7 +1123,10 @@ pub async fn set_floating_visible(app: AppHandle, visible: bool) -> CmdResult<()
 // ───────────────────────────── Google Drive ─────────────────────────────
 
 fn drive_status_now(app: &AppHandle) -> DriveStatus {
-    DriveStatus { configured: crate::drive::oauth_client().is_some(), email: crate::drive::load_account(app).map(|a| a.email) }
+    DriveStatus {
+        configured: crate::drive::oauth_client().is_some(),
+        email: crate::drive::load_account(app).map(|a| a.email),
+    }
 }
 
 #[tauri::command]
@@ -778,7 +1136,12 @@ pub async fn drive_status(app: AppHandle) -> CmdResult<DriveStatus> {
 
 #[tauri::command]
 pub async fn drive_sign_in(app: AppHandle) -> CmdResult<DriveStatus> {
-    let client = crate::drive::oauth_client().ok_or_else(|| CommandError::new("error.driveNotConfigured", "this build has no Google OAuth client"))?;
+    let client = crate::drive::oauth_client().ok_or_else(|| {
+        CommandError::new(
+            "error.driveNotConfigured",
+            "this build has no Google OAuth client",
+        )
+    })?;
     let account = crate::drive::sign_in(&crate::drive::Endpoints::google(), &client, |url| {
         if let Err(e) = tauri_plugin_opener::open_url(url, None::<&str>) {
             log::warn!("cannot open the browser: {e}");
@@ -811,7 +1174,12 @@ mod save_tests {
         let mut e = local_recordings(dir.path());
         assert_eq!(e.len(), 1);
         assert_eq!(e[0].bytes, 5);
-        let cloud = |name: &str| RecordingEntry { name: name.into(), bytes: 9, drive_url: Some("u".into()), ..Default::default() };
+        let cloud = |name: &str| RecordingEntry {
+            name: name.into(),
+            bytes: 9,
+            drive_url: Some("u".into()),
+            ..Default::default()
+        };
         merge_recordings(&mut e, vec![cloud("a.mp4"), cloud("b.mp4")]);
         assert_eq!(e.len(), 2);
         assert_eq!((e[0].bytes, e[0].drive_url.as_deref()), (5, Some("u")));
@@ -823,7 +1191,10 @@ mod save_tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("rec.mp4");
         std::fs::write(&p, vec![7u8; 10]).unwrap();
-        let up = |size| Uploaded { link: String::new(), size };
+        let up = |size| Uploaded {
+            link: String::new(),
+            size,
+        };
         assert!(!remove_if_confirmed(&p, &up(Some(9))));
         assert!(!remove_if_confirmed(&p, &up(None)));
         assert!(p.exists());
@@ -835,7 +1206,10 @@ mod save_tests {
 #[tauri::command]
 pub async fn drive_upload(app: AppHandle, path: String) -> CmdResult<()> {
     if crate::drive::load_account(&app).is_none() {
-        return Err(CommandError::new("error.driveSignedOut", "not signed in to Google"));
+        return Err(CommandError::new(
+            "error.driveSignedOut",
+            "not signed in to Google",
+        ));
     }
     // A retry or a manual upload follows the same rule as the automatic one.
     let s = load_settings(&app)?;
@@ -848,22 +1222,51 @@ pub async fn drive_upload(app: AppHandle, path: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn open_drive_link(url: String) -> CmdResult<()> {
     if !url.starts_with("https://drive.google.com/") {
-        return Err(CommandError::new("error.invalidArgument", "not a Google Drive link"));
+        return Err(CommandError::new(
+            "error.invalidArgument",
+            "not a Google Drive link",
+        ));
     }
     tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| CommandError::io(e.to_string()))
 }
 
 fn spawn_upload(app: AppHandle, path: String, remove_local: bool) {
     tauri::async_runtime::spawn(async move {
-        let send = |percent: f64, done: bool, url: Option<String>, error: Option<String>, local_removed: bool| {
-            let _ = app.emit("drive://progress", DriveProgress { path: path.clone(), percent, done, url, error, local_removed });
+        let send = |percent: f64,
+                    done: bool,
+                    url: Option<String>,
+                    error: Option<String>,
+                    local_removed: bool| {
+            let _ = app.emit(
+                "drive://progress",
+                DriveProgress {
+                    path: path.clone(),
+                    percent,
+                    done,
+                    url,
+                    error,
+                    local_removed,
+                },
+            );
         };
-        let emit = |percent: f64, done: bool, url: Option<String>, error: Option<String>| send(percent, done, url, error, false);
+        let emit = |percent: f64, done: bool, url: Option<String>, error: Option<String>| {
+            send(percent, done, url, error, false)
+        };
         emit(0.0, false, None, None);
         let outcome = async {
-            let client = crate::drive::oauth_client().ok_or_else(|| "this build has no Google OAuth client".to_string())?;
-            let account = crate::drive::load_account(&app).ok_or_else(|| "not signed in".to_string())?;
-            crate::drive::upload_recording(&crate::drive::Endpoints::google(), Some(&client), &account.refresh_token, None, Path::new(&path), |pct| emit(pct, false, None, None)).await
+            let client = crate::drive::oauth_client()
+                .ok_or_else(|| "this build has no Google OAuth client".to_string())?;
+            let account =
+                crate::drive::load_account(&app).ok_or_else(|| "not signed in".to_string())?;
+            crate::drive::upload_recording(
+                &crate::drive::Endpoints::google(),
+                Some(&client),
+                &account.refresh_token,
+                None,
+                Path::new(&path),
+                |pct| emit(pct, false, None, None),
+            )
+            .await
         }
         .await;
         match outcome {
@@ -887,23 +1290,48 @@ fn remove_if_confirmed(path: &Path, up: &crate::drive::Uploaded) -> bool {
 // ───────────────────────────── compress ─────────────────────────────
 
 #[tauri::command]
-pub async fn compress_to_budget(app: AppHandle, state: State<'_, AppState>, path: String, target_mb: f64) -> CmdResult<String> {
+pub async fn compress_to_budget(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    target_mb: f64,
+) -> CmdResult<String> {
     let t = tools(&state).await?;
     let s = load_settings(&app)?;
     let encoder = resolve_encoder(&state, &t, s.video.encoder_preference).await?;
     let input = PathBuf::from(&path);
     let info = sidecar::probe(&t, &input).await?;
-    let dir = input.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-    let stem = input.file_stem().map(|x| x.to_string_lossy().into_owned()).unwrap_or_else(|| "recording".into());
-    let output = filename::unique_path(&dir, &format!("{stem} (compressed)"), "mp4", &|p| p.exists());
-    let cmd = command::compress_command(&t.ffmpeg_str(), &input, &output, info.duration_ms, target_mb, &encoder, s.audio.bitrate_kbps);
+    let dir = input
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let stem = input
+        .file_stem()
+        .map(|x| x.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "recording".into());
+    let output = filename::unique_path(&dir, &format!("{stem} (compressed)"), "mp4", &|p| {
+        p.exists()
+    });
+    let cmd = command::compress_command(
+        &t.ffmpeg_str(),
+        &input,
+        &output,
+        info.duration_ms,
+        target_mb,
+        &encoder,
+        s.audio.bitrate_kbps,
+    );
     let job_id = uuid::Uuid::new_v4().to_string();
     let id = job_id.clone();
     let duration = info.duration_ms.max(1);
     tauri::async_runtime::spawn(async move {
         use tokio::io::AsyncReadExt;
         let mut c = tokio::process::Command::new(&cmd.program);
-        c.args(&cmd.args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
+        c.args(&cmd.args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
         let spawned = c.spawn();
         let mut child = match spawned {
             Ok(c) => c,
@@ -958,11 +1386,17 @@ async fn scan(app: &AppHandle, state: &AppState) -> CmdResult<Vec<SessionManifes
     let s = load_settings(app)?;
     let active = state.recorder.state().await.session_id;
     let mut out = Vec::new();
-    let Ok(mut rd) = tokio::fs::read_dir(work_root(&s)).await else { return Ok(out) };
+    let Ok(mut rd) = tokio::fs::read_dir(work_root(&s)).await else {
+        return Ok(out);
+    };
     while let Ok(Some(entry)) = rd.next_entry().await {
         let mp = recovery::manifest_path(&entry.path());
-        let Ok(text) = tokio::fs::read_to_string(&mp).await else { continue };
-        let Ok(m) = recovery::manifest_from_json(&text) else { continue };
+        let Ok(text) = tokio::fs::read_to_string(&mp).await else {
+            continue;
+        };
+        let Ok(m) = recovery::manifest_from_json(&text) else {
+            continue;
+        };
         if Some(&m.session_id) == active.as_ref() {
             continue;
         }
@@ -976,7 +1410,10 @@ fn sizes(p: &Path) -> Option<u64> {
 }
 
 #[tauri::command]
-pub async fn list_recoverable(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Vec<RecoverableSession>> {
+pub async fn list_recoverable(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CmdResult<Vec<RecoverableSession>> {
     let mut list = Vec::new();
     for m in scan(&app, &state).await? {
         match recovery::decide(&m, &sizes) {
@@ -990,22 +1427,56 @@ pub async fn list_recoverable(app: AppHandle, state: State<'_, AppState>) -> Cmd
 }
 
 #[tauri::command]
-pub async fn recover_session(app: AppHandle, state: State<'_, AppState>, session_id: String) -> CmdResult<RecordingResult> {
+pub async fn recover_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+) -> CmdResult<RecordingResult> {
     let t = tools(&state).await?;
     let s = load_settings(&app)?;
-    let m = scan(&app, &state).await?.into_iter().find(|m| m.session_id == session_id).ok_or_else(|| CommandError::new("error.recovery", "no such session"))?;
-    let out_dir = m.final_output.parent().map(Path::to_path_buf).unwrap_or_else(|| effective_output_dir(&s));
-    let stem = m.final_output.file_stem().map(|x| x.to_string_lossy().into_owned()).unwrap_or_else(|| "recovered".into());
+    let m = scan(&app, &state)
+        .await?
+        .into_iter()
+        .find(|m| m.session_id == session_id)
+        .ok_or_else(|| CommandError::new("error.recovery", "no such session"))?;
+    let out_dir = m
+        .final_output
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| effective_output_dir(&s));
+    let stem = m
+        .final_output
+        .file_stem()
+        .map(|x| x.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "recovered".into());
     let mut m2 = m.clone();
-    m2.final_output = filename::unique_path(&out_dir, &format!("{stem} (recovered)"), "mp4", &|p| p.exists());
-    let res = crate::recorder::assemble(&m2, &t, s.video.target_mb_per_hour, m2.plan.budget.clone(), true).await?;
+    m2.final_output =
+        filename::unique_path(&out_dir, &format!("{stem} (recovered)"), "mp4", &|p| {
+            p.exists()
+        });
+    let res = crate::recorder::assemble(
+        &m2,
+        &t,
+        s.video.target_mb_per_hour,
+        m2.plan.budget.clone(),
+        true,
+    )
+    .await?;
     let _ = tokio::fs::remove_dir_all(&m.work_dir).await;
     Ok(res)
 }
 
 #[tauri::command]
-pub async fn discard_session(app: AppHandle, state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
-    if let Some(m) = scan(&app, &state).await?.into_iter().find(|m| m.session_id == session_id) {
+pub async fn discard_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+) -> CmdResult<()> {
+    if let Some(m) = scan(&app, &state)
+        .await?
+        .into_iter()
+        .find(|m| m.session_id == session_id)
+    {
         tokio::fs::remove_dir_all(&m.work_dir).await?;
     }
     Ok(())
@@ -1037,6 +1508,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         discard_session,
         set_floating_visible,
         screen_thumbnail,
+        list_windows,
+        window_thumbnail,
         relaunch_app,
         list_recordings,
         show_screen_marker,
@@ -1071,8 +1544,18 @@ mod tests {
     }
 
     fn loopbacks() -> DeviceList {
-        let d = Device { id: "5".into(), name: "BlackHole 2ch".into(), kind: DeviceKind::Microphone, is_default: false, width: None, height: None };
-        DeviceList { loopbacks: vec![d], ..Default::default() }
+        let d = Device {
+            id: "5".into(),
+            name: "BlackHole 2ch".into(),
+            kind: DeviceKind::Microphone,
+            is_default: false,
+            width: None,
+            height: None,
+        };
+        DeviceList {
+            loopbacks: vec![d],
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1081,7 +1564,13 @@ mod tests {
         s.audio.system_audio = SystemAudioSource::Off;
         assert!(resolve_system_audio(&s, &loopbacks(), None).is_none());
         s.audio.system_audio = SystemAudioSource::Auto;
-        assert!(matches!(resolve_system_audio(&s, &loopbacks(), Some(Path::new("x"))), Some(InputSource::PcmPipe { .. })), "the helper wins");
+        assert!(
+            matches!(
+                resolve_system_audio(&s, &loopbacks(), Some(Path::new("x"))),
+                Some(InputSource::PcmPipe { .. })
+            ),
+            "the helper wins"
+        );
         // No helper: falls back to the loopback device, or nothing when there is none.
         assert!(resolve_system_audio(&s, &loopbacks(), None).is_some());
         assert!(resolve_system_audio(&s, &DeviceList::default(), None).is_none());
@@ -1089,21 +1578,54 @@ mod tests {
         assert!(resolve_system_audio(&s, &DeviceList::default(), None).is_some());
         s.audio.system_audio = SystemAudioSource::Helper;
         assert!(resolve_system_audio(&s, &DeviceList::default(), None).is_none());
-        assert!(matches!(resolve_system_audio(&s, &DeviceList::default(), Some(Path::new("x"))), Some(InputSource::PcmPipe { .. })));
+        assert!(matches!(
+            resolve_system_audio(&s, &DeviceList::default(), Some(Path::new("x"))),
+            Some(InputSource::PcmPipe { .. })
+        ));
     }
 
     fn dev(id: &str, name: &str, is_default: bool) -> Device {
-        Device { id: id.into(), name: name.into(), kind: DeviceKind::Camera, is_default, width: None, height: None }
+        Device {
+            id: id.into(),
+            name: name.into(),
+            kind: DeviceKind::Camera,
+            is_default,
+            width: None,
+            height: None,
+        }
     }
 
     #[test]
     fn device_choice_follows_the_system_unless_one_was_picked() {
-        let list = vec![dev("0", "Virtual", false), dev("1", "FaceTime", true), dev("2", "Logi", false)];
-        assert_eq!(resolve_device(&list, None), Some("1".into()), "system default, not the first entry");
-        assert_eq!(resolve_device(&list, Some("Logi")), Some("2".into()), "chosen by name");
-        assert_eq!(resolve_device(&list, Some("2")), Some("2".into()), "an old stored id still works");
-        assert_eq!(resolve_device(&list, Some("Unplugged")), Some("1".into()), "a missing device falls back to the default");
-        assert_eq!(resolve_device(&[dev("0", "Only", false)], None), Some("0".into()));
+        let list = vec![
+            dev("0", "Virtual", false),
+            dev("1", "FaceTime", true),
+            dev("2", "Logi", false),
+        ];
+        assert_eq!(
+            resolve_device(&list, None),
+            Some("1".into()),
+            "system default, not the first entry"
+        );
+        assert_eq!(
+            resolve_device(&list, Some("Logi")),
+            Some("2".into()),
+            "chosen by name"
+        );
+        assert_eq!(
+            resolve_device(&list, Some("2")),
+            Some("2".into()),
+            "an old stored id still works"
+        );
+        assert_eq!(
+            resolve_device(&list, Some("Unplugged")),
+            Some("1".into()),
+            "a missing device falls back to the default"
+        );
+        assert_eq!(
+            resolve_device(&[dev("0", "Only", false)], None),
+            Some("0".into())
+        );
         assert_eq!(resolve_device(&[], None), None);
     }
 

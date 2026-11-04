@@ -37,9 +37,9 @@ pub fn make_plan(settings: &Settings, platform: Platform, screen_w: u32, screen_
     let (screen, crop, src_w, src_h) = match &settings.capture {
         CaptureTarget::Display { display_id } => (screen_input(platform, display_id)?, None, screen_w, screen_h),
         CaptureTarget::Region { display_id, region } => (screen_input(platform, display_id)?, Some(*region), region.w, region.h),
-        CaptureTarget::Window { .. } => {
-            return Err(crate::CoreError::Unsupported("window capture needs the native capture path (D9)".into()));
-        }
+        // A window is recorded by the native helper (D27), which takes the window id itself; the
+        // ffmpeg input here is a placeholder and `screen_w`/`screen_h` are the window's pixels.
+        CaptureTarget::Window { .. } => (screen_input(platform, "0")?, None, screen_w, screen_h),
     };
     let (out_width, out_height) = output_size(src_w, src_h, settings.video.max_width);
 
@@ -479,7 +479,9 @@ mod tests {
         assert_eq!((plan.out_width, plan.out_height), (1280, 720));
 
         settings.capture = CaptureTarget::Window { window_id: "w".into() };
-        assert!(matches!(make_plan(&settings, Platform::MacOs, 1, 1, sample_plan().encoder, Path::new("s.mp4"), None), Err(crate::CoreError::Unsupported(_))));
+        let plan = make_plan(&settings, Platform::MacOs, 1180, 761, sample_plan().encoder, Path::new("s.mp4"), None).unwrap();
+        assert_eq!((plan.out_width, plan.out_height), (1180, 760));
+        assert_eq!(plan.crop, None);
 
         let mut win = crate::settings::default_settings(Platform::Windows);
         win.capture = CaptureTarget::Display { display_id: "0".into() };

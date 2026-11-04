@@ -47,6 +47,57 @@ impl NativeAudio {
     }
 }
 
+/// One window the user can pick, from the helper's `--list`. Front-most first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowInfo {
+    /// CGWindowID; changes every time the window is opened.
+    pub id: u32,
+    pub title: String,
+    pub app: String,
+    pub bundle_id: String,
+    pub pid: u32,
+    /// Size in pixels on the display it sits on.
+    pub width: u32,
+    pub height: u32,
+    /// The app's icon as a base64 PNG, when the helper had one.
+    pub icon: Option<String>,
+}
+
+/// The windows from the helper's `--list` JSON, with each app's icon attached by pid.
+pub fn parse_window_list(json: &str) -> crate::Result<Vec<WindowInfo>> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct App {
+        pid: u32,
+        icon: Option<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Win {
+        id: u32,
+        title: String,
+        app: String,
+        bundle_id: String,
+        pid: u32,
+        width: u32,
+        height: u32,
+    }
+    #[derive(Deserialize)]
+    struct List {
+        apps: Vec<App>,
+        windows: Vec<Win>,
+    }
+    let list: List = serde_json::from_str(json).map_err(|e| crate::CoreError::Parse(format!("window list: {e}")))?;
+    let icons: std::collections::HashMap<u32, String> = list.apps.into_iter().filter_map(|a| a.icon.map(|i| (a.pid, i))).collect();
+    Ok(list
+        .windows
+        .into_iter()
+        .filter(|w| w.width >= 2 && w.height >= 2)
+        .map(|w| WindowInfo { icon: icons.get(&w.pid).cloned(), id: w.id, title: w.title, app: w.app, bundle_id: w.bundle_id, pid: w.pid, width: w.width, height: w.height })
+        .collect())
+}
+
 /// Command line for one segment. The frame size, rate, codec and bitrates come from the plan.
 pub fn helper_args(cap: &NativeCapture, plan: &RecordingPlan, output: &Path) -> Vec<String> {
     let mut a: Vec<String> = Vec::new();
@@ -148,7 +199,8 @@ pub fn progress_from(seconds: f64, bytes: u64, frames: u64, dropped: u64, finish
 pub fn error_code(helper_code: &str) -> &'static str {
     match helper_code {
         "permission" => "error.permission",
-        "sourceNotFound" => "error.start",
+        // At start: the window is not on screen; while recording: it was closed.
+        "sourceNotFound" => "error.windowGone",
         "outputFailed" => "error.ffmpegExit",
         "unsupportedOs" => "error.start",
         _ => "error.start",
@@ -284,8 +336,23 @@ mod tests {
     }
 
     #[test]
+    fn window_list_attaches_icons_and_drops_empty_windows() {
+        let json = r#"{"displays":[],"cameras":[],"microphones":[],
+            "apps":[{"bundleId":"com.a","name":"A","pid":7,"icon":"AAAA"},{"bundleId":"com.b","name":"B","pid":8}],
+            "windows":[{"id":12,"title":"Doc","app":"A","bundleId":"com.a","pid":7,"x":0,"y":0,"pointWidth":10,"pointHeight":5,"width":20,"height":10},
+                       {"id":13,"title":"","app":"B","bundleId":"com.b","pid":8,"x":0,"y":0,"pointWidth":1,"pointHeight":1,"width":1,"height":1}]}"#;
+        let w = parse_window_list(json).unwrap();
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].id, 12);
+        assert_eq!(w[0].icon.as_deref(), Some("AAAA"));
+        assert_eq!((w[0].width, w[0].height), (20, 10));
+        assert!(parse_window_list("nope").is_err());
+    }
+
+    #[test]
     fn error_codes() {
         assert_eq!(error_code("permission"), "error.permission");
+        assert_eq!(error_code("sourceNotFound"), "error.windowGone");
         assert_eq!(error_code("whatever"), "error.start");
     }
 }
