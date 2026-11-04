@@ -39,6 +39,41 @@ fn screen_rect(_app: &AppHandle, index: usize) -> Option<(f64, f64, f64, f64)> {
     Some((r.x, r.y, r.w, r.h))
 }
 
+/// CGDirectDisplayID of the nth screen in the capture tool's order, and its size in pixels.
+#[cfg(target_os = "macos")]
+pub fn display_at(index: usize) -> Option<(u32, u32, u32)> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGGetActiveDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
+        fn CGDisplayCopyDisplayMode(display: u32) -> *mut std::ffi::c_void;
+        fn CGDisplayModeGetPixelWidth(mode: *mut std::ffi::c_void) -> usize;
+        fn CGDisplayModeGetPixelHeight(mode: *mut std::ffi::c_void) -> usize;
+        fn CGDisplayModeRelease(mode: *mut std::ffi::c_void);
+    }
+    let mut ids = [0u32; 16];
+    let mut count = 0u32;
+    // SAFETY: the buffer holds `max` entries.
+    if unsafe { CGGetActiveDisplayList(16, ids.as_mut_ptr(), &mut count) } != 0 || index >= count as usize {
+        return None;
+    }
+    let id = ids[index];
+    // SAFETY: the id is from the active list; the mode is released after reading two numbers.
+    unsafe {
+        let mode = CGDisplayCopyDisplayMode(id);
+        if mode.is_null() {
+            return None;
+        }
+        let (w, h) = (CGDisplayModeGetPixelWidth(mode), CGDisplayModeGetPixelHeight(mode));
+        CGDisplayModeRelease(mode);
+        Some((id, w as u32, h as u32))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn display_at(_index: usize) -> Option<(u32, u32, u32)> {
+    None
+}
+
 #[cfg(not(target_os = "macos"))]
 fn screen_rect(app: &AppHandle, index: usize) -> Option<(f64, f64, f64, f64)> {
     let monitors = app.available_monitors().ok()?;

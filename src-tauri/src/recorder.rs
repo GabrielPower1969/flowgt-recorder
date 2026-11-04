@@ -15,7 +15,12 @@
 use crate::error::{CmdResult, CommandError};
 use crate::sidecar::{self, Tools};
 use chrono::Utc;
-use recorder_core::{budget, command, progress::{classify_stderr_line, ProgressParser}, recovery, *};
+use recorder_core::{
+    budget, command,
+    native::{self, NativeCapture, NativeEvent},
+    progress::{classify_stderr_line, ProgressParser},
+    recovery, *,
+};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -59,6 +64,9 @@ pub struct StartParams {
     /// The helper records the mic when set (macOS): ffmpeg's avfoundation audio input drops buffers.
     /// `Some(None)` is the system's current input, `Some(Some(name))` a chosen one.
     pub mic_helper: Option<(PathBuf, Option<String>)>,
+    /// Record through the native helper instead of ffmpeg (macOS, D27). `helper` and
+    /// `mic_helper` are then unused.
+    pub native: Option<NativeCapture>,
 }
 
 const STOP_GRACE: Duration = Duration::from_secs(8);
@@ -101,6 +109,8 @@ struct Session {
     monitor: Option<tokio::task::JoinHandle<()>>,
     helper_child: Option<Child>,
     mic_child: Option<Child>,
+    /// The app error code behind the native helper's last `error` event.
+    native_error: Option<String>,
 }
 
 struct Inner {
@@ -220,8 +230,9 @@ impl Recorder {
 
     async fn start_inner(&self, params: StartParams) -> CmdResult<RecorderState> {
         tokio::fs::create_dir_all(&params.work_dir).await?;
-        let camera = params.plan.camera.is_some();
-        let manifest = recovery::new_manifest(&params.session_id, &params.meeting_name, params.final_output.clone(), params.work_dir.clone(), params.plan.clone(), Utc::now());
+        let camera = params.plan.camera.is_some() || params.native.as_ref().is_some_and(|n| n.camera.is_some());
+        let mut manifest = recovery::new_manifest(&params.session_id, &params.meeting_name, params.final_output.clone(), params.work_dir.clone(), params.plan.clone(), Utc::now());
+        manifest.native_audio = params.native.as_ref().map(native::NativeAudio::of);
         let (first_tx, first_rx) = oneshot::channel();
         {
             let mut inner = self.shared.inner.lock().await;
@@ -241,6 +252,7 @@ impl Recorder {
                 monitor: None,
                 helper_child: None,
                 mic_child: None,
+                native_error: None,
             });
             self.spawn_next_segment(&mut inner).await?;
         }
@@ -258,12 +270,17 @@ impl Recorder {
         match tokio::time::timeout(START_TIMEOUT, rx).await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(_)) => {
-                let tail = self.shared.inner.lock().await.session.as_ref().map(|s| s.last_error_tail.join("\n")).unwrap_or_default();
-                Err(CommandError::new("error.start", format!("ffmpeg exited before recording started:\n{tail}")))
+                let (tail, code) = {
+                    let inner = self.shared.inner.lock().await;
+                    let s = inner.session.as_ref();
+                    (s.map(|s| s.last_error_tail.join("\n")).unwrap_or_default(), s.and_then(|s| s.native_error.clone()))
+                };
+                let code = code.unwrap_or_else(|| "error.start".to_string());
+                Err(CommandError::new(&code, format!("the recorder exited before recording started:\n{tail}")))
             }
             Err(_) => {
                 self.kill_live().await;
-                Err(CommandError::new("error.start", "ffmpeg produced no frames within 12 seconds"))
+                Err(CommandError::new("error.start", "the recorder produced no frames within 12 seconds"))
             }
         }
     }
@@ -276,10 +293,33 @@ impl Recorder {
         write_manifest(&s.manifest).await?;
 
         let mut plan = s.params.plan.clone();
-        plan.output = path;
+        plan.output = path.clone();
         if !s.camera_connected {
             plan.camera = None;
             plan.pip = None;
+        }
+
+        // Native path: one helper process per segment, no ffmpeg until the end.
+        if let Some(cap) = s.params.native.clone() {
+            let mut cap = cap;
+            if !s.camera_connected {
+                cap.camera = None;
+            }
+            let args = native::helper_args(&cap, &s.params.plan, &path);
+            let mut c = Command::new(&cap.helper);
+            c.args(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+            let mut child = c.spawn().map_err(|e| CommandError::new("error.start", format!("cannot start the recorder helper: {e}")))?;
+            let stdout = child.stdout.take();
+            let stderr = child.stderr.take();
+            let stdin = child.stdin.take();
+            let (stop_tx, stop_rx) = oneshot::channel::<()>();
+            let (done_tx, done_rx) = oneshot::channel::<SegmentOutcome>();
+            s.live = Some(Live { index, stop_tx: Some(stop_tx), done_rx, started: Instant::now() });
+            s.seg_started = Some(Instant::now());
+            s.live_bytes = 0;
+            s.native_error = None;
+            self.supervise_native(child, stdout, stderr, stdin, stop_rx, done_tx, index);
+            return Ok(());
         }
 
         // The ScreenCaptureKit helper feeds a FIFO that ffmpeg reads; one pair per segment.
@@ -416,6 +456,100 @@ impl Recorder {
                 rec.on_unexpected_exit(index, outcome).await;
             }
         });
+    }
+
+    /// Watch one native helper process: JSON events on stdout, diagnostics on stderr, "stop" on
+    /// stdin to finish. Same shape as `supervise`, without ffmpeg's progress blocks.
+    #[allow(clippy::too_many_arguments)]
+    fn supervise_native(
+        &self,
+        mut child: Child,
+        stdout: Option<tokio::process::ChildStdout>,
+        stderr: Option<tokio::process::ChildStderr>,
+        mut stdin: Option<tokio::process::ChildStdin>,
+        mut stop_rx: oneshot::Receiver<()>,
+        done_tx: oneshot::Sender<SegmentOutcome>,
+        index: u32,
+    ) {
+        let rec = self.clone();
+        tokio::spawn(async move {
+            let rec_out = rec.clone();
+            let out_task = tokio::spawn(async move {
+                let mut tail: Vec<String> = Vec::new();
+                let Some(out) = stdout else { return tail };
+                let mut lines = BufReader::new(out).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    match native::parse_event(&line) {
+                        Some(NativeEvent::Started { .. }) => rec_out.on_progress(native::progress_from(0.0, 0, 0, 0, false)).await,
+                        Some(NativeEvent::Progress { seconds, bytes, frames, dropped }) => rec_out.on_progress(native::progress_from(seconds, bytes, frames, dropped, false)).await,
+                        Some(NativeEvent::Warning { code, detail }) => {
+                            if code == "warn.cameraLost" {
+                                rec_out.camera_gone().await;
+                            }
+                            rec_out.push_warning(&code, &detail).await;
+                        }
+                        Some(NativeEvent::Error { code, detail }) => {
+                            let mut inner = rec_out.shared.inner.lock().await;
+                            if let Some(s) = inner.session.as_mut() {
+                                s.native_error = Some(native::error_code(&code).to_string());
+                            }
+                            tail.push(format!("{code}: {detail}"));
+                        }
+                        Some(NativeEvent::Stopped { .. }) | None => {}
+                    }
+                }
+                tail
+            });
+            let err_task = tokio::spawn(async move {
+                let mut tail: Vec<String> = Vec::new();
+                if let Some(e) = stderr {
+                    let mut lines = BufReader::new(e).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        tail.push(line);
+                        if tail.len() > 30 {
+                            tail.remove(0);
+                        }
+                    }
+                }
+                tail
+            });
+
+            let mut requested = false;
+            let status = tokio::select! {
+                st = child.wait() => st,
+                _ = &mut stop_rx => {
+                    requested = true;
+                    if let Some(mut si) = stdin.take() {
+                        let _ = si.write_all(b"stop\n").await;
+                        let _ = si.flush().await;
+                        drop(si);
+                    }
+                    match tokio::time::timeout(STOP_GRACE, child.wait()).await {
+                        Ok(st) => st,
+                        Err(_) => {
+                            let _ = child.kill().await;
+                            child.wait().await
+                        }
+                    }
+                }
+            };
+            let mut tail = err_task.await.unwrap_or_default();
+            tail.extend(out_task.await.unwrap_or_default());
+            let outcome = SegmentOutcome { success: status.as_ref().is_ok_and(|s| s.success()), code: status.ok().and_then(|s| s.code()), stderr_tail: tail, classes: Vec::new() };
+            if requested {
+                let _ = done_tx.send(outcome);
+            } else {
+                rec.on_unexpected_exit(index, outcome).await;
+            }
+        });
+    }
+
+    /// The native helper carries on without the camera by itself; only the state changes.
+    async fn camera_gone(&self) {
+        let mut inner = self.shared.inner.lock().await;
+        if let Some(s) = inner.session.as_mut() {
+            s.camera_connected = false;
+        }
     }
 
     async fn on_progress(&self, p: Progress) {
@@ -628,7 +762,7 @@ impl Recorder {
                 }
             }
         } else {
-            let detail = format!("ffmpeg exited with code {:?}: {}", outcome.code, outcome.stderr_tail.last().cloned().unwrap_or_default());
+            let detail = format!("the recorder exited with code {:?}: {}", outcome.code, outcome.stderr_tail.last().cloned().unwrap_or_default());
             self.shared.sink.error("error.ffmpegExit", &detail);
         }
         self.auto_finish().await;
@@ -817,12 +951,19 @@ pub async fn assemble(manifest: &SessionManifest, tools: &Tools, target_mb_per_h
         tokio::fs::create_dir_all(parent).await?;
     }
     let ffmpeg = tools.ffmpeg_str();
-    let cmd = if segments.len() == 1 {
-        command::remux_command(&ffmpeg, &segments[0], &manifest.final_output)
-    } else {
+    let concat = segments.len() > 1;
+    let input = if concat {
         let list = manifest.work_dir.join("concat.txt");
         tokio::fs::write(&list, recovery::concat_list(&segments)).await?;
-        command::concat_command(&ffmpeg, &list, &manifest.final_output)
+        list
+    } else {
+        segments[0].clone()
+    };
+    let cmd = match manifest.native_audio {
+        // Native segments: copy the video, level the mic and mix at the end (D27).
+        Some(audio) => native::finish_command(&ffmpeg, &input, concat, &manifest.final_output, audio, manifest.plan.audio_tracks, manifest.plan.audio_bitrate_kbps),
+        None if concat => command::concat_command(&ffmpeg, &input, &manifest.final_output),
+        None => command::remux_command(&ffmpeg, &input, &manifest.final_output),
     };
     let out = sidecar::run(&cmd).await?;
     if !out.success {

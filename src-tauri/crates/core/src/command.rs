@@ -110,8 +110,8 @@ fn screen_input(platform: Platform, display_id: &str) -> crate::Result<InputSour
 }
 
 /// Mic levelling: cut rumble, bring speech up to a steady level. Runs far faster than real time.
-const MIC_FILTER: &str = "highpass=f=80,speechnorm=e=8:t=0.01:r=0.0005:l=1";
-const LIMITER: &str = "alimiter=limit=0.89:level=false";
+pub(crate) const MIC_FILTER: &str = "highpass=f=80,speechnorm=e=8:t=0.01:r=0.0005:l=1";
+pub(crate) const LIMITER: &str = "alimiter=limit=0.89:level=false";
 
 /// Input arguments for one source (everything from `-thread_queue_size` through `-i …`).
 fn input_args(src: &InputSource, fps: u32, is_camera: bool) -> Vec<String> {

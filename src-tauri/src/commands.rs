@@ -7,6 +7,7 @@ use crate::recorder::{EventSink, StartParams};
 use crate::sidecar::{self, Tools};
 use crate::state::AppState;
 use chrono::Local;
+use recorder_core::native::{NativeCapture, NativeSource};
 use recorder_core::*;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -340,19 +341,33 @@ async fn screen_size(tools: &Tools, device: &Device) -> CmdResult<(u32, u32)> {
 }
 
 pub fn find_helper() -> Option<PathBuf> {
+    find_tool("sck-audio")
+}
+
+/// The native recorder (D27). None = ffmpeg path.
+pub fn find_record_helper() -> Option<PathBuf> {
+    if std::env::var_os("FLOWGT_FFMPEG_CAPTURE").is_some() {
+        return None; // escape hatch for comparisons
+    }
+    find_tool("sck-record")
+}
+
+/// A macOS helper: in Contents/Helpers, next to the executable, in src-tauri/binaries, or in its
+/// Swift build directory.
+fn find_tool(name: &str) -> Option<PathBuf> {
     if !cfg!(target_os = "macos") {
         return None;
     }
     let mut candidates = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(d) = exe.parent() {
-            candidates.push(d.join("../Helpers/sck-audio"));
-            candidates.push(d.join("sck-audio"));
+            candidates.push(d.join("../Helpers").join(name));
+            candidates.push(d.join(name));
         }
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    candidates.push(root.join("binaries").join(format!("sck-audio-{}", sidecar::host_triple())));
-    candidates.push(root.join("../helpers/sck-audio/.build/release/sck-audio"));
+    candidates.push(root.join("binaries").join(format!("{name}-{}", sidecar::host_triple())));
+    candidates.push(root.join(format!("../helpers/{name}/.build/release/{name}")));
     candidates.into_iter().find(|p| p.is_file())
 }
 
@@ -401,7 +416,13 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
         CaptureTarget::Window { window_id } => CaptureTarget::Window { window_id },
         CaptureTarget::Display { .. } => CaptureTarget::Display { display_id: screen.id.clone() },
     };
-    let (sw, sh) = screen_size(&t, &screen).await?;
+    // Native path (D27): the display id and its pixel size come from CoreGraphics, no probe.
+    let record_helper = find_record_helper().filter(|_| platform == Platform::MacOs);
+    let native_display = record_helper.as_ref().and_then(|_| list.screens.iter().position(|d| d.id == screen.id)).and_then(crate::windows::display_at);
+    let (sw, sh) = match native_display {
+        Some((_, w, h)) if w > 0 && h > 0 => (w, h),
+        _ => screen_size(&t, &screen).await?,
+    };
 
     // A camera or microphone the user has not allowed must not stop the recording: ffmpeg would
     // exit at once. Record what is allowed instead.
@@ -434,9 +455,31 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
     let helper = find_helper();
     // A chosen mic goes to the helper by name; none chosen follows the system.
     let chosen_mic = s.audio.mic_device_id.as_deref().filter(|_| wanted_mic).and_then(|id| list.microphones.iter().find(|d| d.id == id)).map(|d| d.name.clone());
-    let mic_helper = helper.clone().filter(|_| platform == Platform::MacOs && s.audio.mic_enabled).map(|h| (h, chosen_mic));
-    let system = resolve_system_audio(&s, &list, helper.as_deref());
-    let uses_helper = matches!(system, Some(InputSource::PcmPipe { .. }));
+    let camera_name = s.camera.device_id.as_deref().and_then(|id| list.cameras.iter().find(|d| d.id == id)).map(|d| d.name.clone());
+    let native = match (record_helper, native_display) {
+        (Some(h), Some((display_id, _, _))) => Some(NativeCapture {
+            helper: h,
+            source: NativeSource::Display(display_id),
+            crop: match &s.capture {
+                CaptureTarget::Region { region, .. } => Some(*region),
+                _ => None,
+            },
+            system_audio: s.audio.system_audio != SystemAudioSource::Off,
+            mic: s.audio.mic_enabled.then_some(chosen_mic.clone()),
+            camera: s.camera.enabled.then_some(camera_name),
+            cursor: true,
+            exclude_pid: std::process::id(),
+        }),
+        _ => None,
+    };
+    let mic_helper = helper.clone().filter(|_| native.is_none() && platform == Platform::MacOs && s.audio.mic_enabled).map(|h| (h, chosen_mic));
+    let system = match &native {
+        // The plan needs an audio source for the budget; the helper records it itself.
+        Some(n) if n.system_audio => Some(InputSource::PcmPipe { path: String::new(), sample_rate: 48_000, channels: 2 }),
+        Some(_) => None,
+        None => resolve_system_audio(&s, &list, helper.as_deref()),
+    };
+    let uses_helper = native.is_none() && matches!(system, Some(InputSource::PcmPipe { .. }));
 
     let out_dir = effective_output_dir(&s);
     tokio::fs::create_dir_all(&out_dir).await?;
@@ -466,6 +509,7 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
         tools: t,
         helper: if uses_helper { helper } else { None },
         mic_helper,
+        native,
     })
 }
 
@@ -492,9 +536,13 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
             return;
         }
         // Neither the outline nor the countdown may end up in the recording. The bar comes back
-        // once the recording is running.
+        // once the recording is running. The native helper leaves this app's windows out of the
+        // picture by itself (D27), but only windows that exist when its filter is built: the
+        // floating window stays up so the bar never appears in the video.
         crate::windows::hide_marker(&handle);
-        crate::windows::hide_floating(&handle);
+        if find_record_helper().is_none() || Platform::current() != Platform::MacOs {
+            crate::windows::hide_floating(&handle);
+        }
         tokio::time::sleep(Duration::from_millis(150)).await;
         let started = match build_params(&handle, &state, &meeting_name).await {
             Ok(p) => start_with_fallbacks(&handle, &state, p).await,
@@ -512,12 +560,16 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
 /// with less, and say what was dropped.
 async fn start_with_fallbacks(app: &AppHandle, state: &AppState, full: StartParams) -> CmdResult<RecorderState> {
     let has_camera = full.plan.camera.is_some();
-    let has_helper = full.helper.is_some() || full.mic_helper.is_some();
+    // The native helper drops a failing camera by itself; only the ffmpeg path retries without the helper.
+    let has_helper = full.native.is_none() && (full.helper.is_some() || full.mic_helper.is_some());
     let without = |camera: bool, helper: bool| {
         let mut q = full.clone();
         if camera {
             q.plan.camera = None;
             q.plan.pip = None;
+            if let Some(n) = q.native.as_mut() {
+                n.camera = None;
+            }
         }
         if helper {
             q.plan.system_audio = None;
