@@ -121,3 +121,9 @@ against runaway sizes without stalls. The app, re-measured: 985/986 frames, 30 i
 motion (testsrc2 + noise, lavfi): 300/300, 361 MB/h. Other encoders keep 1.5x (untested). `BitrateBudget`
 still reports 1.5x, as the budget of record.
 
+
+D21 · 2026-11-04 · **Save to this computer, Google Drive, or both (Gabriel; amends D19c).** Two checkboxes on the
+home page, at least one on. A recording is always written locally first, so "Drive only" still needs local disk
+while recording: there is no streaming upload. The local copy goes only after Drive reports exactly the bytes on
+disk; a failure, a missing `size` or a quit during upload keeps it. The removal is a real delete, not the Trash,
+because the point of the option is to free the disk. Signed out, the checkboxes cannot apply and the file stays.

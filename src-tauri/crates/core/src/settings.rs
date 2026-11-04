@@ -61,7 +61,24 @@ pub fn default_settings(platform: Platform) -> Settings {
         countdown_seconds: 3,
         low_disk_warn_gb: 2,
         onboarding_done: false,
+        save_local: true,
+        save_drive: true,
     }
+}
+
+/// What to do with a finished recording. It is always written locally first, so a failed or
+/// interrupted upload can never lose it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SavePlan {
+    pub upload: bool,
+    /// Remove the local copy, but only after Drive has confirmed every byte.
+    pub remove_local_after_upload: bool,
+}
+
+/// Signed out means the local file is the only copy, whatever the checkboxes say.
+pub fn save_plan(save_local: bool, save_drive: bool, signed_in: bool) -> SavePlan {
+    let upload = save_drive && signed_in;
+    SavePlan { upload, remove_local_after_upload: upload && !save_local }
 }
 
 /// Validate ranges (fps ∈ {24,30,60}, size_pct 10–50, template renders, …).
@@ -117,6 +134,10 @@ pub fn validate(settings: &Settings) -> crate::Result<()> {
             COUNTDOWN_RANGE.end(),
             s.countdown_seconds
         ));
+    }
+
+    if !s.save_local && !s.save_drive {
+        problems.push("saveLocal: choose at least one place to save to".to_string());
     }
 
     let template = &s.filename_template;
@@ -475,6 +496,27 @@ mod tests {
         assert!(msg.contains("wrong type"), "{msg}");
         let msg = error_text(from_json(r#"{"video": 5}"#, Platform::MacOs));
         assert!(msg.contains("wrong type"), "{msg}");
+    }
+
+    #[test]
+    fn save_plan_never_removes_the_only_copy() {
+        let p = |local, drive, signed_in| save_plan(local, drive, signed_in);
+        assert_eq!(p(true, true, true), SavePlan { upload: true, remove_local_after_upload: false });
+        assert_eq!(p(true, false, true), SavePlan { upload: false, remove_local_after_upload: false });
+        assert_eq!(p(false, true, true), SavePlan { upload: true, remove_local_after_upload: true });
+        // Signed out: nothing can be uploaded, so nothing may be removed.
+        assert_eq!(p(false, true, false), SavePlan { upload: false, remove_local_after_upload: false });
+        assert_eq!(p(true, true, false), SavePlan { upload: false, remove_local_after_upload: false });
+    }
+
+    #[test]
+    fn at_least_one_save_target_is_required_and_old_files_get_both() {
+        let mut s = from_json(r#"{"version": 0}"#, Platform::MacOs).unwrap();
+        assert!(s.save_local && s.save_drive);
+        s.save_local = false;
+        assert!(validate(&s).is_ok());
+        s.save_drive = false;
+        assert!(validate(&s).unwrap_err().to_string().contains("saveLocal"));
     }
 
     #[test]

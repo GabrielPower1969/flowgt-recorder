@@ -37,6 +37,8 @@ export function defaultSettings(platform: Platform = "macos"): Settings {
     countdownSeconds: 3,
     lowDiskWarnGb: 5,
     onboardingDone: false,
+    saveLocal: true,
+    saveDrive: true,
   };
 }
 

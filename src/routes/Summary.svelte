@@ -14,6 +14,7 @@
   const over = $derived((r?.overBudgetRatio ?? 0) > 0.1);
   const fileName = $derived(r ? (r.path.split(/[\\/]/).pop() ?? r.path) : "");
   const upload = $derived(r ? driveState.uploads[r.path] : undefined);
+  const localGone = $derived(!!upload?.localRemoved);
   let src = $state<string | null>(null);
   let compressing = $state<{ jobId: string; percent: number } | null>(null);
   let compressed = $state<string | null>(null);
@@ -57,14 +58,14 @@
     <button type="button" class="btn btn-primary" onclick={() => navigate("/")}>{t("summary.again")}</button>
   {:else}
     <h1>{t("summary.saved")}</h1>
-    {#if src}
+    {#if src && !localGone}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video class="preview" controls {src} aria-label={t("summary.preview")}></video>
     {/if}
     <strong class="name" data-testid="path" title={r.path}>{fileName}</strong>
     <span class="muted mono" data-testid="facts">{formatDuration(r.info.durationMs)} · {formatBytes(r.info.bytes)} · {r.info.width}×{r.info.height}</span>
     {#if r.recovered}<span class="chip chip-warn">{t("summary.recovered")}</span>{/if}
-    {#if over}
+    {#if over && !localGone}
       <div class="over">
         <span>{t("summary.overBudget", { percent: formatPercent(r.overBudgetRatio) })}</span>
         {#if compressed}
@@ -79,6 +80,7 @@
         <span class="chip chip-ok">{t("summary.uploaded")}</span>
         <button type="button" class="btn btn-sm" onclick={() => upload?.url && invoke("open_drive_link", { url: upload.url })}>{t("summary.openDrive")}</button>
       </div>
+      {#if localGone}<span class="muted" data-testid="drive-only">{t("summary.driveOnly")}</span>{/if}
     {:else if upload?.error}
       <div class="over" data-testid="drive">
         <span>{t("summary.uploadFailed", { detail: upload.error })}</span>
@@ -90,7 +92,7 @@
       <button type="button" class="btn" onclick={sendToDrive} disabled={driveState.signingIn}>{driveState.signingIn ? t("home.signingIn") : t("summary.upload")}</button>
     {/if}
     <div class="row" style="justify-content: center">
-      <button type="button" class="btn" onclick={() => r && invoke("reveal_in_file_manager", { path: r.path })}>{revealLabel}</button>
+      {#if !localGone}<button type="button" class="btn" onclick={() => r && invoke("reveal_in_file_manager", { path: r.path })}>{revealLabel}</button>{/if}
       <button type="button" class="btn btn-primary" onclick={() => navigate("/")}>{t("summary.again")}</button>
     </div>
   {/if}

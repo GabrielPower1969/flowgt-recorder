@@ -69,9 +69,11 @@ impl EventSink for TauriSink {
     }
     fn finished(&self, r: &RecordingResult) {
         let _ = self.app.emit("recorder://finished", r);
-        // Signed in = the recording also goes to Google Drive; the local file stays.
-        if crate::drive::load_account(&self.app).is_some() {
-            spawn_upload(self.app.clone(), r.path.clone());
+        let signed_in = crate::drive::load_account(&self.app).is_some();
+        let Ok(s) = load_settings(&self.app) else { return };
+        let plan = recorder_core::settings::save_plan(s.save_local, s.save_drive, signed_in);
+        if plan.upload {
+            spawn_upload(self.app.clone(), r.path.clone(), plan.remove_local_after_upload);
         }
     }
 }
@@ -677,12 +679,34 @@ pub async fn drive_sign_out(app: AppHandle) -> CmdResult<DriveStatus> {
     Ok(drive_status_now(&app))
 }
 
+#[cfg(test)]
+mod save_tests {
+    use super::*;
+    use crate::drive::Uploaded;
+
+    #[test]
+    fn local_copy_goes_only_when_drive_confirms_its_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("rec.mp4");
+        std::fs::write(&p, vec![7u8; 10]).unwrap();
+        let up = |size| Uploaded { link: String::new(), size };
+        assert!(!remove_if_confirmed(&p, &up(Some(9))));
+        assert!(!remove_if_confirmed(&p, &up(None)));
+        assert!(p.exists());
+        assert!(remove_if_confirmed(&p, &up(Some(10))));
+        assert!(!p.exists());
+    }
+}
+
 #[tauri::command]
 pub async fn drive_upload(app: AppHandle, path: String) -> CmdResult<()> {
     if crate::drive::load_account(&app).is_none() {
         return Err(CommandError::new("error.driveSignedOut", "not signed in to Google"));
     }
-    spawn_upload(app, path);
+    // A retry or a manual upload follows the same rule as the automatic one.
+    let s = load_settings(&app)?;
+    let plan = recorder_core::settings::save_plan(s.save_local, s.save_drive, true);
+    spawn_upload(app, path, plan.remove_local_after_upload);
     Ok(())
 }
 
@@ -695,11 +719,12 @@ pub async fn open_drive_link(url: String) -> CmdResult<()> {
     tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| CommandError::io(e.to_string()))
 }
 
-fn spawn_upload(app: AppHandle, path: String) {
+fn spawn_upload(app: AppHandle, path: String, remove_local: bool) {
     tauri::async_runtime::spawn(async move {
-        let emit = |percent: f64, done: bool, url: Option<String>, error: Option<String>| {
-            let _ = app.emit("drive://progress", DriveProgress { path: path.clone(), percent, done, url, error });
+        let send = |percent: f64, done: bool, url: Option<String>, error: Option<String>, local_removed: bool| {
+            let _ = app.emit("drive://progress", DriveProgress { path: path.clone(), percent, done, url, error, local_removed });
         };
+        let emit = |percent: f64, done: bool, url: Option<String>, error: Option<String>| send(percent, done, url, error, false);
         emit(0.0, false, None, None);
         let outcome = async {
             let client = crate::drive::oauth_client().ok_or_else(|| "this build has no Google OAuth client".to_string())?;
@@ -708,10 +733,21 @@ fn spawn_upload(app: AppHandle, path: String) {
         }
         .await;
         match outcome {
-            Ok(link) => emit(100.0, true, Some(link), None),
+            Ok(up) => {
+                let removed = remove_local && remove_if_confirmed(Path::new(&path), &up);
+                send(100.0, true, Some(up.link), None, removed);
+            }
             Err(e) => emit(0.0, true, None, Some(e)),
         }
     });
+}
+
+/// Remove the local copy only when Drive reports exactly the bytes on disk. Anything else keeps it.
+fn remove_if_confirmed(path: &Path, up: &crate::drive::Uploaded) -> bool {
+    match std::fs::metadata(path) {
+        Ok(m) if up.confirms(m.len()) => std::fs::remove_file(path).is_ok(),
+        _ => false,
+    }
 }
 
 // ───────────────────────────── compress ─────────────────────────────

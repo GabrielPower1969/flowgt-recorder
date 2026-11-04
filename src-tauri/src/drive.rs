@@ -303,7 +303,7 @@ impl Auth<'_> {
         let resp = self
             .http
             .post(format!("{}/files", self.ep.upload))
-            .query(&[("uploadType", "resumable"), ("fields", "id,webViewLink")])
+            .query(&[("uploadType", "resumable"), ("fields", "id,webViewLink,size")])
             .bearer_auth(&self.access)
             .header("X-Upload-Content-Type", "video/mp4")
             .header("X-Upload-Content-Length", total)
@@ -317,9 +317,23 @@ impl Auth<'_> {
     }
 }
 
+/// A finished upload, with what Drive says it stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Uploaded {
+    pub link: String,
+    pub size: Option<u64>,
+}
+
+impl Uploaded {
+    /// Drive confirmed exactly this many bytes. A missing size is not a confirmation.
+    pub fn confirms(&self, local_bytes: u64) -> bool {
+        self.size == Some(local_bytes)
+    }
+}
+
 enum Step {
     Continue(u64),
-    Done(String),
+    Done(Uploaded),
     Retry,
     Reauth,
 }
@@ -329,7 +343,9 @@ fn interpret(status: u16, range: Option<String>, body: &str) -> Result<Step, Str
         200 | 201 => {
             let v: serde_json::Value = serde_json::from_str(body).map_err(|e| e.to_string())?;
             let link = v["webViewLink"].as_str().map(str::to_string).or_else(|| v["id"].as_str().map(|id| format!("https://drive.google.com/file/d/{id}/view")));
-            link.map(Step::Done).ok_or_else(|| "Drive did not return a link".to_string())
+            // Drive sends `size` as a string.
+            let size = v["size"].as_str().and_then(|s| s.parse().ok()).or_else(|| v["size"].as_u64());
+            link.map(|link| Step::Done(Uploaded { link, size })).ok_or_else(|| "Drive did not return a link".to_string())
         }
         308 => Ok(Step::Continue(next_offset(range.as_deref()))),
         401 => Ok(Step::Reauth),
@@ -340,11 +356,11 @@ fn interpret(status: u16, range: Option<String>, body: &str) -> Result<Step, Str
 
 /// Upload one file to the app's folder and return its link. `access` skips the first token
 /// refresh (tests and one-off verification); `progress` gets 0–100.
-pub async fn upload_recording(ep: &Endpoints, client: Option<&OAuthClient>, refresh: &str, access: Option<String>, path: &Path, progress: impl Fn(f64)) -> Result<String, String> {
+pub async fn upload_recording(ep: &Endpoints, client: Option<&OAuthClient>, refresh: &str, access: Option<String>, path: &Path, progress: impl Fn(f64)) -> Result<Uploaded, String> {
     upload_to_folder(ep, client, refresh, access, FOLDER_NAME, path, progress).await
 }
 
-async fn upload_to_folder(ep: &Endpoints, client: Option<&OAuthClient>, refresh: &str, access: Option<String>, folder_name: &str, path: &Path, progress: impl Fn(f64)) -> Result<String, String> {
+async fn upload_to_folder(ep: &Endpoints, client: Option<&OAuthClient>, refresh: &str, access: Option<String>, folder_name: &str, path: &Path, progress: impl Fn(f64)) -> Result<Uploaded, String> {
     let mut auth = Auth { http: reqwest::Client::new(), ep, client, refresh, access: access.unwrap_or_default() };
     if auth.access.is_empty() {
         auth.refresh().await?;
@@ -376,9 +392,9 @@ async fn upload_to_folder(ep: &Endpoints, client: Option<&OAuthClient>, refresh:
             Err(_) => Step::Retry,
         };
         match step {
-            Step::Done(link) => {
+            Step::Done(done) => {
                 progress(100.0);
-                return Ok(link);
+                return Ok(done);
             }
             Step::Continue(next) => {
                 failures = 0;
@@ -404,7 +420,7 @@ async fn upload_to_folder(ep: &Endpoints, client: Option<&OAuthClient>, refresh:
                     let range = r.headers().get("range").and_then(|v| v.to_str().ok()).map(str::to_string);
                     match interpret(status, range, &r.text().await.unwrap_or_default()) {
                         Ok(Step::Continue(next)) => offset = next,
-                        Ok(Step::Done(link)) => return Ok(link),
+                        Ok(Step::Done(done)) => return Ok(done),
                         _ => {}
                     }
                 }
@@ -545,7 +561,7 @@ mod tests {
                                 } else {
                                     f.stored += want as u64;
                                     if f.stored >= total {
-                                        (200, String::new(), r#"{"id":"X","webViewLink":"https://drive.google.com/file/d/X/view"}"#.to_string())
+                                        (200, String::new(), format!(r#"{{"id":"X","webViewLink":"https://drive.google.com/file/d/X/view","size":"{}"}}"#, f.stored))
                                     } else {
                                         (308, range(f.stored), String::new())
                                     }
@@ -582,8 +598,9 @@ mod tests {
         let base = serve(fake.clone()).await;
         let (_d, p) = file_of((CHUNK * 2 + 5) as usize);
         let seen = Mutex::new(Vec::new());
-        let link = upload_recording(&ep(&base), None, "", Some("tok".into()), &p, |x| seen.lock().unwrap().push(x)).await.unwrap();
-        assert_eq!(link, "https://drive.google.com/file/d/X/view");
+        let done = upload_recording(&ep(&base), None, "", Some("tok".into()), &p, |x| seen.lock().unwrap().push(x)).await.unwrap();
+        assert_eq!(done.link, "https://drive.google.com/file/d/X/view");
+        assert!(done.confirms(CHUNK * 2 + 5));
         let f = fake.lock().unwrap();
         assert_eq!(f.stored, CHUNK * 2 + 5);
         assert_eq!(f.log.iter().filter(|l| l.starts_with("POST /api/files")).count(), 1, "folder created once: {:?}", f.log);
@@ -591,6 +608,14 @@ mod tests {
         let seen = seen.into_inner().unwrap();
         assert_eq!(seen.last(), Some(&100.0));
         assert!(seen.windows(2).all(|w| w[0] <= w[1]));
+    }
+
+    #[test]
+    fn only_an_exact_size_confirms_the_upload() {
+        let up = |size| Uploaded { link: String::new(), size };
+        assert!(up(Some(10)).confirms(10));
+        assert!(!up(Some(9)).confirms(10));
+        assert!(!up(None).confirms(10));
     }
 
     #[tokio::test]
@@ -607,8 +632,8 @@ mod tests {
         let fake = Arc::new(Mutex::new(Fake { fail_next_put: true, ..Fake::default() }));
         let base = serve(fake.clone()).await;
         let (_d, p) = file_of(CHUNK as usize + 5);
-        let link = upload_recording(&ep(&base), None, "", Some("tok".into()), &p, |_| {}).await.unwrap();
-        assert!(link.contains("/file/d/X/"));
+        let done = upload_recording(&ep(&base), None, "", Some("tok".into()), &p, |_| {}).await.unwrap();
+        assert!(done.link.contains("/file/d/X/"));
         assert_eq!(fake.lock().unwrap().stored, CHUNK + 5, "nothing sent twice, nothing lost");
     }
 
@@ -640,7 +665,7 @@ mod tests {
         let token = std::env::var("FLOWGT_DRIVE_ACCESS_TOKEN").expect("token");
         let file = std::env::var("FLOWGT_DRIVE_TEST_FILE").expect("file");
         let folder = std::env::var("FLOWGT_DRIVE_TEST_FOLDER").expect("folder");
-        let link = upload_to_folder(&Endpoints::google(), None, "", Some(token), &folder, Path::new(&file), |p| eprintln!("{p:.0}%")).await.unwrap();
-        println!("LINK {link}");
+        let done = upload_to_folder(&Endpoints::google(), None, "", Some(token), &folder, Path::new(&file), |p| eprintln!("{p:.0}%")).await.unwrap();
+        println!("LINK {} SIZE {:?}", done.link, done.size);
     }
 }

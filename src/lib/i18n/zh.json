@@ -263,5 +263,11 @@
   "error.driveNotConfigured": "这个版本还没配置 Google 登录",
   "error.driveSignedOut": "请先登录 Google",
   "error.driveSignIn": "Google 登录失败",
-  "error.driveNetwork": "连不上 Google"
+  "error.driveNetwork": "连不上 Google",
+  "home.saveTo": "保存到",
+  "home.saveLocal": "本机",
+  "home.saveDrive": "Google Drive",
+  "home.driveOnlyLine": "只存 Google Drive 的「{folder}」文件夹，上传确认后删除本机这份",
+  "home.hintCloud": "1 小时约 {mb} MB · 先录到本机，上传后删除",
+  "summary.driveOnly": "这段录像只在 Google Drive 里，本机这份已删除"
 }

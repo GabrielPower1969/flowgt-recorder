@@ -72,6 +72,8 @@ export interface Settings {
   countdownSeconds: number;
   lowDiskWarnGb: number;
   onboardingDone: boolean;
+  saveLocal: boolean;
+  saveDrive: boolean;
 }
 
 export type DeviceKind = "screen" | "camera" | "microphone";
@@ -185,7 +187,7 @@ export interface AppInfo {
 }
 
 export interface DriveStatus { configured: boolean; email: string | null }
-export interface DriveProgress { path: string; percent: number; done: boolean; url: string | null; error: string | null }
+export interface DriveProgress { path: string; percent: number; done: boolean; url: string | null; error: string | null; localRemoved: boolean }
 
 /** Tauri command names (snake_case) and their signatures. Implemented in src-tauri/src/commands.rs. */
 export interface Commands {

@@ -32,7 +32,7 @@
 
 ## Google Drive（登录后才有） / Google Drive (only after you sign in)
 
-不登录：什么都不离开这台电脑。登录 Google 后：每段录像录完会上传到你自己 Drive 主页的「FlowGT Recorder」文件夹，本地文件保留；App 只申请 `drive.file` 权限，只能看到它自己建的文件，看不到你 Drive 里的其他内容。退出登录：设置 → 通用。
+不登录：什么都不离开这台电脑。登录 Google 后：你可以选存本机、存 Drive 或两者都存；存 Drive 时，录完上传到你自己 Drive 主页的「FlowGT Recorder」文件夹。只存 Drive 时，确认全部上传后才删除本机这份，上传失败则保留；App 只申请 `drive.file` 权限，只能看到它自己建的文件，看不到你 Drive 里的其他内容。退出登录：设置 → 通用。
 
-Not signed in: nothing leaves this computer. Signed in to Google: each finished recording is uploaded to the "FlowGT Recorder" folder in the home of your own Drive, and the local file stays. The app asks only for `drive.file`, so it sees only what it created, not the rest of your Drive. Sign out in Settings → General.
+Not signed in: nothing leaves this computer. Signed in to Google: you choose this computer, Drive or both. With Drive on, each finished recording is uploaded to the "FlowGT Recorder" folder in the home of your own Drive. With Drive only, the local copy is removed once every byte is confirmed, and kept if the upload fails. The app asks only for `drive.file`, so it sees only what it created, not the rest of your Drive. Sign out in Settings → General.
 

@@ -192,6 +192,10 @@ pub struct Settings {
     pub countdown_seconds: u32,
     pub low_disk_warn_gb: u32,
     pub onboarding_done: bool,
+    /// Keep the finished recording on this computer. At least one of the two is on.
+    pub save_local: bool,
+    /// Upload the finished recording to Google Drive (only takes effect when signed in).
+    pub save_drive: bool,
 }
 
 // ───────────────────────────── devices ─────────────────────────────
@@ -539,4 +543,6 @@ pub struct DriveProgress {
     /// Link to the file in Google Drive once uploaded.
     pub url: Option<String>,
     pub error: Option<String>,
+    /// The local copy was removed after Drive confirmed every byte (Drive-only saving).
+    pub local_removed: bool,
 }

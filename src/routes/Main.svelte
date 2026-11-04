@@ -35,6 +35,18 @@
   const canRecordOutput = $derived(!!info?.systemAudioAvailable || (devices?.loopbacks.length ?? 0) > 0);
   const outputValue = $derived(!canRecordOutput || settings.audio.systemAudio.kind === "off" ? "off" : settings.audio.systemAudio.kind === "device" ? `device:${settings.audio.systemAudio.id}` : "auto");
 
+  /** Drive counts only when signed in; otherwise the local file is the only copy. */
+  const driveOn = $derived(settings.saveDrive && !!driveState.status.email);
+  const localOn = $derived(settings.saveLocal || !driveOn);
+
+  async function toggleDrive(on: boolean) {
+    if (on && !driveState.status.email && !(await signInToGoogle())) return;
+    await updateSettings((s) => {
+      s.saveDrive = on;
+      if (!on) s.saveLocal = true;
+    });
+  }
+
   function setOutput(v: string) {
     void updateSettings((s) => {
       s.audio.systemAudio = v.startsWith("device:") ? { kind: "device", id: v.slice(7) } : v === "off" ? { kind: "off" } : { kind: "auto" };
@@ -174,7 +186,12 @@
       <span class="dot"></span>{t("home.record")}
     </button>
   </div>
-  <p class="faint hint">{t("home.hint", { mb: settings.video.targetMbPerHour, dir: settings.outputDir })}{#if driveState.status.email}<br /><span data-testid="drive-line">{t("home.driveLine", { folder: "FlowGT Recorder" })}</span>{/if}</p>
+  <fieldset class="save" data-testid="save-to">
+    <legend class="label">{t("home.saveTo")}</legend>
+    <label><input type="checkbox" checked={localOn} disabled={!driveOn} onchange={(e) => void updateSettings((s) => (s.saveLocal = (e.target as HTMLInputElement).checked))} /> {t("home.saveLocal")}</label>
+    <label><input type="checkbox" checked={driveOn} disabled={driveState.signingIn} onchange={(e) => { const el = e.target as HTMLInputElement; const on = el.checked; void toggleDrive(on).finally(() => (el.checked = driveOn)); }} /> {t("home.saveDrive")}</label>
+  </fieldset>
+  <p class="faint hint">{#if localOn}{t("home.hint", { mb: settings.video.targetMbPerHour, dir: settings.outputDir })}{:else}{t("home.hintCloud", { mb: settings.video.targetMbPerHour })}{/if}{#if driveOn}<br /><span data-testid="drive-line">{t(localOn ? "home.driveLine" : "home.driveOnlyLine", { folder: "FlowGT Recorder" })}</span>{/if}</p>
 </main>
 
 {#if picking}
@@ -195,5 +212,8 @@
   .round.off { background: var(--color-surface-3); color: var(--color-text-muted); border-color: transparent; }
   .btn-record { padding: 0 var(--space-6); border-radius: var(--radius-pill); }
   .dot { width: 12px; height: 12px; border-radius: 50%; background: currentColor; }
+  .save { display: flex; align-items: center; gap: var(--space-4); border: 0; padding: 0; margin: 0; }
+  .save legend { float: left; margin-right: var(--space-4); padding: 0; }
+  .save label { display: inline-flex; align-items: center; gap: var(--space-2); }
   .hint { max-width: min(720px, 100%); text-align: center; word-break: break-all; }
 </style>

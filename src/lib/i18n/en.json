@@ -263,5 +263,11 @@
   "error.driveNotConfigured": "Google sign-in is not set up in this build",
   "error.driveSignedOut": "Sign in to Google first",
   "error.driveSignIn": "Google sign-in failed",
-  "error.driveNetwork": "Cannot reach Google"
+  "error.driveNetwork": "Cannot reach Google",
+  "home.saveTo": "Save to",
+  "home.saveLocal": "This computer",
+  "home.saveDrive": "Google Drive",
+  "home.driveOnlyLine": "Saved only to the \"{folder}\" folder in Google Drive; the copy here is removed once the upload is confirmed",
+  "home.hintCloud": "About {mb} MB per hour · recorded here first, removed after upload",
+  "summary.driveOnly": "This recording is only in Google Drive; the copy on this computer was removed"
 }
