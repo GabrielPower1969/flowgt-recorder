@@ -133,3 +133,16 @@ An ad-hoc signature's requirement is its cdhash, so every rebuild silently voids
 System Settings still shows on (seen 2026-11-05: stored `49e5342e…`, build `f920ea04…`). `scripts/setup-signing.sh`
 makes an identity in its own keychain under `.signing/` (git-ignored), not in the user's search list. Development
 only; distribution still needs a Developer ID.
+
+D23 · 2026-11-05 · **Show the recorded screen before capture, not during it.** Tested: a window with
+`NSWindowSharingNone` still appears in avfoundation's screen capture (magenta test window, same pixel value either
+way), so an outline left on during recording would be in the video. The outline shows in the picker and countdown
+and goes just before capture. The floating bar moves to the recorded screen, and is still visible in the video.
+Moving to ScreenCaptureKit video could exclude windows; not now. The tools move to `Contents/Helpers`, because each
+one in `Contents/MacOS` got its own Dock icon whenever it used avfoundation.
+
+D24 · 2026-11-05 · **Level the mic.** First real recording measured −34.8 LUFS, peak −15.3 dBFS, through AirPods.
+Mic chain now: `highpass=f=80,speechnorm=e=8:r=0.0005:l=1`, limiter last; the same file through it measures −22.8
+LUFS, peak −0.9 dBFS, at 435x real time. Computer audio is not levelled. A Bluetooth mic stays narrowband (−64.5 dB
+above 4 kHz against −49.0 dB below 3.4 kHz) and no filter restores that, so the home page warns about it; detection
+is by device name, a heuristic.

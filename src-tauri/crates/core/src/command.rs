@@ -109,6 +109,10 @@ fn screen_input(platform: Platform, display_id: &str) -> crate::Result<InputSour
     }
 }
 
+/// Mic levelling: cut rumble, bring speech up to a steady level. Runs far faster than real time.
+const MIC_FILTER: &str = "highpass=f=80,speechnorm=e=8:r=0.0005:l=1";
+const LIMITER: &str = "alimiter=limit=0.89:level=false";
+
 /// Input arguments for one source (everything from `-thread_queue_size` through `-i …`).
 fn input_args(src: &InputSource, fps: u32, is_camera: bool) -> Vec<String> {
     let mut a = Vec::new();
@@ -214,19 +218,25 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
 
     // ---- audio graph
     let mut audio_maps: Vec<String> = Vec::new();
-    let leveller = |idx: usize, out: &str| format!("[{idx}:a]aresample=48000:async=1[{out}]");
+    // The mic gets speech levelling; computer audio is already mastered and stays as it is.
+    let mic_chain = |idx: usize, out: &str| format!("[{idx}:a]aresample=48000:async=1,{MIC_FILTER},{LIMITER}[{out}]");
+    let plain_chain = |idx: usize, out: &str| format!("[{idx}:a]aresample=48000:async=1[{out}]");
     match (mic_idx, sys_idx) {
         (Some(m), Some(sy)) if plan.audio_tracks == AudioTracks::Separate => {
-            graph.push(leveller(m, "a0"));
-            graph.push(leveller(sy, "a1"));
+            graph.push(mic_chain(m, "a0"));
+            graph.push(plain_chain(sy, "a1"));
             audio_maps.extend(["[a0]".to_string(), "[a1]".to_string()]);
         }
         (Some(m), Some(sy)) => {
-            graph.push(format!("[{m}:a]aresample=48000:async=1[am];[{sy}:a]aresample=48000:async=1[as];[am][as]amix=inputs=2:duration=longest:normalize=0[aout]"));
+            graph.push(format!("[{m}:a]aresample=48000:async=1,{MIC_FILTER}[am];[{sy}:a]aresample=48000:async=1[as];[am][as]amix=inputs=2:duration=longest:normalize=0,{LIMITER}[aout]"));
             audio_maps.push("[aout]".into());
         }
-        (Some(only), None) | (None, Some(only)) => {
-            graph.push(leveller(only, "aout"));
+        (Some(m), None) => {
+            graph.push(mic_chain(m, "aout"));
+            audio_maps.push("[aout]".into());
+        }
+        (None, Some(sy)) => {
+            graph.push(plain_chain(sy, "aout"));
             audio_maps.push("[aout]".into());
         }
         (None, None) => {}
@@ -515,7 +525,7 @@ mod tests {
         assert!(fc.contains("[0:v]scale=1920:1200"));
         assert!(fc.contains("[1:v]crop=ih:ih,hflip,scale=264:264"));
         assert!(fc.contains("overlay=1632:912"));
-        assert!(fc.contains("[2:a]aresample=48000:async=1[aout]"));
+        assert!(fc.contains("[2:a]aresample=48000:async=1,highpass=f=80,speechnorm=e=8:r=0.0005:l=1,alimiter=limit=0.89:level=false[aout]"));
         assert!(has_pair(a, "-map", "[vout]") && has_pair(a, "-map", "[aout]"));
     }
 
@@ -556,7 +566,10 @@ mod tests {
         plan.system_audio = Some(InputSource::PcmPipe { path: "/tmp/sys.pcm".into(), sample_rate: 48000, channels: 2 });
         let mixed = recording_command("ffmpeg", &plan).args;
         let fc = value_of(&mixed, "-filter_complex");
-        assert!(fc.contains("amix=inputs=2:duration=longest:normalize=0[aout]"));
+        assert!(fc.contains("amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.89:level=false[aout]"));
+        // Only the mic is levelled; computer audio passes through.
+        assert!(fc.contains("speechnorm=e=8:r=0.0005:l=1[am]"));
+        assert!(fc.contains("aresample=48000:async=1[as]"));
         assert_eq!(mixed.iter().filter(|x| *x == "-map").count(), 2);
         assert!(has_pair(&mixed, "-use_wallclock_as_timestamps", "1"));
         assert!(has_pair(&mixed, "-f", "s16le"));

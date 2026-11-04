@@ -354,6 +354,42 @@ fn interpret(status: u16, range: Option<String>, body: &str) -> Result<Step, Str
     }
 }
 
+/// What the app's Drive folder holds. No folder yet means nothing was uploaded.
+pub async fn list_recordings(ep: &Endpoints, client: Option<&OAuthClient>, refresh: &str, access: Option<String>) -> Result<Vec<recorder_core::RecordingEntry>, String> {
+    let mut auth = Auth { http: reqwest::Client::new(), ep, client, refresh, access: access.unwrap_or_default() };
+    if auth.access.is_empty() {
+        auth.refresh().await?;
+    }
+    let get = |q: String, fields: &'static str| {
+        let req = auth.http.get(format!("{}/files", ep.api)).query(&[("q", q.as_str()), ("fields", fields), ("spaces", "drive"), ("pageSize", "200"), ("orderBy", "createdTime desc")]).bearer_auth(&auth.access);
+        async move { req.send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?.json::<serde_json::Value>().await.map_err(|e| e.to_string()) }
+    };
+    let found = get(folder_query(FOLDER_NAME), "files(id)").await?;
+    let Some(folder) = found["files"][0]["id"].as_str() else { return Ok(Vec::new()) };
+    let listed = get(format!("'{folder}' in parents and trashed = false"), "files(id,name,size,webViewLink,createdTime)").await?;
+    Ok(entries_from(&listed))
+}
+
+fn entries_from(listed: &serde_json::Value) -> Vec<recorder_core::RecordingEntry> {
+    listed["files"]
+        .as_array()
+        .map(|files| {
+            files
+                .iter()
+                .filter_map(|f| {
+                    Some(recorder_core::RecordingEntry {
+                        name: f["name"].as_str()?.to_string(),
+                        bytes: f["size"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0),
+                        drive_url: f["webViewLink"].as_str().map(str::to_string),
+                        drive_created: f["createdTime"].as_str().map(str::to_string),
+                        ..Default::default()
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Upload one file to the app's folder and return its link. `access` skips the first token
 /// refresh (tests and one-off verification); `progress` gets 0–100.
 pub async fn upload_recording(ep: &Endpoints, client: Option<&OAuthClient>, refresh: &str, access: Option<String>, path: &Path, progress: impl Fn(f64)) -> Result<Uploaded, String> {
@@ -608,6 +644,19 @@ mod tests {
         let seen = seen.into_inner().unwrap();
         assert_eq!(seen.last(), Some(&100.0));
         assert!(seen.windows(2).all(|w| w[0] <= w[1]));
+    }
+
+    #[test]
+    fn drive_listing_becomes_history_entries() {
+        let v = serde_json::json!({ "files": [
+            { "id": "a", "name": "one.mp4", "size": "12", "webViewLink": "https://drive.google.com/file/d/a/view", "createdTime": "2026-11-05T01:00:00Z" },
+            { "id": "b" }
+        ] });
+        let e = entries_from(&v);
+        assert_eq!(e.len(), 1);
+        assert_eq!((e[0].name.as_str(), e[0].bytes), ("one.mp4", 12));
+        assert!(e[0].path.is_none());
+        assert!(entries_from(&serde_json::json!({})).is_empty());
     }
 
     #[test]

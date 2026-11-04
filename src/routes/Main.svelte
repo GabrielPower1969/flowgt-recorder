@@ -47,6 +47,9 @@
     });
   }
 
+  /** Bluetooth headsets drop to a narrow phone-call mode when their mic is used. */
+  const btMic = $derived(settings.audio.micEnabled && /airpods|buds|beats|bluetooth|headset|耳机/i.test(micChoice || defaultMic || ""));
+
   function setOutput(v: string) {
     void updateSettings((s) => {
       s.audio.systemAudio = v.startsWith("device:") ? { kind: "device", id: v.slice(7) } : v === "off" ? { kind: "off" } : { kind: "auto" };
@@ -128,6 +131,7 @@
   {:else}
     <button type="button" class="btn btn-ghost btn-sm" onclick={signInToGoogle} disabled={driveState.signingIn}>{driveState.signingIn ? t("home.signingIn") : t("home.signIn")}</button>
   {/if}
+  <button type="button" class="btn btn-ghost btn-sm" data-testid="open-history" onclick={() => navigate("/history")}>{t("history.title")}</button>
   <button type="button" class="btn btn-ghost btn-icon" aria-label={t("common.settings")} onclick={() => navigate("/settings")}>
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.8 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.8H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.1-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
 </button>
@@ -175,6 +179,7 @@
     </label>
   </div>
 
+  {#if btMic}<p class="bt" data-testid="bt-mic">{t("home.btMic")}</p>{/if}
   <div class="controls">
     <button type="button" class="round" class:off={!settings.audio.micEnabled} aria-pressed={settings.audio.micEnabled} aria-label={settings.audio.micEnabled ? t("home.micOn") : t("home.micOff")} title={settings.audio.micEnabled ? t("home.micOn") : t("home.micOff")} onclick={toggleMic}>
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />{#if !settings.audio.micEnabled}<path d="M4 4l16 16" />{/if}</svg>
@@ -203,7 +208,7 @@
   .devices { width: min(720px, 100%); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); align-items: start; }
   @media (max-width: 600px) { .devices { grid-template-columns: 1fr; } }
   .home { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4); padding: var(--space-6) var(--space-4); }
-  .tile { width: min(720px, 100%, calc((100vh - 300px) * 16 / 9)); aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: var(--radius-l); background: var(--color-surface-3); color: var(--color-text-muted); }
+  .tile { width: min(720px, 100%, calc((100vh - 400px) * 16 / 9)); aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: var(--radius-l); background: var(--color-surface-3); color: var(--color-text-muted); }
   .tile video { width: 100%; height: 100%; object-fit: cover; }
   .mirror { transform: scaleX(-1); }
   .controls { display: flex; align-items: center; gap: var(--space-3); }
@@ -215,5 +220,6 @@
   .save { display: flex; align-items: center; gap: var(--space-4); border: 0; padding: 0; margin: 0; }
   .save legend { float: left; margin-right: var(--space-4); padding: 0; }
   .save label { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .bt { margin: 0; max-width: min(720px, 100%); padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn-soft); color: var(--color-warn); text-align: center; }
   .hint { max-width: min(720px, 100%); text-align: center; word-break: break-all; }
 </style>
