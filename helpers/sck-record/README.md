@@ -30,8 +30,13 @@ stdout, one JSON object per line:
 stdin: `stop` ends the recording; stdin closing (the app quit) does too; so do SIGINT/SIGTERM and
 `--duration`. Diagnostics go to stderr as `sck-record: …` lines.
 
-`--list` prints displays (id, index, pixel size, scale), windows, apps, cameras and microphones as
-JSON. `--check` prints `ok`, `permission-denied` or `unsupported-os`.
+`--list` prints displays (id, index, pixel size, scale), windows (id, title, app, bundle id, pid, point and pixel
+size), apps (bundle id, name, pid, and a 32 px PNG `icon` in base64 for apps that own a listed window), cameras and
+microphones as JSON. `--check` prints `ok`, `permission-denied` or `unsupported-os`.
+
+`--snapshot (--window <id> | --display <id>) --out <file.jpg> [--max-width 480]` writes one JPEG of a window or
+display for the picker (SCScreenshotManager, macOS 14+). Run snapshots one at a time: concurrent clients stall the
+capture daemon; the helper gives up after 4 s.
 
 Exit codes: 0 ok · 1 usage · 2 permission · 3 unsupported OS · 4 source not found · 5 capture failed · 6 output failed.
 

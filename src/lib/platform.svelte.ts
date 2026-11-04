@@ -5,8 +5,9 @@ import { isTauri } from "./ipc";
 function guessPlatform(): Platform {
   if (typeof navigator === "undefined") return "macos";
   const ua = `${navigator.userAgent} ${navigator.platform ?? ""}`.toLowerCase();
+  // "mac" and "darwin" first: "darwin" contains "win" (jsdom reports "darwin").
+  if (ua.includes("mac") || ua.includes("darwin")) return "macos";
   if (ua.includes("win")) return "windows";
-  if (ua.includes("mac")) return "macos";
   if (ua.includes("linux")) return "linux";
   return "macos";
 }

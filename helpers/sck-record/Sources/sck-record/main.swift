@@ -54,6 +54,9 @@ case .list:
     }
     Lister.run()
     dispatchMain()
+case .snapshot(let options):
+    Snapshot.run(options)
+    dispatchMain()
 case .record(let options):
     let recorder = Recorder(options: options)
     recorder.run()

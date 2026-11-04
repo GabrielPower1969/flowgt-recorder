@@ -15,8 +15,12 @@
 
 **Native capture landed (D27):** on macOS the `sck-record` helper (ScreenCaptureKit + AVAssetWriter) records screen,
 camera, mic and system audio on one clock; ffmpeg only joins and mixes at the end. This replaces the chopped-sound defect
-of D26 (measurements in D27 / report). The floating bar is no longer in the video. Single-app recording is possible in the
-helper but has no UI yet (next).
+of D26 (measurements in D27 / report). The floating bar is no longer in the video.
+
+**One app window (D28):** the picker has a second tab on macOS listing every on-screen window with its app icon and a
+thumbnail; the helper records just that window (follows moves and resizes; closing it ends the recording and keeps the
+file). Verified in the real app with the WeChat window. Not verified: pause/resume with native segments, long recordings,
+Drive upload of a native file.
 
 ## 下一步
 
@@ -28,7 +32,7 @@ helper but has no UI yet (next).
 | 4 | 系统声音方案定案：SCK 助手 还是 BlackHole（见 `docs/SYSTEM-AUDIO.md`，决定 D7；目前建议先 BlackHole） | 陈广宇定，Claude 做 | `docs/DECISIONS.md` 新增 D17 |
 | 5 | 是否建 GitHub 远程（私有？名字 `flowgt/screen-recorder`？） | 陈广宇 | 决定后告诉 Claude；决定 D14 改写 |
 | 6 | LGPL ffmpeg 可复现静态构建进 `src-tauri/binaries/`，连同对应源码包与 configure 行一起存档 | Claude | `docs/LICENSES.md` 的发布清单全部打钩 |
-| 7 | 窗口捕获（单窗口），需要原生 ScreenCaptureKit／WGC 路径（决定 D9） | Claude | UI 里的「窗口」选项可用 |
+| 7 | ~~窗口捕获（单窗口）~~ 已做：D28，macOS 原生路径 | Claude | ✔ 2026-11-05 |
 
 顺序就是编号顺序；3 可能被跳过，7 最后。
 

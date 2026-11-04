@@ -59,6 +59,20 @@ final class ArgumentTests: XCTestCase {
         XCTAssertThrowsError(try ArgumentParser.parse(["--display", "1", "--out", "x", "--size", "1921x1080"]))
         XCTAssertThrowsError(try ArgumentParser.parse(["--bogus"]))
     }
+
+    func testSnapshot() throws {
+        XCTAssertEqual(
+            try ArgumentParser.parse(["--snapshot", "--window", "12", "--out", "t.jpg"]),
+            .snapshot(SnapshotOptions(source: .window(12), output: "t.jpg", maxWidth: 480))
+        )
+        XCTAssertEqual(
+            try ArgumentParser.parse(["--snapshot", "--display", "1", "--out", "d.jpg", "--max-width", "320"]),
+            .snapshot(SnapshotOptions(source: .display(1), output: "d.jpg", maxWidth: 320))
+        )
+        XCTAssertThrowsError(try ArgumentParser.parse(["--snapshot", "--out", "t.jpg"]))
+        XCTAssertThrowsError(try ArgumentParser.parse(["--snapshot", "--app", "com.x", "--out", "t.jpg"]))
+        XCTAssertThrowsError(try ArgumentParser.parse(["--snapshot", "--list"]))
+    }
 }
 
 final class EventTests: XCTestCase {

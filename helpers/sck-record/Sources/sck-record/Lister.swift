@@ -35,14 +35,18 @@ enum Lister {
                 ])
             }
             let ourPid = getppid()
-            let apps = content.applications
-                .filter { $0.processID != ourPid && !$0.bundleIdentifier.isEmpty }
-                .map { ["bundleId": $0.bundleIdentifier, "name": $0.applicationName, "pid": $0.processID] as [String: Any] }
+            // Pixels per point where a window sits: the scale of the display under its centre.
+            func scaleAt(_ frame: CGRect) -> Double {
+                let centre = CGPoint(x: frame.midX, y: frame.midY)
+                let d = content.displays.first { $0.frame.contains(centre) } ?? content.displays.first { $0.displayID == CGMainDisplayID() }
+                return d.map { Display.scale($0.displayID) } ?? 1
+            }
             let windows = content.windows
                 .filter { $0.isOnScreen && $0.frame.width >= 64 && $0.frame.height >= 64 && $0.windowLayer == 0 }
                 .filter { $0.owningApplication?.processID != ourPid }
                 .map { w -> [String: Any] in
-                    [
+                    let scale = scaleAt(w.frame)
+                    return [
                         "id": w.windowID,
                         "title": w.title ?? "",
                         "app": w.owningApplication?.applicationName ?? "",
@@ -50,7 +54,18 @@ enum Lister {
                         "pid": w.owningApplication?.processID ?? 0,
                         "x": w.frame.origin.x, "y": w.frame.origin.y,
                         "pointWidth": w.frame.width, "pointHeight": w.frame.height,
+                        "width": Int((w.frame.width * scale).rounded()),
+                        "height": Int((w.frame.height * scale).rounded()),
                     ]
+                }
+            let withWindows = Set(windows.compactMap { $0["pid"] as? pid_t })
+            let apps = content.applications
+                .filter { $0.processID != ourPid && !$0.bundleIdentifier.isEmpty }
+                .map { a -> [String: Any] in
+                    var o: [String: Any] = ["bundleId": a.bundleIdentifier, "name": a.applicationName, "pid": a.processID]
+                    // Icons only for apps that have a window to pick; the rest would be dead weight.
+                    if withWindows.contains(a.processID), let icon = Images.iconPNG(pid: a.processID) { o["icon"] = icon }
+                    return o
                 }
             let cameras = AVCaptureDevice.DiscoverySession(deviceTypes: Devices.cameraTypes, mediaType: .video, position: .unspecified).devices
                 .map { ["name": $0.localizedName, "uniqueId": $0.uniqueID, "default": $0 == AVCaptureDevice.default(for: .video)] as [String: Any] }

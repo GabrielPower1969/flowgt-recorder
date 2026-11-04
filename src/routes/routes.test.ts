@@ -4,6 +4,7 @@ import { setTransport } from "../lib/ipc";
 import { mock } from "../lib/ipc-mock";
 import { __setLastResult, __setRecorderState, bindRecorderEvents, unbindRecorderEvents } from "../lib/stores/recorder.svelte";
 import { __setSettings } from "../lib/stores/settings.svelte";
+import { setPlatform } from "../lib/platform.svelte";
 import { defaultSettings, idleRecorderState } from "../lib/defaults";
 import { __resetDrive, bindDriveEvents, refreshDrive, signInToGoogle } from "../lib/stores/drive.svelte";
 import { getToasts, clearToasts } from "../lib/stores/toasts.svelte";
@@ -17,6 +18,7 @@ beforeEach(() => {
   setTransport(mock);
   unbindRecorderEvents();
   const settings = defaultSettings("macos");
+  setPlatform("macos");
   __setSettings(settings);
   __setRecorderState(idleRecorderState());
   __setLastResult(null);
@@ -264,6 +266,45 @@ describe("screen picker", () => {
     await fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(mock.callsTo("start_recording")).toHaveLength(0);
+  });
+
+  it("the window tab lists the windows by app, drops the outline, and records the chosen one", async () => {
+    mock.permissions.screen = "granted";
+    await openPicker();
+    await screen.findAllByRole("radio");
+    await fireEvent.click(screen.getByRole("button", { name: "单个 App 窗口" }));
+    await waitFor(() => expect(mock.callsTo("list_windows")).toHaveLength(1));
+    const radios = await screen.findAllByRole("radio");
+    expect(radios).toHaveLength(3);
+    expect(screen.getByText("zoom.us")).toBeInTheDocument();
+    expect(screen.getByText("Weekly sync - Zoom")).toBeInTheDocument();
+    expect(screen.getByText("（无标题）")).toBeInTheDocument();
+    expect(screen.queryByTestId("marker-hint")).toBeNull();
+    await waitFor(() => expect(mock.callsTo("hide_screen_marker").length).toBeGreaterThan(0));
+    await waitFor(() => expect(mock.callsTo("window_thumbnail")).toHaveLength(3));
+    await fireEvent.click(radios[1]);
+    await fireEvent.click(screen.getByRole("button", { name: "开始录制" }));
+    await waitFor(() => expect(mock.callsTo("start_recording")).toHaveLength(1));
+    expect(mock.settings.capture).toEqual({ kind: "window", windowId: "102" });
+  });
+
+  it("with no window on screen the window tab says so and cannot start", async () => {
+    mock.permissions.screen = "granted";
+    mock.windows = [];
+    await openPicker();
+    await screen.findAllByRole("radio");
+    await fireEvent.click(screen.getByRole("button", { name: "单个 App 窗口" }));
+    expect(await screen.findByTestId("no-windows")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始录制" })).toBeDisabled();
+  });
+
+  it("on Windows there is no window tab", async () => {
+    mock.permissions.screen = "granted";
+    setPlatform("windows");
+    await openPicker();
+    await screen.findAllByRole("radio");
+    expect(screen.queryByRole("button", { name: "单个 App 窗口" })).toBeNull();
+    setPlatform("macos");
   });
 });
 

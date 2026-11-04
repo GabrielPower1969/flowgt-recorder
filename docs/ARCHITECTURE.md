@@ -16,7 +16,8 @@
 │  encoders · pip · command                                                          │
 ├────────────────────────────────────────────────────────────────────────────────────┤
 │  ffmpeg / ffprobe sidecar (LGPL build in release; PATH ffmpeg in dev)             │
-│  macOS: sck-record helper (SCK screen + camera + mic + system audio → MP4), D27     │
+│  macOS: sck-record helper (SCK display or one window + camera + mic + system       │
+│         audio → MP4; --list / --snapshot feed the picker), D27 · D28               │
 │  Windows: ddagrab (D3D11) → hw encoder · dshow camera/mic · loopback device       │
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```

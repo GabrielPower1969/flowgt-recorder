@@ -26,6 +26,9 @@ final class ScreenSource: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func start(completion: @escaping (Result<Void, Error>) -> Void) {
+        // SCStream asserts (CGS_REQUIRE_INIT) unless the window-server connection exists; the
+        // display branch gets it from `Display.scale`, a window or app would not.
+        _ = CGMainDisplayID()
         SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { [weak self] content, error in
             guard let self else { return }
             if let error {

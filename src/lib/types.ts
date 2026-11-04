@@ -92,6 +92,19 @@ export interface DeviceList {
   loopbacks: Device[];
 }
 
+/** A window on screen that can be recorded by itself (macOS, native helper). Front-most first. */
+export interface WindowInfo {
+  id: number;
+  title: string;
+  app: string;
+  bundleId: string;
+  pid: number;
+  width: number;
+  height: number;
+  /** The app's icon as a base64 PNG, when known. */
+  icon: string | null;
+}
+
 export type VideoCodec = "hevc" | "h264" | "mpeg4";
 export interface EncoderChoice { name: string; codec: VideoCodec; hardware: boolean; extraArgs: string[] }
 
@@ -217,6 +230,8 @@ export interface Commands {
   discard_session: (args: { sessionId: string }) => void;
   set_floating_visible: (args: { visible: boolean }) => void;
   screen_thumbnail: (args: { id: string }) => string | null; // data URL; null = no permission yet
+  list_windows: () => WindowInfo[]; // empty when the native helper or the permission is missing
+  window_thumbnail: (args: { id: number }) => string | null; // data URL; null = cannot be taken
   relaunch_app: () => void;
   show_screen_marker: (a: { index: number }) => void;
   hide_screen_marker: () => void;
