@@ -11,6 +11,12 @@
 **一句话目标**：把会议、面试、演示在本机录成「屏幕 ＋ 摄像头小窗 ＋ 声音」的一个 MP4，一小时约 400 MB，
 什么都不上传。
 
+## Latest state (2026-11-05)
+
+**Open defect:** with the camera on, recorded sound is chopped. Camera off works: whole recording, 1 silent window of
+168, sound about 0.4 s ahead of the picture. See `docs/DECISIONS.md` D26. Waiting on Gabriel: camera in its own process,
+or native capture. Single-app recording needs native capture.
+
 ## 下一步
 
 | # | 事 | 谁 | 怎么算完 |

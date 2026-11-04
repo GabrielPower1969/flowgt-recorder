@@ -153,3 +153,20 @@ next to a screen capture, gaps up to 0.203 s. `sck-audio --mic` (AVCaptureSessio
 per segment like system audio. If the helper path fails to start, the fallback uses ffmpeg's input again.
 Drive playback: not a format problem. A new upload shows "still being processed" for 1 to 5 minutes (H.264 and HEVC
 alike in a test matrix), then a real HEVC recording played in Drive, so the format stays and the summary explains the wait.
+
+D26 · 2026-11-05 · **Known defect: with the camera on, sound is chopped; ffmpeg timing fixes did not work.** Real app,
+measured with a flash plus a 5 kHz tone played at the same moment, and the share of 100 ms windows that are silent.
+
+| Build | Silent windows | Tone vs flash | File length vs bar |
+|---|---|---|---|
+| Committed, camera off | 1 of 168 | 0.41 s early | 17.05 s, whole recording |
+| Committed, camera on | 51 of 123 | not measured | about 3 s short |
+| Separate filter graphs, camera on | 51 of 123 | not measured | same |
+| No wallclock on pipes, camera on | 0 of 131 | 4.92 s early | about 4 s short |
+| Same, camera input first | 0 of 121 | not usable | about 3 s short |
+| Same, audio pipes first, 30 s helper buffer | 3 of 66 | no flash in file | 6.4 s of about 16 s |
+
+All but the first two rows were reverted. Correcting by track length is wrong too: tracks do not end together, because
+ffmpeg drops what it has queued when stopped. The camera input stalls the whole process, so the next step is either the
+camera in its own process or native capture (ScreenCaptureKit + AVAssetWriter, see `wulkano/Aperture`, MIT; Cap is AGPL
+apart from its `cap-camera*` and `scap-*` crates). Gabriel decides.
