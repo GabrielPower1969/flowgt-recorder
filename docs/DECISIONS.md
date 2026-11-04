@@ -170,3 +170,26 @@ All but the first two rows were reverted. Correcting by track length is wrong to
 ffmpeg drops what it has queued when stopped. The camera input stalls the whole process, so the next step is either the
 camera in its own process or native capture (ScreenCaptureKit + AVAssetWriter, see `wulkano/Aperture`, MIT; Cap is AGPL
 apart from its `cap-camera*` and `scap-*` crates). Gabriel decides.
+
+D27 · 2026-11-05 · **Native capture on macOS: the `sck-record` helper replaces ffmpeg for recording (Gabriel chose this
+over splitting the camera into its own process).** `helpers/sck-record` (Swift, MIT-style design after `wulkano/Aperture`,
+no code taken) records the display through ScreenCaptureKit, the camera and the mic through AVCaptureSession, and writes one
+fragmented MP4 per segment with AVAssetWriter (HEVC or H.264 by VideoToolbox, AAC). Frames go in on a clock at the output
+rate: each tick takes the latest screen frame and the latest camera frame, so the camera can never stall the screen, and
+the audio never waits for either; everything is stamped from the one host clock. The camera is drawn with CoreImage on the
+GPU (centre square, mirror, rounded/circle mask). The segments carry the system track and then the mic track, raw; ffmpeg
+only joins the segments at the end and levels the mic (D24 chain) and mixes, which runs offline at hundreds of times real
+time. The app's own windows are left out of the picture by process id, so the floating bar is no longer in the video
+(amends D23). ffmpeg stays for Windows, for the join/mix step, for thumbnails and for the device listing; `FLOWGT_FFMPEG_CAPTURE=1`
+in the environment forces the old path for comparisons. Single-app and single-window recording are now possible in the
+helper (`--app`, `--window`) but have no UI yet.
+Measured the same way as D26 (real app, camera on, mic + computer audio, flash plus 5 kHz tone), two runs:
+
+| Build | Silent windows | Tone vs flash | File length vs bar |
+|---|---|---|---|
+| Native, run 1 | 1 of 201 | 0.02 s early | 20.0 s, whole recording |
+| Native, run 2 (bar excluded) | 0 of 202 | 0.04 s early | 20.1 s, whole recording |
+
+Known: the first camera frames can be dark (the camera's own warm-up), so the PiP may start black for a moment. The
+floating window must exist before the helper builds its filter; the helper also rebuilds the filter every 3 s, because a
+window the excluded app opens later is not excluded until then (seen in run 1).

@@ -34,6 +34,7 @@ pub fn lavfi_params(dir: &Path, camera: bool) -> Option<StartParams> {
         tools,
         helper: None,
         mic_helper: None,
+        native: None,
     })
 }
 

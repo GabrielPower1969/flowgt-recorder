@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# build-helper.sh: build the ScreenCaptureKit audio helper and copy it where Tauri bundles it from.
+# build-helper.sh: build the ScreenCaptureKit helpers and copy them where Tauri bundles them from.
+#   sck-audio  — system audio / mic as PCM for the ffmpeg path (fallback)
+#   sck-record — the native recorder (screen + camera + audio → MP4), D27
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-(cd "$ROOT/helpers/sck-audio" && swift build -c release)
 case "$(uname -m)" in
   arm64)  TRIPLE="aarch64-apple-darwin" ;;
   x86_64) TRIPLE="x86_64-apple-darwin" ;;
 esac
-install -m 755 "$ROOT/helpers/sck-audio/.build/release/sck-audio" "$ROOT/src-tauri/binaries/sck-audio-$TRIPLE"
-echo "copied to src-tauri/binaries/sck-audio-$TRIPLE"
+for helper in sck-audio sck-record; do
+  (cd "$ROOT/helpers/$helper" && swift build -c release)
+  install -m 755 "$ROOT/helpers/$helper/.build/release/$helper" "$ROOT/src-tauri/binaries/$helper-$TRIPLE"
+  echo "copied to src-tauri/binaries/$helper-$TRIPLE"
+done

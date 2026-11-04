@@ -1,5 +1,5 @@
 {
   "bundle": {
-    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe", "binaries/sck-audio"]
+    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe", "binaries/sck-audio", "binaries/sck-record"]
   }
 }

@@ -429,6 +429,9 @@ pub struct SessionManifest {
     pub segments: Vec<Segment>,
     pub status: SessionStatus,
     pub plan: RecordingPlan,
+    /// Set when the segments were recorded by the native helper (D27); decides how they are finished.
+    #[serde(default)]
+    pub native_audio: Option<crate::native::NativeAudio>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

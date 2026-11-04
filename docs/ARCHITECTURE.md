@@ -16,7 +16,7 @@
 │  encoders · pip · command                                                          │
 ├────────────────────────────────────────────────────────────────────────────────────┤
 │  ffmpeg / ffprobe sidecar (LGPL build in release; PATH ffmpeg in dev)             │
-│  macOS: avfoundation screen+camera+mic · ScreenCaptureKit audio helper (Swift)    │
+│  macOS: sck-record helper (SCK screen + camera + mic + system audio → MP4), D27     │
 │  Windows: ddagrab (D3D11) → hw encoder · dshow camera/mic · loopback device       │
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -48,7 +48,7 @@ system ──┴► amix (mixed) | two tracks (separate) ───────�
 | app | `src-tauri/src/**` (except placeholder), `src-tauri/icons/`, `Cargo.toml` deps |
 | ui | `src/**` (Svelte app, i18n, stores, ipc + mock), `src/**/*.test.ts` |
 | scripts | `scripts/**`, `tests/**`, `.github/workflows/ci.yml` |
-| helper | `helpers/sck-audio/**` (Swift ScreenCaptureKit audio → PCM) |
+| helper | `helpers/sck-record/**` (Swift: native recorder, D27) · `helpers/sck-audio/**` (Swift ScreenCaptureKit audio → PCM, ffmpeg fallback path) |
 | docs | `README.md`, `CLAUDE.md`, `HOURS.md`, `00-START-HERE.md`, `docs/*.md` |
 | design | `design/**`, `docs/DESIGN.md` |
 

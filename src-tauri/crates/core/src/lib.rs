@@ -25,6 +25,7 @@ pub mod devices;
 pub mod disk;
 pub mod encoders;
 pub mod filename;
+pub mod native;
 pub mod pip;
 pub mod progress;
 pub mod recovery;

@@ -13,9 +13,10 @@
 
 ## Latest state (2026-11-05)
 
-**Open defect:** with the camera on, recorded sound is chopped. Camera off works: whole recording, 1 silent window of
-168, sound about 0.4 s ahead of the picture. See `docs/DECISIONS.md` D26. Waiting on Gabriel: camera in its own process,
-or native capture. Single-app recording needs native capture.
+**Native capture landed (D27):** on macOS the `sck-record` helper (ScreenCaptureKit + AVAssetWriter) records screen,
+camera, mic and system audio on one clock; ffmpeg only joins and mixes at the end. This replaces the chopped-sound defect
+of D26 (measurements in D27 / report). The floating bar is no longer in the video. Single-app recording is possible in the
+helper but has no UI yet (next).
 
 ## 下一步
 

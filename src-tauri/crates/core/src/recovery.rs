@@ -21,6 +21,7 @@ pub fn new_manifest(session_id: &str, meeting_name: &str, final_output: PathBuf,
         segments: Vec::new(),
         status: SessionStatus::Recording,
         plan,
+        native_audio: None,
     }
 }
 
