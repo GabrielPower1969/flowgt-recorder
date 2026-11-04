@@ -5,6 +5,21 @@
 > `docs/reports/01-首版验收报告-2026-11-04.html`，整合者负责生成）。
 > 本清单写于 2026-11-04，当时代码还在并行搭建，「期望值」是按设计推出来的，不是实测——实测以报告为准。
 
+## 开通 Google 登录（只需一次，约 3 分钟）
+
+没做这一步，「登录 Google」只会提示未配置。
+
+1. 打开 https://console.cloud.google.com/apis/library/drive.googleapis.com ，选一个项目（或新建 `flowgt-recorder`），点「启用」。
+2. 打开 https://console.cloud.google.com/auth/clients/create ，类型选「桌面应用 Desktop app」，名称 `FlowGT Recorder`，点创建。提示先配置同意屏幕时：用户类型选「外部」，发布状态选「正式版」。
+3. 把弹窗里的两个值写进仓库根目录的 `.env.google`（已被 git 忽略）：
+
+```
+FLOWGT_GOOGLE_CLIENT_ID=…
+FLOWGT_GOOGLE_CLIENT_SECRET=…
+```
+
+4. 运行 `bash scripts/build-mac.sh`。
+
 ## 速查勾选（人工项，细节见下面各节）
 
 - [ ] 首次 `npm run tauri dev` 时点掉三个 TCC 弹窗（屏幕录制 ／ 摄像头 ／ 麦克风）——见 (a)

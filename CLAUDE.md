@@ -10,6 +10,7 @@ next steps: `00-START-HERE.md`. Architecture and decisions: `docs/ARCHITECTURE.m
 ```bash
 npm install                                   # once; also installs the Tauri CLI
 bash scripts/fetch-ffmpeg.sh                  # LGPL ffmpeg + ffprobe → src-tauri/binaries/ (sidecars)
+bash scripts/build-mac.sh                     # helper + release .app (reads .env.google for sign-in)
 
 npm run tauri dev                             # app with hot reload (Vite :1420 + cargo run)   ⚠ TCC prompts
 npm run dev                                   # frontend alone in a browser, against the ipc mock
@@ -35,7 +36,7 @@ bash scripts/bench.sh --app --seconds 60      # the same while the app records f
 |---|---|---|
 | `src-tauri/crates/core/src/types.rs` | **the data contract** | mirrored 1:1 by `src/lib/types.ts`; camelCase on the wire |
 | `src-tauri/crates/core/src/*.rs` | pure logic: `budget` `settings` `filename` `disk` `progress` `recovery` `devices` `encoders` `pip` `command` | no I/O; takes strings/paths, returns commands/plans; `fixtures/` holds real `ffmpeg` output |
-| `src-tauri/src/` | the Tauri app crate: `commands.rs` (IPC), `recorder.rs` (process supervisor), `sidecar.rs`, `permissions.rs`, `tray.rs`, `shortcuts.rs`, `disk.rs` | all I/O lives here |
+| `src-tauri/src/` | the Tauri app crate: `commands.rs` (IPC), `recorder.rs` (process supervisor), `drive.rs` (Google sign-in + upload), `sidecar.rs`, `permissions.rs`, `tray.rs`, `shortcuts.rs`, `disk.rs` | all I/O lives here |
 | `src-tauri/tauri.conf.json` | windows, CSP, tray, `externalBin`, bundle | `connect-src` allows only `ipc:` — keep it that way |
 | `src-tauri/capabilities/default.json` | Tauri permissions for the `main` and `floating` windows | add a line when a new plugin command is called |
 | `src-tauri/Info.plist` · `Entitlements.plist` | macOS usage strings and entitlements | TCC prompt texts |
@@ -75,8 +76,8 @@ bash scripts/bench.sh --app --seconds 60      # the same while the app records f
 11. **Every "verified" or "tested" claim in a document is backed by command output** quoted or linked
     (a report under `docs/reports/`, a CI run, a pasted terminal block). Otherwise write "expected" or
     "not yet measured".
-12. **Nothing leaves the machine.** No telemetry, no crash reporter, no update check, no fonts from a
-    CDN. The CSP in `tauri.conf.json` enforces `connect-src ipc: http://ipc.localhost`; a change to that
+12. **Nothing leaves the machine unless the user signed in to Google (D19).** Then recordings go to their
+    own Drive, nowhere else. No telemetry, no crash reporter, no update check, no fonts from a CDN. The CSP in `tauri.conf.json` enforces `connect-src ipc: http://ipc.localhost`; a change to that
     line is a product decision, not a convenience.
 13. **Do not commit `src-tauri/binaries/*`** (tens of MB per binary); they are fetched by the script.
 
@@ -104,7 +105,7 @@ argv; the bench before changing the budget defaults.
 | **0 · free** | read files, `cargo test`, `vitest`, clippy, `svelte-check`, `scripts/integration.sh` and `scripts/bench.sh` without `--app` (synthetic lavfi inputs, no devices, no permissions) | agent, any time |
 | **1 · announce first** | `npm run tauri dev`, `--selftest`, `bench.sh --app`: these open windows, register global shortcuts and **trigger macOS TCC prompts** that only a human can click; a recording may start and write files to `~/Movies/FlowGT Recorder` | agent, after saying so and with Gabriel at the keyboard |
 | **2 · human only** | clicking any system permission dialog, toggles in System Settings, installing BlackHole (needs a reboot), running anything on a Windows machine, creating the GitHub remote, pushing, deleting recordings, signing / notarising | Gabriel — listed in `docs/MANUAL-CHECKLIST.md` |
-| **never** | uploading a recording anywhere, adding network calls, widening the CSP, committing binaries or recordings, force-pushing | — |
+| **never** | uploading a recording anywhere but the signed-in user's own Drive, adding other network calls, widening the CSP, committing binaries or recordings, force-pushing | — |
 
 ## Recipes
 

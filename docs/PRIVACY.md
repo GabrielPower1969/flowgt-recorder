@@ -29,3 +29,10 @@
   `.flowgt-recorder/<session>/`，正常停止后会清理。设置：应用数据目录里的 `settings.json`。
 - **怎么删。** 在 Finder 里删 MP4；残留的工作目录用「设置 → 恢复 → 丢弃」；卸载应用并删除设置目录即可清空其余。
 - 验证状态：CSP 一行已从配置文件读到（A 级，2026-11-04）；「运行时无任何网络流量」尚未用抓包工具核实（未测）。
+
+## Google Drive（登录后才有） / Google Drive (only after you sign in)
+
+不登录：什么都不离开这台电脑。登录 Google 后：每段录像录完会上传到你自己 Drive 主页的「FlowGT Recorder」文件夹，本地文件保留；App 只申请 `drive.file` 权限，只能看到它自己建的文件，看不到你 Drive 里的其他内容。退出登录：设置 → 通用。
+
+Not signed in: nothing leaves this computer. Signed in to Google: each finished recording is uploaded to the "FlowGT Recorder" folder in the home of your own Drive, and the local file stays. The app asks only for `drive.file`, so it sees only what it created, not the rest of your Drive. Sign out in Settings → General.
+

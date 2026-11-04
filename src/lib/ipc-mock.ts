@@ -11,6 +11,7 @@ import type {
   Device,
   DeviceList,
   DiskStatus,
+  DriveStatus,
   Events,
   MediaInfo,
   PermissionKind,
@@ -83,6 +84,7 @@ export class MockBackend implements Transport {
   permissions: PermissionStatus = { screen: "notDetermined", camera: "notDetermined", microphone: "notDetermined" };
   appInfo: AppInfo = mockAppInfo();
   disk = { freeBytes: 120_000_000_000, totalBytes: 1_000_000_000_000 };
+  drive: DriveStatus = { configured: true, email: null };
   recoverable: RecoverableSession[] = [];
   state: RecorderState = idleRecorderState();
   lastResult: RecordingResult | null = null;
@@ -126,6 +128,7 @@ export class MockBackend implements Transport {
     this.appInfo = mockAppInfo();
     this.disk = { freeBytes: 120_000_000_000, totalBytes: 1_000_000_000_000 };
     this.recoverable = [];
+    this.drive = { configured: true, email: null };
     this.state = idleRecorderState();
     this.lastResult = null;
     this.calls = [];
@@ -251,6 +254,20 @@ export class MockBackend implements Transport {
     set_floating_visible: (_args: { visible: boolean }) => undefined,
     screen_thumbnail: (_args: { id: string }) => null,
     relaunch_app: () => undefined,
+    drive_status: () => this.drive,
+    drive_sign_in: () => {
+      this.drive = { configured: this.drive.configured, email: "demo@gmail.com" };
+      return this.drive;
+    },
+    drive_sign_out: () => {
+      this.drive = { configured: this.drive.configured, email: null };
+      return this.drive;
+    },
+    drive_upload: ({ path }) => {
+      this.emit("drive://progress", { path, percent: 0, done: false, url: null, error: null });
+      this.after(100, () => this.emit("drive://progress", { path, percent: 100, done: true, url: "https://drive.google.com/file/d/mock/view", error: null }));
+    },
+    open_drive_link: (_args: { url: string }) => undefined,
   };
 
   // ---- Recording lifecycle -----------------------------------------------------------------

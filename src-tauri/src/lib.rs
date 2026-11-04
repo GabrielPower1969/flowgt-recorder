@@ -3,6 +3,7 @@
 
 pub mod commands;
 pub mod disk;
+pub mod drive;
 pub mod error;
 pub mod permissions;
 pub mod recorder;

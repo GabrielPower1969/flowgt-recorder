@@ -95,3 +95,22 @@ that permission only after a restart (`relaunch_app`). Region capture left the U
 backend: `SystemAudioSource::Auto` no longer picks the experimental helper (a helper that never writes
 would hang the FIFO and fail the start); a camera or mic without permission is dropped instead of killing
 ffmpeg; a start that fails with a camera is retried once without it.
+
+D19 · 2026-11-04 · **Follow the system's devices; signing in saves to Google Drive (Gabriel).** (a) Camera and
+mic default to the system's current device (`AVCaptureDevice.default…` on macOS, re-read at each start); a
+chosen device is stored by NAME because avfoundation indices shift. Windows has no such query through dshow:
+the first device is used, untested. (b) Computer audio defaults to the ScreenCaptureKit helper, which records
+the system mix on whatever output is active, so no BlackHole is needed; bundled through
+`tauri.macos.conf.json`. This reverses the "Auto never picks the helper" part of D18 and the "experimental"
+status in D7, on evidence: real capture through FIFO + ffmpeg, Glass.aiff at volume 0.3, max_volume −24.4 dB,
+and silence still delivers samples, so ffmpeg does not stall (2026-11-04). A start that fails is retried
+without the helper, then without the camera. (c) Sign-in: OAuth desktop flow with PKCE + loopback in the
+user's browser, scope `drive.file` only (non-sensitive, and the app sees only what it created). Signed in =
+every finished recording uploads to a folder `FlowGT Recorder` in the Drive home, resumable in 8 MiB chunks;
+the local file stays. Upload verified against real Drive with a token from another client (721 210 bytes
+stored, same size), into a throwaway folder since trashed. Sign-in itself is NOT verified: it needs an OAuth
+client only a human can create (`.env.google`). (d) The refresh token lives in a 0600 file in the app config
+directory, not the Keychain: an ad-hoc-signed build would raise a Keychain prompt after every rebuild; revisit
+when the app is signed. (e) This is a deliberate change to invariant 12: the app talks to Google only when the
+user has signed in, from Rust, so the webview CSP stays as it was.
+

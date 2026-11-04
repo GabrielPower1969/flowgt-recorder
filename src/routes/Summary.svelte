@@ -8,10 +8,12 @@
   import { getPlatform } from "../lib/platform.svelte";
   import { toast } from "../lib/stores/toasts.svelte";
   import { formatBytes, formatDuration, formatPercent } from "../lib/format";
+  import { driveState, signInToGoogle, uploadToDrive } from "../lib/stores/drive.svelte";
 
   const r = $derived(recorder.lastResult);
   const over = $derived((r?.overBudgetRatio ?? 0) > 0.1);
   const fileName = $derived(r ? (r.path.split(/[\\/]/).pop() ?? r.path) : "");
+  const upload = $derived(r ? driveState.uploads[r.path] : undefined);
   let src = $state<string | null>(null);
   let compressing = $state<{ jobId: string; percent: number } | null>(null);
   let compressed = $state<string | null>(null);
@@ -22,6 +24,11 @@
     if (path) void mediaUrl(path).then((u) => (src = u));
   });
 
+  async function sendToDrive() {
+    if (!r) return;
+    if (!driveState.status.email && !(await signInToGoogle())) return;
+    await uploadToDrive(r.path);
+  }
   async function compress() {
     if (!r) return;
     const target = getSettings().video.targetMbPerHour * (r.info.durationMs / 3_600_000);
@@ -66,6 +73,21 @@
           <button type="button" class="btn btn-sm" onclick={compress} disabled={!!compressing}>{compressing ? t("summary.compressing", { percent: compressing.percent }) : t("summary.compress", { mb: getSettings().video.targetMbPerHour })}</button>
         {/if}
       </div>
+    {/if}
+    {#if upload?.url}
+      <div class="row" style="justify-content: center" data-testid="drive">
+        <span class="chip chip-ok">{t("summary.uploaded")}</span>
+        <button type="button" class="btn btn-sm" onclick={() => upload?.url && invoke("open_drive_link", { url: upload.url })}>{t("summary.openDrive")}</button>
+      </div>
+    {:else if upload?.error}
+      <div class="over" data-testid="drive">
+        <span>{t("summary.uploadFailed", { detail: upload.error })}</span>
+        <button type="button" class="btn btn-sm" onclick={sendToDrive}>{t("summary.retry")}</button>
+      </div>
+    {:else if upload}
+      <span class="muted" data-testid="drive" role="status">{t("summary.uploading", { percent: Math.round(upload.percent) })}</span>
+    {:else if !driveState.status.email}
+      <button type="button" class="btn" onclick={sendToDrive} disabled={driveState.signingIn}>{driveState.signingIn ? t("home.signingIn") : t("summary.upload")}</button>
     {/if}
     <div class="row" style="justify-content: center">
       <button type="button" class="btn" onclick={() => r && invoke("reveal_in_file_manager", { path: r.path })}>{revealLabel}</button>

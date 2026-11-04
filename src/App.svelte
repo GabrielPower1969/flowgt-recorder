@@ -4,6 +4,7 @@
   import { initPlatform } from "./lib/platform.svelte";
   import { loadSettings, getSettings, isLoaded } from "./lib/stores/settings.svelte";
   import { bindRecorderEvents } from "./lib/stores/recorder.svelte";
+  import { bindDriveEvents, refreshDrive } from "./lib/stores/drive.svelte";
   import { t } from "./lib/stores/i18n.svelte";
   import Toast from "./lib/components/Toast.svelte";
   import Main from "./routes/Main.svelte";
@@ -21,10 +22,13 @@
     const unbindEvents = bindRecorderEvents((r) => {
       if (getRoute() !== "/floating" && r) navigate("/summary");
     });
+    const unbindDrive = bindDriveEvents();
+    void refreshDrive();
     void loadSettings();
     return () => {
       unbindRouter();
       unbindEvents();
+      unbindDrive();
     };
   });
 </script>
