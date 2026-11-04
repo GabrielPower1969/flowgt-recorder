@@ -13,7 +13,7 @@ Nothing is uploaded, ever — there is no network code in the app at all (see `d
 ```
 ┌──────────────────────────── FlowGT Recorder (Tauri 2) ────────────────────────────┐
 │  Webview (Svelte 5 + TS)                 │  Rust app crate (src-tauri/src)         │
-│  main window ─ onboarding / main /       │  commands.rs   IPC surface (types.ts)   │
+│  main window ─ home + screen picker /    │  commands.rs   IPC surface (types.ts)   │
 │                settings / summary        │  recorder.rs   process supervisor:      │
 │  floating window ─ countdown / rec bar   │                segments, pause, stop,   │
 │  camera preview + mic meter via          │                progress events          │

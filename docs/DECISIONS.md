@@ -82,3 +82,16 @@ defaults is not an avfoundation screen index; `build_params` falls back to the f
 stored id is not in the device list. (f) Screen size on macOS is probed with a 1-frame ffmpeg run at
 start (needs the screen-recording permission, otherwise `error.permission`); the OS monitor size is
 the fallback. (g) Settings use `tauri-plugin-store` (D12) but always pass through `settings::from_json`.
+
+D18 · 2026-11-04 · **The UX follows Google Meet's "share screen" (Gabriel: "too complicated").** Home has a
+self-view, a mic toggle, a camera toggle and one button; the button opens a screen picker with thumbnails
+(`ScreenPicker.svelte`, modelled on Chrome's "choose what to share", including the "also share audio"
+checkbox); while recording, a bar with status, time, pause and stop; afterwards a page with the video and
+"show in Finder". Everything else (devices, PiP geometry, bitrate, shortcuts, recovery) moved to Settings.
+The three-step permission wizard is gone: camera and mic are asked on load like a meeting page, screen
+recording only when the user first wants to record, with a "reopen the app" button because macOS applies
+that permission only after a restart (`relaunch_app`). Region capture left the UI (still in the contract).
+`Settings.onboardingDone` stays in the schema, unused, so no migration is needed. Consequences in the
+backend: `SystemAudioSource::Auto` no longer picks the experimental helper (a helper that never writes
+would hang the FIFO and fail the start); a camera or mic without permission is dropped instead of killing
+ffmpeg; a start that fails with a camera is retried once without it.

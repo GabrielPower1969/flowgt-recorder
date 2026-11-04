@@ -42,7 +42,7 @@ bash scripts/bench.sh --app --seconds 60      # the same while the app records f
 | `src/lib/types.ts` | `Commands` and `Events` enumerations | the frontend never calls `invoke` directly |
 | `src/lib/ipc.ts` | typed wrapper + **mock** implementation | mock is what vitest and `npm run dev` use |
 | `src/lib/i18n/` | `zh` and `en` string tables | every visible string has a key in both |
-| `src/lib/stores/` · `src/lib/components/` · `src/routes/` | state, reusable pieces, one route per screen | screens: Onboarding, Main, Settings, Summary, Floating |
+| `src/lib/stores/` · `src/lib/components/` · `src/routes/` | state, reusable pieces, one route per screen | screens: Main (home + `ScreenPicker`), Settings, Summary, Floating (D18) |
 | `design/tokens.css` · `docs/DESIGN.md` | design tokens and the "Studio" look | tokens are used verbatim (D13) |
 | `helpers/sck-audio/` | Swift ScreenCaptureKit audio helper → PCM FIFO | experimental in v0.1 (D7) |
 | `scripts/` · `tests/` · `.github/workflows/ci.yml` | integration, bench, fetch-ffmpeg, CI | outputs in `tests/out/`, `bench-out/` (git-ignored) |

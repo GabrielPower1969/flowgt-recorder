@@ -1,250 +1,125 @@
 <script lang="ts">
+  /** Home: self-view, mic and camera toggles, one button. Everything else lives in Settings. */
   import { onMount } from "svelte";
-  import type { AppInfo, DeviceList, DiskStatus, Settings, CameraSettings, PipShape, Corner } from "../lib/types";
+  import type { DeviceList, PermissionKind, PermissionStatus, Settings } from "../lib/types";
   import { invoke } from "../lib/ipc";
   import { t } from "../lib/stores/i18n.svelte";
   import { navigate } from "../lib/router.svelte";
   import { updateSettings } from "../lib/stores/settings.svelte";
-  import { recorder, startRecording } from "../lib/stores/recorder.svelte";
-  import { getPlatform } from "../lib/platform.svelte";
-  import { budgetFromMbPerHour, codecLabel, formatBytes, formatHours, outputSize, previewFilename, shortcutParts } from "../lib/format";
+  import { recorder } from "../lib/stores/recorder.svelte";
   import { openCamera, stopStream } from "../lib/media/camera";
-  import { startLevelMeter, type LevelMeterHandle } from "../lib/media/level";
-  import StagePreview from "../lib/components/StagePreview.svelte";
-  import LevelMeter from "../lib/components/LevelMeter.svelte";
-  import Segmented from "../lib/components/Segmented.svelte";
+  import ScreenPicker from "../lib/components/ScreenPicker.svelte";
 
   let { settings }: { settings: Settings } = $props();
-  let devices = $state<DeviceList>({ screens: [], cameras: [], microphones: [], loopbacks: [] });
-  let info = $state<AppInfo | null>(null);
-  let disk = $state<DiskStatus | null>(null);
-  let meetingName = $state("");
-  let filename = $state("");
-  let level = $state(0);
-  let stream = $state<MediaStream | null>(null);
-  let meter: LevelMeterHandle | null = null;
+  let devices = $state<DeviceList | null>(null);
+  let perms = $state<PermissionStatus | null>(null);
+  let preview = $state<MediaStream | null>(null);
+  let picking = $state(false);
 
-  const capture = $derived(settings.capture);
-  const displayId = $derived(capture.kind === "window" ? "" : capture.displayId);
-  const screen = $derived(devices.screens.find((s) => s.id === displayId) ?? devices.screens.find((s) => s.isDefault) ?? devices.screens[0] ?? null);
-  const out = $derived(outputSize(screen, settings.video.maxWidth));
-  const budget = $derived(budgetFromMbPerHour(settings.video.targetMbPerHour, settings.audio.bitrateKbps, settings.audio.tracks === "separate" ? 2 : 1));
-  const encoderName = $derived(info?.encoder?.name ?? "");
-  const codec = $derived(codecLabel(info?.encoder?.codec ?? "hevc"));
-  const active = $derived(recorder.isActive);
-  const canRecord = $derived(!active && !!screen && !(disk && disk.hoursRecordable * 60 < 10));
+  const camAllowed = $derived(perms?.camera === "granted" || perms?.camera === "notApplicable");
+  const camDenied = $derived(perms?.camera === "denied");
 
-  const save = (patch: (s: Settings) => void) => void updateSettings(patch);
-  const patchCamera = (p: Partial<CameraSettings>) => save((s) => Object.assign(s.camera, p));
-
-  async function refreshDevices() {
-    devices = await invoke("list_devices");
-  }
-  async function refreshDisk() {
-    disk = await invoke("check_disk", {});
-  }
-  async function onName(v: string) {
-    meetingName = v;
-    filename = await invoke("preview_filename", { name: v });
-  }
-  function selectScreen(id: string) {
-    save((s) => {
-      s.capture = s.capture.kind === "region" ? { kind: "region", displayId: id, region: s.capture.region } : { kind: "display", displayId: id };
-    });
-  }
-  function setSourceKind(k: "display" | "region" | "window") {
-    save((s) => {
-      const id = s.capture.kind === "window" ? screen?.id ?? "" : s.capture.displayId;
-      s.capture = k === "region" ? { kind: "region", displayId: id, region: { x: 0, y: 0, w: 1280, h: 720 } } : { kind: "display", displayId: id };
-    });
-  }
-  async function record() {
-    await startRecording(meetingName);
-  }
-
-  $effect(() => {
-    // Camera preview belongs to the webview only while idle (D6).
-    const enabled = settings.camera.enabled && !active;
-    const id = settings.camera.deviceId;
-    const label = devices.cameras.find((c) => c.id === id)?.name ?? null;
-    let cancelled = false;
-    stopStream(stream);
-    stream = null;
-    if (enabled) {
-      void openCamera(label).then((s) => {
-        if (cancelled) stopStream(s);
-        else stream = s;
-      });
+  /** Ask the first time something is switched on, the way a meeting page does. */
+  async function ensure(kind: PermissionKind) {
+    if (perms && perms[kind] === "notDetermined") {
+      const r = await invoke("request_permission", { kind });
+      perms = { ...perms, [kind]: r };
     }
+  }
+  async function toggleCamera() {
+    const on = !settings.camera.enabled;
+    await updateSettings((s) => { s.camera.enabled = on; });
+    if (on) await ensure("camera");
+  }
+  async function toggleMic() {
+    const on = !settings.audio.micEnabled;
+    await updateSettings((s) => { s.audio.micEnabled = on; });
+    if (on) await ensure("microphone");
+  }
+
+  function attach(node: HTMLVideoElement, s: MediaStream | null) {
+    node.srcObject = s;
+    return { update(next: MediaStream | null) { node.srcObject = next; } };
+  }
+
+  // The camera preview belongs to the webview only while idle; ffmpeg needs the camera to record (D6).
+  $effect(() => {
+    const wanted = settings.camera.enabled && camAllowed && !recorder.isActive;
+    const id = settings.camera.deviceId;
+    const label = devices?.cameras.find((c) => c.id === id)?.name ?? devices?.cameras[0]?.name ?? null;
+    if (!wanted) return;
+    let cancelled = false;
+    let opened: MediaStream | null = null;
+    void openCamera(label).then((s) => {
+      if (cancelled) return stopStream(s);
+      opened = s;
+      preview = s;
+    });
     return () => {
       cancelled = true;
+      stopStream(opened);
+      preview = null;
     };
   });
-  $effect(() => {
-    const enabled = settings.audio.micEnabled;
-    const label = devices.microphones.find((m) => m.id === settings.audio.micDeviceId)?.name ?? null;
-    meter?.stop();
-    meter = null;
-    level = 0;
-    if (enabled) void startLevelMeter(label, (v) => (level = v)).then((h) => (meter = h));
-    return () => {
-      meter?.stop();
-      meter = null;
-    };
-  });
+
   onMount(() => {
-    void refreshDevices();
-    void refreshDisk();
-    void invoke("get_app_info").then((i) => (info = i));
-    void onName("");
-    return () => stopStream(stream);
+    void (async () => {
+      [devices, perms] = await Promise.all([invoke("list_devices"), invoke("check_permissions")]);
+      if (settings.camera.enabled) await ensure("camera");
+      if (settings.audio.micEnabled) await ensure("microphone");
+    })();
   });
-  const sysOptions = $derived([
-    { value: "off", label: t("main.systemAudio.off") },
-    { value: "auto", label: t("main.systemAudio.auto") },
-    { value: "helper", label: t("main.systemAudio.helper"), disabled: getPlatform() !== "macos" },
-    ...devices.loopbacks.map((d) => ({ value: `device:${d.id}`, label: d.name })),
-  ]);
-  const sysValue = $derived(settings.audio.systemAudio.kind === "device" ? `device:${settings.audio.systemAudio.id}` : settings.audio.systemAudio.kind);
 </script>
 
-<header class="topbar">
-  <strong>{t("app.name")}</strong>
-  <span class="chip" class:chip-rec={active}>{t(`status.${recorder.state.phase}`)}</span>
-  <button type="button" class="btn btn-ghost" onclick={() => navigate("/settings")}>{t("main.settings")}</button>
-</header>
+<button type="button" class="btn btn-ghost btn-icon gear" aria-label={t("common.settings")} onclick={() => navigate("/settings")}>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.8 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.8H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.1-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+</button>
 
-<div class="page grid">
-  <section class="stack">
-    <div class="card stack">
-      <div class="row" style="justify-content: space-between">
-        <h3>{t("main.source")}</h3>
-        <button type="button" class="btn btn-ghost btn-sm" onclick={refreshDevices}>{t("main.devices.refresh")}</button>
+<main class="home">
+  <div class="tile">
+    {#if settings.camera.enabled && preview}
+      <video class:mirror={settings.camera.mirror} autoplay muted playsinline use:attach={preview}></video>
+    {:else if settings.camera.enabled && camDenied}
+      <div class="stack" style="align-items: center">
+        <span>{t("home.camDenied")}</span>
+        <button type="button" class="btn btn-sm" onclick={() => invoke("open_privacy_settings", { kind: "camera" })}>{t("home.openSettings")}</button>
       </div>
-      <Segmented
-        label={t("main.source")}
-        value={capture.kind}
-        onchange={setSourceKind}
-        options={[
-          { value: "display", label: t("main.source.display") },
-          { value: "region", label: t("main.source.region") },
-          { value: "window", label: t("main.source.window"), disabled: true, hint: t("main.source.windowSoon") },
-        ]}
-      />
-      {#if devices.screens.length === 0}
-        <p class="muted">{t("main.noScreens")}</p>
-      {:else}
-        <div class="screens" role="radiogroup" aria-label={t("main.source.display")}>
-          {#each devices.screens as s (s.id)}
-            <button type="button" class="screen" role="radio" aria-checked={screen?.id === s.id} onclick={() => selectScreen(s.id)}>
-              <span>{s.name}</span>
-              <span class="faint mono">{s.width ?? "?"}×{s.height ?? "?"}{s.isDefault ? ` · ${t("main.source.primary")}` : ""}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-      {#if capture.kind === "region"}
-        <div class="row">
-          {#each ["x", "y", "w", "h"] as k (k)}
-            <label class="field" style="width: 90px">
-              <span>{t(`main.source.${k}`)}</span>
-              <input class="input mono" type="number" min="0" value={capture.region[k as "x" | "y" | "w" | "h"]} onchange={(e) => save((s) => { if (s.capture.kind === "region") s.capture.region[k as "x"] = Number((e.target as HTMLInputElement).value); })} />
-            </label>
-          {/each}
-        </div>
-      {/if}
-    </div>
+    {:else if settings.camera.enabled}
+      <span>{t("main.camera.noPreview")}</span>
+    {:else}
+      <span>{t("home.camIsOff")}</span>
+    {/if}
+  </div>
 
-    <div class="card stack">
-      <div class="row" style="justify-content: space-between">
-        <h3>{t("main.camera")}</h3>
-        <label class="row"><input type="checkbox" checked={settings.camera.enabled} onchange={(e) => patchCamera({ enabled: (e.target as HTMLInputElement).checked })} /> {t("main.camera.enable")}</label>
-      </div>
-      <StagePreview camera={settings.camera} outW={out.width} outH={out.height} {stream} onchange={patchCamera} />
-      {#if settings.camera.enabled}
-        <div class="row">
-          <label class="field">
-            <span>{t("main.camera.device")}</span>
-            <select class="input" value={settings.camera.deviceId ?? ""} onchange={(e) => patchCamera({ deviceId: (e.target as HTMLSelectElement).value || null })}>
-              <option value="">{t("common.default")}</option>
-              {#each devices.cameras as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
-            </select>
-          </label>
-          <div class="field">
-            <span class="label">{t("main.camera.corner")}</span>
-            <Segmented label={t("main.camera.corner")} value={settings.camera.corner} onchange={(v: Corner) => patchCamera({ corner: v, offsetX: 0, offsetY: 0 })} options={(["top-left", "top-right", "bottom-left", "bottom-right"] as Corner[]).map((c) => ({ value: c, label: t(`corner.${c}`) }))} />
-          </div>
-          <div class="field">
-            <span class="label">{t("main.camera.shape")}</span>
-            <Segmented label={t("main.camera.shape")} value={settings.camera.shape} onchange={(v: PipShape) => patchCamera({ shape: v })} options={(["square", "rounded", "circle"] as PipShape[]).map((s) => ({ value: s, label: t(`main.camera.shape.${s}`) }))} />
-          </div>
-          <label class="field" style="min-width: 160px">
-            <span>{t("main.camera.size")} · {settings.camera.sizePct}%</span>
-            <input type="range" min="10" max="50" value={settings.camera.sizePct} oninput={(e) => patchCamera({ sizePct: Number((e.target as HTMLInputElement).value) })} />
-          </label>
-          <label class="row"><input type="checkbox" checked={settings.camera.mirror} onchange={(e) => patchCamera({ mirror: (e.target as HTMLInputElement).checked })} /> {t("main.camera.mirror")}</label>
-        </div>
-      {/if}
-    </div>
-
-    <div class="card stack">
-      <div class="row" style="justify-content: space-between">
-        <h3>{t("main.mic")}</h3>
-        <label class="row"><input type="checkbox" checked={settings.audio.micEnabled} onchange={(e) => save((s) => (s.audio.micEnabled = (e.target as HTMLInputElement).checked))} /> {t("main.mic.enable")}</label>
-      </div>
-      <div class="row">
-        <label class="field" style="flex: 1">
-          <span>{t("main.mic.device")}</span>
-          <select class="input" value={settings.audio.micDeviceId ?? ""} disabled={!settings.audio.micEnabled} onchange={(e) => save((s) => (s.audio.micDeviceId = (e.target as HTMLSelectElement).value || null))}>
-            <option value="">{t("common.default")}</option>
-            {#each devices.microphones as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
-          </select>
-        </label>
-        <div class="field" style="flex: 1">
-          <span class="label">{t("main.mic.level")}</span>
-          <LevelMeter {level} />
-        </div>
-      </div>
-      <div class="field">
-        <span class="label">{t("main.systemAudio")}</span>
-        <Segmented label={t("main.systemAudio")} value={sysValue} options={sysOptions} onchange={(v: string) => save((s) => { s.audio.systemAudio = v.startsWith("device:") ? { kind: "device", id: v.slice(7) } : ({ kind: v } as Settings["audio"]["systemAudio"]); })} />
-        <span class="faint">{t(`main.systemAudio.hint.${settings.audio.systemAudio.kind}`)}</span>
-      </div>
-    </div>
-  </section>
-
-  <aside class="stack">
-    <div class="card stack">
-      <label class="field">
-        <span>{t("main.meetingName")}</span>
-        <input class="input" placeholder={t("main.meetingName.placeholder")} value={meetingName} oninput={(e) => onName((e.target as HTMLInputElement).value)} />
-      </label>
-      <span class="faint mono" data-testid="filename">{t("main.meetingName.hint", { example: `${filename || previewFilename(settings.filenameTemplate, meetingName)}.mp4` })}</span>
-      <div class="field">
-        <span class="label">{t("main.output")}</span>
-        <span class="mono" style="font-size: var(--text-sm); word-break: break-all">{settings.outputDir}</span>
-      </div>
-    </div>
-    <div class="card stack">
-      <strong data-testid="estimate">{t("main.estimate", { mb: settings.video.targetMbPerHour })}</strong>
-      <span class="faint mono">{info ? t("main.estimate.detail", { w: out.width, h: out.height, fps: settings.video.fps, codec, encoder: encoderName }) : t("main.encoderWait")} · {budget.totalKbps} kbps</span>
-      {#if disk}
-        <span class="faint" class:warn={disk.low}>{t("main.disk", { free: formatBytes(disk.freeBytes), hours: formatHours(disk.hoursRecordable) })}{disk.low ? ` · ${t("main.disk.low")}` : ""}</span>
-      {/if}
-    </div>
-    <button type="button" class="btn btn-record" onclick={record} disabled={!canRecord || recorder.busy} data-testid="rec">
-      <span class="dot"></span>{active ? t("main.recording") : t("main.record")}
+  <div class="controls">
+    <button type="button" class="round" class:off={!settings.audio.micEnabled} aria-pressed={settings.audio.micEnabled} aria-label={settings.audio.micEnabled ? t("home.micOn") : t("home.micOff")} title={settings.audio.micEnabled ? t("home.micOn") : t("home.micOff")} onclick={toggleMic}>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />{#if !settings.audio.micEnabled}<path d="M4 4l16 16" />{/if}</svg>
     </button>
-    <span class="faint row" style="justify-content: center">{t("main.shortcutHint")} {#each shortcutParts(settings.shortcuts.toggle, getPlatform()) as p, i (i)}<span class="kbd">{p}</span>{/each}</span>
-  </aside>
-</div>
+    <button type="button" class="round" class:off={!settings.camera.enabled} aria-pressed={settings.camera.enabled} aria-label={settings.camera.enabled ? t("home.camOn") : t("home.camOff")} title={settings.camera.enabled ? t("home.camOn") : t("home.camOff")} onclick={toggleCamera}>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2" /><path d="M16 10l5-3v10l-5-3" />{#if !settings.camera.enabled}<path d="M4 4l16 16" />{/if}</svg>
+    </button>
+    <button type="button" class="btn btn-record" data-testid="rec" disabled={recorder.isActive} onclick={() => (picking = true)}>
+      <span class="dot"></span>{t("home.record")}
+    </button>
+  </div>
+  <p class="faint hint">{t("home.hint", { mb: settings.video.targetMbPerHour, dir: settings.outputDir })}</p>
+</main>
+
+{#if picking}
+  <ScreenPicker onclose={() => (picking = false)} />
+{/if}
 
 <style>
-  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--space-4); }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-  .screens { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-  .screen { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-m); background: var(--color-surface-2); }
-  .screen[aria-checked="true"] { border-color: var(--color-accent); background: var(--color-accent-soft); }
-  .dot { width: 12px; height: 12px; border-radius: 50%; background: #fff; }
-  .warn { color: var(--color-warn); }
+  .gear { position: fixed; top: var(--space-3); right: var(--space-3); z-index: 5; }
+  .home { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4); padding: var(--space-6) var(--space-4); }
+  .tile { width: min(720px, 100%); aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: var(--radius-l); background: var(--color-surface-3); color: var(--color-text-muted); }
+  .tile video { width: 100%; height: 100%; object-fit: cover; }
+  .mirror { transform: scaleX(-1); }
+  .controls { display: flex; align-items: center; gap: var(--space-3); }
+  .round { width: 56px; height: 56px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-border-strong); border-radius: 50%; background: var(--color-surface); color: var(--color-text); }
+  .round:hover { background: var(--color-surface-2); }
+  .round.off { background: var(--color-surface-3); color: var(--color-text-muted); border-color: transparent; }
+  .btn-record { padding: 0 var(--space-6); border-radius: var(--radius-pill); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: currentColor; }
+  .hint { max-width: min(720px, 100%); text-align: center; word-break: break-all; }
 </style>

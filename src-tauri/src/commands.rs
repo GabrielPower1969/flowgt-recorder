@@ -333,13 +333,9 @@ pub fn resolve_system_audio(s: &Settings, list: &DeviceList, helper: Option<&Pat
         SystemAudioSource::Off => None,
         SystemAudioSource::Device(id) => Some(by_id(id)),
         SystemAudioSource::Helper => helper.map(|_| pipe()),
-        SystemAudioSource::Auto => {
-            if platform == Platform::MacOs && helper.is_some() {
-                Some(pipe())
-            } else {
-                list.loopbacks.first().map(|d| by_id(&d.id))
-            }
-        }
+        // The helper is experimental (D7), so only an explicit choice uses it: a helper that never
+        // writes would leave ffmpeg waiting on the FIFO and the recording would fail to start.
+        SystemAudioSource::Auto => list.loopbacks.first().map(|d| by_id(&d.id)),
     }
 }
 
@@ -369,6 +365,18 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
         CaptureTarget::Display { .. } => CaptureTarget::Display { display_id: screen.id.clone() },
     };
     let (sw, sh) = screen_size(&t, &screen).await?;
+
+    // A camera or microphone the user has not allowed must not stop the recording: ffmpeg would
+    // exit at once. Record what is allowed instead.
+    if platform == Platform::MacOs {
+        let perms = permissions::check();
+        if perms.camera != PermissionState::Granted {
+            s.camera.enabled = false;
+        }
+        if perms.microphone != PermissionState::Granted {
+            s.audio.mic_enabled = false;
+        }
+    }
 
     // Camera: default means the first camera everywhere; no camera at all means no PiP.
     if s.camera.enabled {
@@ -423,6 +431,9 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
 /// Countdown, then start. Used by the command, the tray and the shortcut.
 pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderState> {
     let state = app.state::<AppState>();
+    if Platform::current() == Platform::MacOs && permissions::check().screen != PermissionState::Granted {
+        return Err(CommandError::new("error.permission", "screen recording permission is not granted"));
+    }
     let st = state.recorder.begin_countdown().await?;
     *state.last_meeting.lock().expect("meeting lock") = meeting_name.clone();
     let s = load_settings(app)?;
@@ -440,7 +451,26 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
             return;
         }
         let started = match build_params(&handle, &state, &meeting_name).await {
-            Ok(p) => state.recorder.start(p).await,
+            Ok(p) => {
+                let without_camera = p.plan.camera.is_some().then(|| {
+                    let mut q = p.clone();
+                    q.plan.camera = None;
+                    q.plan.pip = None;
+                    q
+                });
+                match (state.recorder.start(p).await, without_camera) {
+                    // A camera that will not open (busy, unsupported mode) must not cost the recording.
+                    (Err(e), Some(q)) if e.code == "error.start" => {
+                        log::warn!("start with the camera failed, retrying without it: {}", e.detail);
+                        let retried = state.recorder.start(q).await;
+                        if retried.is_ok() {
+                            let _ = handle.emit("recorder://warning", json!({ "code": "warn.cameraLost", "detail": e.detail }));
+                        }
+                        retried
+                    }
+                    (result, _) => result,
+                }
+            }
             Err(e) => Err(e),
         };
         if let Err(e) = started {
@@ -456,7 +486,10 @@ pub async fn toggle_recording(app: &AppHandle) {
     match state.recorder.phase().await {
         Phase::Idle => {
             let name = state.last_meeting.lock().expect("meeting lock").clone();
-            let _ = begin(app, name).await;
+            if let Err(e) = begin(app, name).await {
+                crate::windows::show_main(app);
+                let _ = app.emit("recorder://error", json!({ "code": e.code, "detail": e.detail }));
+            }
         }
         Phase::Countdown => {
             let _ = state.recorder.cancel().await;
@@ -479,6 +512,38 @@ pub async fn toggle_pause(app: &AppHandle) {
         }
         _ => {}
     }
+}
+
+/// A small JPEG of one screen as a data URL, for the screen picker. `None` when the
+/// screen-recording permission is missing (asking ffmpeg would only fail) or on other platforms.
+#[tauri::command]
+pub async fn screen_thumbnail(state: State<'_, AppState>, id: String) -> CmdResult<Option<String>> {
+    use base64::Engine;
+    if Platform::current() != Platform::MacOs || permissions::check().screen != PermissionState::Granted {
+        return Ok(None);
+    }
+    let t = tools(&state).await?;
+    let mut c = tokio::process::Command::new(&t.ffmpeg);
+    c.args(["-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30", "-capture_cursor", "0", "-i"])
+        .arg(format!("{id}:none"))
+        // The first frames from a screen input can be black; take a later one.
+        .args(["-vf", "select=gte(n\\,5),scale=480:-2", "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "5", "-f", "image2pipe", "-"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let Ok(Ok(out)) = tokio::time::timeout(Duration::from_secs(5), c.output()).await else {
+        return Ok(None);
+    };
+    if !out.status.success() || out.stdout.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(&out.stdout))))
+}
+
+/// macOS applies a newly granted screen-recording permission only after a restart.
+#[tauri::command]
+pub fn relaunch_app(app: AppHandle) {
+    app.restart();
 }
 
 #[tauri::command]
@@ -673,6 +738,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         recover_session,
         discard_session,
         set_floating_visible,
+        screen_thumbnail,
+        relaunch_app,
     ]
 }
 

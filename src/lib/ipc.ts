@@ -3,6 +3,7 @@
  * here. Outside Tauri (vitest, plain `npm run dev`) the in-memory mock in ./ipc-mock.ts answers.
  */
 import type { Commands, Events } from "./types";
+import { tCode } from "./stores/i18n.svelte";
 
 export type CommandName = keyof Commands;
 export type CommandArgs<K extends CommandName> = Parameters<Commands[K]>;
@@ -74,8 +75,20 @@ export function subscribe<K extends EventName>(event: K, cb: (payload: Events[K]
   };
 }
 
+/** URL a <video> can load for a local file; null outside Tauri. */
+export async function mediaUrl(path: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  const { convertFileSrc } = await import("@tauri-apps/api/core");
+  return convertFileSrc(path);
+}
+
 export function errorMessage(err: unknown): string {
   if (typeof err === "string") return err;
+  if (err && typeof err === "object" && "code" in err && "detail" in err) {
+    const { code, detail } = err as { code: string; detail: string };
+    const key = code.replace(/^error\./, "");
+    return tCode("error", key, detail);
+  }
   if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message);
   return String(err);
 }

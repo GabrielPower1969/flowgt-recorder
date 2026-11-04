@@ -1,7 +1,7 @@
-/** Hash router: #/onboarding, #/ (main), #/settings, #/summary, #/floating. */
-export type Route = "/" | "/onboarding" | "/settings" | "/summary" | "/floating";
+/** Hash router: #/ (home), #/settings, #/summary, #/floating. */
+export type Route = "/" | "/settings" | "/summary" | "/floating";
 
-const KNOWN: Route[] = ["/", "/onboarding", "/settings", "/summary", "/floating"];
+const KNOWN: Route[] = ["/", "/settings", "/summary", "/floating"];
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, "").split("?")[0] || "/";
