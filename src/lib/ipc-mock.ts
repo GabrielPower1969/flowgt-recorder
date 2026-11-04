@@ -264,8 +264,8 @@ export class MockBackend implements Transport {
       return this.drive;
     },
     drive_upload: ({ path }) => {
-      this.emit("drive://progress", { path, percent: 0, done: false, url: null, error: null });
-      this.after(100, () => this.emit("drive://progress", { path, percent: 100, done: true, url: "https://drive.google.com/file/d/mock/view", error: null }));
+      this.emit("drive://progress", { path, percent: 0, done: false, url: null, error: null, localRemoved: false });
+      this.after(100, () => this.emit("drive://progress", { path, percent: 100, done: true, url: "https://drive.google.com/file/d/mock/view", error: null, localRemoved: !this.settings.saveLocal }));
     },
     open_drive_link: (_args: { url: string }) => undefined,
   };

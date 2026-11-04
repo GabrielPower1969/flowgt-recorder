@@ -128,11 +128,43 @@ describe("google drive", () => {
     const path = "/a/b.mp4";
     __setLastResult({ sessionId: "s", path, info: { path, bytes: 1, durationMs: 1000, width: 1, height: 1, fps: 30, videoCodec: "hevc", audioCodec: "aac", audioTracks: 1, bitrateKbps: 1 }, budget: { totalKbps: 889, videoKbps: 793, audioKbpsTotal: 96, maxrateKbps: 1190, bufsizeKbps: 1586, expectedMbPerHour: 400 }, overBudgetRatio: 0, recovered: false });
     render(Summary);
-    mock.emit("drive://progress", { path, percent: 42, done: false, url: null, error: null });
+    mock.emit("drive://progress", { path, percent: 42, done: false, url: null, error: null, localRemoved: false });
     expect(await screen.findByRole("status")).toHaveTextContent("42%");
-    mock.emit("drive://progress", { path, percent: 100, done: true, url: "https://drive.google.com/file/d/x/view", error: null });
+    mock.emit("drive://progress", { path, percent: 100, done: true, url: "https://drive.google.com/file/d/x/view", error: null, localRemoved: false });
     await fireEvent.click(await screen.findByRole("button", { name: "在 Google Drive 中打开" }));
     await waitFor(() => expect(mock.callsTo("open_drive_link")).toEqual([{ url: "https://drive.google.com/file/d/x/view" }]));
+  });
+
+  it("saving only to Drive: the summary drops the preview and says where the recording is", async () => {
+    bindDriveEvents();
+    await new Promise((r) => setTimeout(r, 0));
+    const path = "/a/d.mp4";
+    __setLastResult({ sessionId: "s", path, info: { path, bytes: 1, durationMs: 1000, width: 1, height: 1, fps: 30, videoCodec: "hevc", audioCodec: "aac", audioTracks: 1, bitrateKbps: 1 }, budget: { totalKbps: 889, videoKbps: 793, audioKbpsTotal: 96, maxrateKbps: 1190, bufsizeKbps: 1586, expectedMbPerHour: 400 }, overBudgetRatio: 0, recovered: false });
+    render(Summary);
+    mock.emit("drive://progress", { path, percent: 100, done: true, url: "https://drive.google.com/file/d/x/view", error: null, localRemoved: true });
+    expect(await screen.findByTestId("drive-only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Finder|访达|文件夹/ })).toBeNull();
+  });
+
+  it("the home page offers local, Drive or both, and never neither", async () => {
+    mock.drive = { configured: true, email: "demo@gmail.com" };
+    await refreshDrive();
+    const lastSaved = () => mock.callsTo("save_settings").at(-1)?.settings;
+    const first = render(Main, { settings: defaultSettings("macos") });
+    const local = (await screen.findByRole("checkbox", { name: "本机" })) as HTMLInputElement;
+    expect(local.checked && (screen.getByRole("checkbox", { name: "Google Drive" }) as HTMLInputElement).checked).toBe(true);
+    await fireEvent.click(local);
+    await waitFor(() => expect(lastSaved()?.saveLocal).toBe(false));
+    first.unmount();
+
+    const second = render(Main, { settings: { ...defaultSettings("macos"), saveLocal: false } });
+    expect(await screen.findByTestId("drive-line")).toHaveTextContent("只存");
+    await fireEvent.click(screen.getByRole("checkbox", { name: "Google Drive" }));
+    await waitFor(() => expect(lastSaved()).toMatchObject({ saveDrive: false, saveLocal: true }));
+    second.unmount();
+
+    render(Main, { settings: { ...defaultSettings("macos"), saveDrive: false } });
+    expect(await screen.findByRole("checkbox", { name: "本机" })).toBeDisabled();
   });
 
   it("a failed upload can be retried", async () => {
@@ -143,7 +175,7 @@ describe("google drive", () => {
     const path = "/a/c.mp4";
     __setLastResult({ sessionId: "s", path, info: { path, bytes: 1, durationMs: 1000, width: 1, height: 1, fps: 30, videoCodec: "hevc", audioCodec: "aac", audioTracks: 1, bitrateKbps: 1 }, budget: { totalKbps: 889, videoKbps: 793, audioKbpsTotal: 96, maxrateKbps: 1190, bufsizeKbps: 1586, expectedMbPerHour: 400 }, overBudgetRatio: 0, recovered: false });
     render(Summary);
-    mock.emit("drive://progress", { path, percent: 0, done: true, url: null, error: "boom" });
+    mock.emit("drive://progress", { path, percent: 0, done: true, url: null, error: "boom", localRemoved: false });
     await fireEvent.click(await screen.findByRole("button", { name: "重试" }));
     await waitFor(() => expect(mock.callsTo("drive_upload")).toEqual([{ path }]));
   });
