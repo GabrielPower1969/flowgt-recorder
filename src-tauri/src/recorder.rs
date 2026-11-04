@@ -56,6 +56,9 @@ pub struct StartParams {
     pub tools: Tools,
     /// The sck-audio helper, when `plan.system_audio` is a `PcmPipe` fed by it.
     pub helper: Option<PathBuf>,
+    /// The helper records the mic when set (macOS): ffmpeg's avfoundation audio input drops buffers.
+    /// `Some(None)` is the system's current input, `Some(Some(name))` a chosen one.
+    pub mic_helper: Option<(PathBuf, Option<String>)>,
 }
 
 const STOP_GRACE: Duration = Duration::from_secs(8);
@@ -97,6 +100,7 @@ struct Session {
     last_error_tail: Vec<String>,
     monitor: Option<tokio::task::JoinHandle<()>>,
     helper_child: Option<Child>,
+    mic_child: Option<Child>,
 }
 
 struct Inner {
@@ -236,6 +240,7 @@ impl Recorder {
                 last_error_tail: Vec::new(),
                 monitor: None,
                 helper_child: None,
+                mic_child: None,
             });
             self.spawn_next_segment(&mut inner).await?;
         }
@@ -289,6 +294,20 @@ impl Recorder {
             } else {
                 plan.system_audio = None;
                 s.warnings.push(Warning { code: "warn.systemAudioOff".into(), detail: "could not create the audio FIFO".into() });
+            }
+        }
+
+        if let Some((helper, name)) = s.params.mic_helper.clone().filter(|_| plan.mic.is_some()) {
+            let fifo = s.params.work_dir.join(format!("mic-{index:03}.pcm"));
+            let _ = tokio::fs::remove_file(&fifo).await;
+            if Command::new("mkfifo").arg(&fifo).status().await.map(|st| st.success()).unwrap_or(false) {
+                plan.mic = Some(InputSource::PcmPipe { path: fifo.to_string_lossy().into_owned(), sample_rate: 48_000, channels: 2 });
+                let mut h = Command::new(&helper);
+                h.arg("--out").arg(&fifo).arg("--mic");
+                if let Some(n) = name {
+                    h.arg("--mic-device").arg(n);
+                }
+                s.mic_child = h.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true).spawn().ok();
             }
         }
 
@@ -470,6 +489,9 @@ impl Recorder {
             s.elapsed_before_ms += u64::try_from(t.elapsed().as_millis()).unwrap_or(0);
         }
         if let Some(mut h) = s.helper_child.take() {
+            let _ = h.start_kill();
+        }
+        if let Some(mut h) = s.mic_child.take() {
             let _ = h.start_kill();
         }
         let _ = write_manifest(&s.manifest).await;
@@ -755,6 +777,9 @@ impl Recorder {
         let mut inner = self.shared.inner.lock().await;
         if let Some(mut s) = inner.session.take() {
             if let Some(mut h) = s.helper_child.take() {
+                let _ = h.start_kill();
+            }
+            if let Some(mut h) = s.mic_child.take() {
                 let _ = h.start_kill();
             }
         }

@@ -33,6 +33,7 @@ pub fn lavfi_params(dir: &Path, camera: bool) -> Option<StartParams> {
         low_disk_warn_gb: 0,
         tools,
         helper: None,
+        mic_helper: None,
     })
 }
 

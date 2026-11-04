@@ -51,8 +51,16 @@ case .selfTest(let options):
     dispatchMain()
 
 case .stream(let output, let options):
-    let source = SCKCaptureSource(options: options)
-    source.onDiagnostic = { line in Console.err(line) }
+    let source: AudioCaptureSource
+    if options.mic {
+        let mic = MicCaptureSource(options: options)
+        mic.onDiagnostic = { line in Console.err(line) }
+        source = mic
+    } else {
+        let system = SCKCaptureSource(options: options)
+        system.onDiagnostic = { line in Console.err(line) }
+        source = system
+    }
     let runner = Runner(options: options, outputPath: output, selfTest: false, source: source)
     runner.run()
     dispatchMain()

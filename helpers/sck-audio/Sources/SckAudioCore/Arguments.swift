@@ -30,6 +30,10 @@ public struct CaptureOptions: Equatable {
     public var openTimeoutSeconds: Double?
     /// Interval between `sck-audio: bytes=… seconds=…` lines on stderr.
     public var progressIntervalSeconds: Double
+    /// Record a microphone instead of the system audio.
+    public var mic = false
+    /// Microphone by name; nil = the system's current input.
+    public var micDevice: String?
 
     public init(
         sampleRate: Int = CaptureOptions.defaultSampleRate,
@@ -94,6 +98,8 @@ public enum ArgumentParser {
     OPTIONS
       --out, -o <path>        FIFO, regular file or '-' for stdout. Opened lazily: a FIFO blocks
                               (polls) until the reader — normally ffmpeg — opens its side.
+      --mic                   Record a microphone instead of the system audio.
+      --mic-device <name>     Which microphone. Default: the system's current input.
       --rate <hz>             Sample rate, 8000–384000. Default 48000.
       --channels <n>          Channel count, 1–8. Default 2.
       --format <fmt>          s16le (default) or f32le, interleaved, little-endian.
@@ -113,7 +119,7 @@ public enum ArgumentParser {
 
     private static let valued: Set<String> = [
         "--out", "-o", "--rate", "--channels", "--format", "--duration", "--open-timeout",
-        "--progress-interval",
+        "--progress-interval", "--mic-device",
     ]
 
     public static func parse(_ arguments: [String]) throws -> Command {
@@ -148,6 +154,10 @@ public enum ArgumentParser {
             case "--check": check = true
             case "--self-test": selfTest = true
             case "--out", "-o": output = try value()
+            case "--mic": options.mic = true
+            case "--mic-device":
+                options.mic = true
+                options.micDevice = try value()
             case "--rate":
                 options.sampleRate = try parseInt(name, try value(), range: 8_000...384_000)
             case "--channels":

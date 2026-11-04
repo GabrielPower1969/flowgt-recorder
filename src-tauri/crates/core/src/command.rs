@@ -110,7 +110,7 @@ fn screen_input(platform: Platform, display_id: &str) -> crate::Result<InputSour
 }
 
 /// Mic levelling: cut rumble, bring speech up to a steady level. Runs far faster than real time.
-const MIC_FILTER: &str = "highpass=f=80,speechnorm=e=8:r=0.0005:l=1";
+const MIC_FILTER: &str = "highpass=f=80,speechnorm=e=8:t=0.01:r=0.0005:l=1";
 const LIMITER: &str = "alimiter=limit=0.89:level=false";
 
 /// Input arguments for one source (everything from `-thread_queue_size` through `-i …`).
@@ -525,7 +525,7 @@ mod tests {
         assert!(fc.contains("[0:v]scale=1920:1200"));
         assert!(fc.contains("[1:v]crop=ih:ih,hflip,scale=264:264"));
         assert!(fc.contains("overlay=1632:912"));
-        assert!(fc.contains("[2:a]aresample=48000:async=1,highpass=f=80,speechnorm=e=8:r=0.0005:l=1,alimiter=limit=0.89:level=false[aout]"));
+        assert!(fc.contains("[2:a]aresample=48000:async=1,highpass=f=80,speechnorm=e=8:t=0.01:r=0.0005:l=1,alimiter=limit=0.89:level=false[aout]"));
         assert!(has_pair(a, "-map", "[vout]") && has_pair(a, "-map", "[aout]"));
     }
 
@@ -568,7 +568,7 @@ mod tests {
         let fc = value_of(&mixed, "-filter_complex");
         assert!(fc.contains("amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.89:level=false[aout]"));
         // Only the mic is levelled; computer audio passes through.
-        assert!(fc.contains("speechnorm=e=8:r=0.0005:l=1[am]"));
+        assert!(fc.contains("speechnorm=e=8:t=0.01:r=0.0005:l=1[am]"));
         assert!(fc.contains("aresample=48000:async=1[as]"));
         assert_eq!(mixed.iter().filter(|x| *x == "-map").count(), 2);
         assert!(has_pair(&mixed, "-use_wallclock_as_timestamps", "1"));
