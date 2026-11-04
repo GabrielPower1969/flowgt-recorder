@@ -44,3 +44,8 @@ ffprobe -v error -show_entries format=duration,size,bit_rate:stream=codec_name,w
 ## 6. Report
 
 Write results to `docs/reports/02-Windows实测-<date>.html` and update `BENCH.md`.
+
+## Device defaults on Windows (D19, untested)
+
+dshow cannot say which device is the system default, so the app takes the first camera and microphone it lists; check whether that matches Settings → Sound. Computer audio needs a loopback device there ("Stereo Mix" or `virtual-audio-capturer`): there is no ScreenCaptureKit, and a WASAPI loopback helper is future work.
+

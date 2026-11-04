@@ -10,7 +10,6 @@
   let { onclose }: { onclose: () => void } = $props();
 
   let screens = $state<Device[]>([]);
-  let loopbacks = $state<Device[]>([]);
   let thumbs = $state<Record<string, string | null>>({});
   let selected = $state<string | null>(null);
   let permission = $state<PermissionState | null>(null);
@@ -19,8 +18,6 @@
   let starting = $state(false);
 
   const allowed = $derived(permission === "granted" || permission === "notApplicable");
-  const hasLoopback = $derived(loopbacks.length > 0);
-  const systemAudio = $derived(hasLoopback && getSettings().audio.systemAudio.kind !== "off");
 
   async function loadThumbs() {
     for (const s of screens) {
@@ -35,11 +32,6 @@
     if (r === "granted") return void loadThumbs();
     await invoke("open_privacy_settings", { kind: "screen" });
     asked = true;
-  }
-  function toggleSystemAudio(on: boolean) {
-    void updateSettings((s) => {
-      s.audio.systemAudio = { kind: on ? "auto" : "off" };
-    });
   }
   async function start() {
     if (!selected || starting) return;
@@ -61,7 +53,6 @@
     void (async () => {
       const [list, perms] = await Promise.all([invoke("list_devices"), invoke("check_permissions")]);
       screens = list.screens;
-      loopbacks = list.loopbacks;
       permission = perms.screen;
       const capture = getSettings().capture;
       const saved = capture.kind === "window" ? null : capture.displayId;
@@ -102,11 +93,6 @@
         <span>{t("picker.name")}</span>
         <input class="input" bind:value={name} data-testid="name" />
       </label>
-      <label class="row sys">
-        <input type="checkbox" checked={systemAudio} disabled={!hasLoopback} onchange={(e) => toggleSystemAudio((e.target as HTMLInputElement).checked)} />
-        {t("picker.systemAudio")}
-        {#if !hasLoopback}<span class="faint">{t("picker.systemAudioMissing")}</span>{/if}
-      </label>
     {/if}
 
     <div class="foot">
@@ -125,6 +111,5 @@
   .thumb { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: var(--radius-s); background: var(--color-surface-3); overflow: hidden; }
   .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .perm { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-m); background: var(--color-surface-2); }
-  .sys { gap: var(--space-2); }
   .foot { display: flex; justify-content: flex-end; gap: var(--space-2); }
 </style>

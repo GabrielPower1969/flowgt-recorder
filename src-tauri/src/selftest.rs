@@ -1,4 +1,4 @@
-//! `flowgt-recorder --selftest N [--pause-at A --resume-at B]`
+//! `flowgt-recorder --selftest N [--pause-at A --resume-at B] [--system-audio]`
 //!
 //! Runs the real supervisor against synthetic ffmpeg inputs (testsrc2 screen, a red "camera",
 //! a sine "microphone"): no window, no permission prompt, no device. Prints the
@@ -47,6 +47,7 @@ pub fn maybe_run() -> Option<i32> {
     let seconds: f64 = args.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(5.0);
     let pause_at = arg_value(&args, "--pause-at");
     let resume_at = arg_value(&args, "--resume-at");
+    let system_audio = args.iter().any(|a| a == "--system-audio");
     let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
@@ -54,19 +55,28 @@ pub fn maybe_run() -> Option<i32> {
             return Some(1);
         }
     };
-    Some(rt.block_on(run(seconds, pause_at, resume_at)))
+    Some(rt.block_on(run(seconds, pause_at, resume_at, system_audio)))
 }
 
-async fn run(seconds: f64, pause_at: Option<f64>, resume_at: Option<f64>) -> i32 {
+async fn run(seconds: f64, pause_at: Option<f64>, resume_at: Option<f64>, system_audio: bool) -> i32 {
     let dir = std::env::temp_dir().join(format!("flowgt-selftest-{}", std::process::id()));
     if let Err(e) = std::fs::create_dir_all(&dir) {
         eprintln!("selftest: cannot create {}: {e}", dir.display());
         return 1;
     }
-    let Some(params) = lavfi_params(&dir, true) else {
+    let Some(mut params) = lavfi_params(&dir, true) else {
         eprintln!("selftest: ffmpeg / ffprobe not found (run scripts/fetch-ffmpeg.sh or install ffmpeg)");
         return 1;
     };
+    if system_audio {
+        // The real ScreenCaptureKit helper (needs the screen-recording permission).
+        let Some(helper) = crate::commands::find_helper() else {
+            eprintln!("selftest: sck-audio helper not found (run scripts/build-helper.sh)");
+            return 1;
+        };
+        params.plan.system_audio = Some(InputSource::PcmPipe { path: String::new(), sample_rate: 48_000, channels: 2 });
+        params.helper = Some(helper);
+    }
     eprintln!("selftest: encoder {}, output {}", params.plan.encoder.name, params.final_output.display());
     let rec = Recorder::new(Arc::new(NullSink));
     let sleep = |s: f64| tokio::time::sleep(Duration::from_millis((s.max(0.0) * 1000.0) as u64));

@@ -69,6 +69,10 @@ impl EventSink for TauriSink {
     }
     fn finished(&self, r: &RecordingResult) {
         let _ = self.app.emit("recorder://finished", r);
+        // Signed in = the recording also goes to Google Drive; the local file stays.
+        if crate::drive::load_account(&self.app).is_some() {
+            spawn_upload(self.app.clone(), r.path.clone());
+        }
     }
 }
 
@@ -178,6 +182,9 @@ pub async fn devices(app: &AppHandle, tools: &Tools) -> CmdResult<DeviceList> {
         .enumerate()
         .map(|(i, m)| (i as u32, m.name().cloned().unwrap_or_else(|| format!("Display {}", i + 1)), m.size().width, m.size().height))
         .collect();
+    // "Default" is whatever the system uses right now, not the first entry of ffmpeg's list.
+    mark_system_default(&mut list.cameras, permissions::default_device_name(Kind::Camera));
+    mark_system_default(&mut list.microphones, permissions::default_device_name(Kind::Microphone));
     if platform == Platform::Windows {
         list.screens = devices::windows_screens(&monitors);
     } else {
@@ -190,6 +197,25 @@ pub async fn devices(app: &AppHandle, tools: &Tools) -> CmdResult<DeviceList> {
         }
     }
     Ok(list)
+}
+
+fn mark_system_default(list: &mut [Device], name: Option<String>) {
+    let Some(name) = name else { return };
+    if list.iter().any(|d| d.name == name) {
+        for d in list.iter_mut() {
+            d.is_default = d.name == name;
+        }
+    }
+}
+
+/// The device id to record from: the one the user chose (settings keep its NAME, because
+/// avfoundation indices shift when devices come and go), else the system default, else the first.
+fn resolve_device(list: &[Device], wanted: Option<&str>) -> Option<String> {
+    wanted
+        .and_then(|w| list.iter().find(|d| d.name == w || d.id == w))
+        .or_else(|| list.iter().find(|d| d.is_default))
+        .or_else(|| list.first())
+        .map(|d| d.id.clone())
 }
 
 #[tauri::command]
@@ -215,7 +241,7 @@ pub async fn get_app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
         ffmpeg_version: version,
         ffmpeg_bundled: bundled,
         encoder,
-        system_audio_available: cfg!(target_os = "macos") || cfg!(target_os = "windows"),
+        system_audio_available: find_helper().is_some(),
     })
 }
 
@@ -309,15 +335,19 @@ async fn screen_size(tools: &Tools, device: &Device) -> CmdResult<(u32, u32)> {
     }
 }
 
-fn find_helper() -> Option<PathBuf> {
-    let name = if cfg!(windows) { "sck-audio.exe" } else { "sck-audio" };
+pub fn find_helper() -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
     let mut candidates = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(d) = exe.parent() {
-            candidates.push(d.join(name));
+            candidates.push(d.join("sck-audio"));
         }
     }
-    candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../helpers/sck-audio/.build/release").join(name));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    candidates.push(root.join("binaries").join(format!("sck-audio-{}", sidecar::host_triple())));
+    candidates.push(root.join("../helpers/sck-audio/.build/release/sck-audio"));
     candidates.into_iter().find(|p| p.is_file())
 }
 
@@ -333,9 +363,11 @@ pub fn resolve_system_audio(s: &Settings, list: &DeviceList, helper: Option<&Pat
         SystemAudioSource::Off => None,
         SystemAudioSource::Device(id) => Some(by_id(id)),
         SystemAudioSource::Helper => helper.map(|_| pipe()),
-        // The helper is experimental (D7), so only an explicit choice uses it: a helper that never
-        // writes would leave ffmpeg waiting on the FIFO and the recording would fail to start.
-        SystemAudioSource::Auto => list.loopbacks.first().map(|d| by_id(&d.id)),
+        // The helper records whatever the system is playing, on any output device (D19).
+        SystemAudioSource::Auto => match helper {
+            Some(_) => Some(pipe()),
+            None => list.loopbacks.first().map(|d| by_id(&d.id)),
+        },
     }
 }
 
@@ -378,18 +410,17 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
         }
     }
 
-    // Camera: default means the first camera everywhere; no camera at all means no PiP.
     if s.camera.enabled {
-        match (&s.camera.device_id, list.cameras.first()) {
-            (Some(id), _) if list.cameras.iter().any(|d| &d.id == id) => {}
-            (_, Some(first)) => s.camera.device_id = Some(first.id.clone()),
-            (_, None) => s.camera.enabled = false,
+        match resolve_device(&list.cameras, s.camera.device_id.as_deref()) {
+            Some(id) => s.camera.device_id = Some(id),
+            None => s.camera.enabled = false,
         }
     }
-    // Windows microphones are addressed by name; macOS has a real "default".
-    if platform == Platform::Windows && s.audio.mic_enabled && s.audio.mic_device_id.is_none() {
-        match list.microphones.first() {
-            Some(m) => s.audio.mic_device_id = Some(m.id.clone()),
+    if s.audio.mic_enabled {
+        match resolve_device(&list.microphones, s.audio.mic_device_id.as_deref()) {
+            Some(id) => s.audio.mic_device_id = Some(id),
+            // macOS still has a "default" even when the listing came back empty.
+            None if platform == Platform::MacOs => s.audio.mic_device_id = None,
             None => s.audio.mic_enabled = false,
         }
     }
@@ -451,26 +482,7 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
             return;
         }
         let started = match build_params(&handle, &state, &meeting_name).await {
-            Ok(p) => {
-                let without_camera = p.plan.camera.is_some().then(|| {
-                    let mut q = p.clone();
-                    q.plan.camera = None;
-                    q.plan.pip = None;
-                    q
-                });
-                match (state.recorder.start(p).await, without_camera) {
-                    // A camera that will not open (busy, unsupported mode) must not cost the recording.
-                    (Err(e), Some(q)) if e.code == "error.start" => {
-                        log::warn!("start with the camera failed, retrying without it: {}", e.detail);
-                        let retried = state.recorder.start(q).await;
-                        if retried.is_ok() {
-                            let _ = handle.emit("recorder://warning", json!({ "code": "warn.cameraLost", "detail": e.detail }));
-                        }
-                        retried
-                    }
-                    (result, _) => result,
-                }
-            }
+            Ok(p) => start_with_fallbacks(&handle, &state, p).await,
             Err(e) => Err(e),
         };
         if let Err(e) = started {
@@ -479,6 +491,52 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
         }
     });
     Ok(st)
+}
+
+/// A camera that will not open or a silent audio helper must not cost the recording: try again
+/// with less, and say what was dropped.
+async fn start_with_fallbacks(app: &AppHandle, state: &AppState, full: StartParams) -> CmdResult<RecorderState> {
+    let has_camera = full.plan.camera.is_some();
+    let has_helper = full.helper.is_some();
+    let without = |camera: bool, helper: bool| {
+        let mut q = full.clone();
+        if camera {
+            q.plan.camera = None;
+            q.plan.pip = None;
+        }
+        if helper {
+            q.plan.system_audio = None;
+            q.helper = None;
+        }
+        q
+    };
+    let mut attempts = vec![(full.clone(), None)];
+    if has_helper {
+        attempts.push((without(false, true), Some("warn.systemAudioOff")));
+    }
+    if has_camera {
+        attempts.push((without(true, false), Some("warn.cameraLost")));
+    }
+    if has_camera && has_helper {
+        attempts.push((without(true, true), Some("warn.cameraLost")));
+    }
+    let mut last = None;
+    for (params, dropped) in attempts {
+        match state.recorder.start(params).await {
+            Ok(st) => {
+                if let Some(code) = dropped {
+                    let _ = app.emit("recorder://warning", json!({ "code": code, "detail": "" }));
+                }
+                return Ok(st);
+            }
+            Err(e) if e.code == "error.start" => {
+                log::warn!("start failed, trying with less: {}", e.detail);
+                last = Some(e);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| CommandError::new("error.start", "no attempt was made")))
 }
 
 pub async fn toggle_recording(app: &AppHandle) {
@@ -584,6 +642,74 @@ pub async fn set_floating_visible(app: AppHandle, visible: bool) -> CmdResult<()
         crate::windows::hide_floating(&app);
     }
     Ok(())
+}
+
+// ───────────────────────────── Google Drive ─────────────────────────────
+
+fn drive_status_now(app: &AppHandle) -> DriveStatus {
+    DriveStatus { configured: crate::drive::oauth_client().is_some(), email: crate::drive::load_account(app).map(|a| a.email) }
+}
+
+#[tauri::command]
+pub async fn drive_status(app: AppHandle) -> CmdResult<DriveStatus> {
+    Ok(drive_status_now(&app))
+}
+
+#[tauri::command]
+pub async fn drive_sign_in(app: AppHandle) -> CmdResult<DriveStatus> {
+    let client = crate::drive::oauth_client().ok_or_else(|| CommandError::new("error.driveNotConfigured", "this build has no Google OAuth client"))?;
+    let account = crate::drive::sign_in(&crate::drive::Endpoints::google(), &client, |url| {
+        if let Err(e) = tauri_plugin_opener::open_url(url, None::<&str>) {
+            log::warn!("cannot open the browser: {e}");
+        }
+    })
+    .await?;
+    crate::drive::save_account(&app, &account)?;
+    crate::windows::show_main(&app);
+    Ok(drive_status_now(&app))
+}
+
+#[tauri::command]
+pub async fn drive_sign_out(app: AppHandle) -> CmdResult<DriveStatus> {
+    crate::drive::forget_account(&app);
+    Ok(drive_status_now(&app))
+}
+
+#[tauri::command]
+pub async fn drive_upload(app: AppHandle, path: String) -> CmdResult<()> {
+    if crate::drive::load_account(&app).is_none() {
+        return Err(CommandError::new("error.driveSignedOut", "not signed in to Google"));
+    }
+    spawn_upload(app, path);
+    Ok(())
+}
+
+/// Only Drive links: the webview must not be able to open arbitrary URLs through this.
+#[tauri::command]
+pub async fn open_drive_link(url: String) -> CmdResult<()> {
+    if !url.starts_with("https://drive.google.com/") {
+        return Err(CommandError::new("error.invalidArgument", "not a Google Drive link"));
+    }
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| CommandError::io(e.to_string()))
+}
+
+fn spawn_upload(app: AppHandle, path: String) {
+    tauri::async_runtime::spawn(async move {
+        let emit = |percent: f64, done: bool, url: Option<String>, error: Option<String>| {
+            let _ = app.emit("drive://progress", DriveProgress { path: path.clone(), percent, done, url, error });
+        };
+        emit(0.0, false, None, None);
+        let outcome = async {
+            let client = crate::drive::oauth_client().ok_or_else(|| "this build has no Google OAuth client".to_string())?;
+            let account = crate::drive::load_account(&app).ok_or_else(|| "not signed in".to_string())?;
+            crate::drive::upload_recording(&crate::drive::Endpoints::google(), Some(&client), &account.refresh_token, None, Path::new(&path), |pct| emit(pct, false, None, None)).await
+        }
+        .await;
+        match outcome {
+            Ok(link) => emit(100.0, true, Some(link), None),
+            Err(e) => emit(0.0, true, None, Some(e)),
+        }
+    });
 }
 
 // ───────────────────────────── compress ─────────────────────────────
@@ -740,6 +866,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         set_floating_visible,
         screen_thumbnail,
         relaunch_app,
+        drive_status,
+        drive_sign_in,
+        drive_sign_out,
+        drive_upload,
+        open_drive_link,
     ]
 }
 
@@ -775,6 +906,7 @@ mod tests {
         s.audio.system_audio = SystemAudioSource::Off;
         assert!(resolve_system_audio(&s, &loopbacks(), None).is_none());
         s.audio.system_audio = SystemAudioSource::Auto;
+        assert!(matches!(resolve_system_audio(&s, &loopbacks(), Some(Path::new("x"))), Some(InputSource::PcmPipe { .. })), "the helper wins");
         // No helper: falls back to the loopback device, or nothing when there is none.
         assert!(resolve_system_audio(&s, &loopbacks(), None).is_some());
         assert!(resolve_system_audio(&s, &DeviceList::default(), None).is_none());
@@ -783,6 +915,32 @@ mod tests {
         s.audio.system_audio = SystemAudioSource::Helper;
         assert!(resolve_system_audio(&s, &DeviceList::default(), None).is_none());
         assert!(matches!(resolve_system_audio(&s, &DeviceList::default(), Some(Path::new("x"))), Some(InputSource::PcmPipe { .. })));
+    }
+
+    fn dev(id: &str, name: &str, is_default: bool) -> Device {
+        Device { id: id.into(), name: name.into(), kind: DeviceKind::Camera, is_default, width: None, height: None }
+    }
+
+    #[test]
+    fn device_choice_follows_the_system_unless_one_was_picked() {
+        let list = vec![dev("0", "Virtual", false), dev("1", "FaceTime", true), dev("2", "Logi", false)];
+        assert_eq!(resolve_device(&list, None), Some("1".into()), "system default, not the first entry");
+        assert_eq!(resolve_device(&list, Some("Logi")), Some("2".into()), "chosen by name");
+        assert_eq!(resolve_device(&list, Some("2")), Some("2".into()), "an old stored id still works");
+        assert_eq!(resolve_device(&list, Some("Unplugged")), Some("1".into()), "a missing device falls back to the default");
+        assert_eq!(resolve_device(&[dev("0", "Only", false)], None), Some("0".into()));
+        assert_eq!(resolve_device(&[], None), None);
+    }
+
+    #[test]
+    fn system_default_is_marked_by_name() {
+        let mut list = vec![dev("0", "A", true), dev("1", "B", false)];
+        mark_system_default(&mut list, Some("B".into()));
+        assert!(!list[0].is_default && list[1].is_default);
+        mark_system_default(&mut list, Some("Gone".into()));
+        assert!(list[1].is_default, "an unknown name changes nothing");
+        mark_system_default(&mut list, None);
+        assert!(list[1].is_default);
     }
 
     #[test]

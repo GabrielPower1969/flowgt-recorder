@@ -5,6 +5,8 @@ import { mock } from "../lib/ipc-mock";
 import { __setLastResult, __setRecorderState, bindRecorderEvents, unbindRecorderEvents } from "../lib/stores/recorder.svelte";
 import { __setSettings } from "../lib/stores/settings.svelte";
 import { defaultSettings, idleRecorderState } from "../lib/defaults";
+import { __resetDrive, bindDriveEvents, refreshDrive, signInToGoogle } from "../lib/stores/drive.svelte";
+import { getToasts, clearToasts } from "../lib/stores/toasts.svelte";
 import Main from "./Main.svelte";
 import Floating from "./Floating.svelte";
 import Summary from "./Summary.svelte";
@@ -17,6 +19,8 @@ beforeEach(() => {
   __setSettings(settings);
   __setRecorderState(idleRecorderState());
   __setLastResult(null);
+  __resetDrive();
+  clearToasts();
 });
 
 const record = () => screen.getByRole("button", { name: "录制屏幕" });
@@ -30,7 +34,8 @@ describe("home", () => {
   it("offers exactly one way forward: record, plus mic, camera and settings", async () => {
     render(Main, { settings: defaultSettings("macos") });
     expect(record()).toBeEnabled();
-    expect(screen.getAllByRole("button")).toHaveLength(4);
+    expect(screen.getAllByRole("button")).toHaveLength(5);
+    expect(screen.getByRole("button", { name: "登录 Google" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关闭麦克风" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关闭摄像头" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "设置" })).toBeInTheDocument();
@@ -51,6 +56,86 @@ describe("home", () => {
     render(Main, { settings: defaultSettings("macos") });
     await fireEvent.click(screen.getByRole("button", { name: "关闭麦克风" }));
     await waitFor(() => expect(mock.settings.audio.micEnabled).toBe(false));
+  });
+});
+
+describe("device pickers", () => {
+  it("default to the system's current camera and microphone, by name", async () => {
+    render(Main, { settings: defaultSettings("macos") });
+    expect(await screen.findByRole("option", { name: "跟随系统（FaceTime HD Camera）" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "跟随系统（MacBook Pro Microphone）" })).toBeInTheDocument();
+    expect((screen.getByLabelText("摄像头") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("麦克风") as HTMLSelectElement).value).toBe("");
+  });
+
+  it("choosing a device stores its name, not its index", async () => {
+    render(Main, { settings: defaultSettings("macos") });
+    await screen.findByRole("option", { name: "AirPods Pro" });
+    await fireEvent.change(screen.getByLabelText("麦克风"), { target: { value: "AirPods Pro" } });
+    await waitFor(() => expect(mock.settings.audio.micDeviceId).toBe("AirPods Pro"));
+  });
+
+  it("computer audio follows the system when the machine can record it, and can be turned off", async () => {
+    render(Main, { settings: defaultSettings("macos") });
+    const output = screen.getByLabelText("电脑声音") as HTMLSelectElement;
+    await waitFor(() => expect(output).toBeEnabled());
+    expect(output.value).toBe("auto");
+    await fireEvent.change(output, { target: { value: "off" } });
+    await waitFor(() => expect(mock.settings.audio.systemAudio).toEqual({ kind: "off" }));
+  });
+
+  it("without any way to record computer audio it says so instead of pretending", async () => {
+    mock.devices.loopbacks = [];
+    mock.appInfo.systemAudioAvailable = false;
+    render(Main, { settings: defaultSettings("macos") });
+    const output = screen.getByLabelText("电脑声音") as HTMLSelectElement;
+    await waitFor(() => expect(mock.callsTo("get_app_info").length).toBe(1));
+    expect(output).toBeDisabled();
+    expect(output.value).toBe("off");
+  });
+});
+
+describe("google drive", () => {
+  it("signing in shows the account and where recordings go", async () => {
+    await refreshDrive();
+    render(Main, { settings: defaultSettings("macos") });
+    await fireEvent.click(screen.getByRole("button", { name: "登录 Google" }));
+    expect(await screen.findByTestId("account")).toHaveTextContent("demo@gmail.com");
+    expect(screen.getByTestId("drive-line")).toHaveTextContent("FlowGT Recorder");
+  });
+
+  it("a build without a client tells the user instead of opening nothing", async () => {
+    mock.drive = { configured: false, email: null };
+    await refreshDrive();
+    expect(await signInToGoogle()).toBe(false);
+    expect(mock.callsTo("drive_sign_in")).toHaveLength(0);
+    expect(getToasts().at(-1)?.text).toBe("这个版本还没配置 Google 登录");
+  });
+
+  it("the summary shows upload progress, then the link", async () => {
+    bindDriveEvents();
+    await new Promise((r) => setTimeout(r, 0));
+    const path = "/a/b.mp4";
+    __setLastResult({ sessionId: "s", path, info: { path, bytes: 1, durationMs: 1000, width: 1, height: 1, fps: 30, videoCodec: "hevc", audioCodec: "aac", audioTracks: 1, bitrateKbps: 1 }, budget: { totalKbps: 889, videoKbps: 793, audioKbpsTotal: 96, maxrateKbps: 1190, bufsizeKbps: 1586, expectedMbPerHour: 400 }, overBudgetRatio: 0, recovered: false });
+    render(Summary);
+    mock.emit("drive://progress", { path, percent: 42, done: false, url: null, error: null });
+    expect(await screen.findByRole("status")).toHaveTextContent("42%");
+    mock.emit("drive://progress", { path, percent: 100, done: true, url: "https://drive.google.com/file/d/x/view", error: null });
+    await fireEvent.click(await screen.findByRole("button", { name: "在 Google Drive 中打开" }));
+    await waitFor(() => expect(mock.callsTo("open_drive_link")).toEqual([{ url: "https://drive.google.com/file/d/x/view" }]));
+  });
+
+  it("a failed upload can be retried", async () => {
+    bindDriveEvents();
+    await new Promise((r) => setTimeout(r, 0));
+    mock.drive = { configured: true, email: "demo@gmail.com" };
+    await refreshDrive();
+    const path = "/a/c.mp4";
+    __setLastResult({ sessionId: "s", path, info: { path, bytes: 1, durationMs: 1000, width: 1, height: 1, fps: 30, videoCodec: "hevc", audioCodec: "aac", audioTracks: 1, bitrateKbps: 1 }, budget: { totalKbps: 889, videoKbps: 793, audioKbpsTotal: 96, maxrateKbps: 1190, bufsizeKbps: 1586, expectedMbPerHour: 400 }, overBudgetRatio: 0, recovered: false });
+    render(Summary);
+    mock.emit("drive://progress", { path, percent: 0, done: true, url: null, error: "boom" });
+    await fireEvent.click(await screen.findByRole("button", { name: "重试" }));
+    await waitFor(() => expect(mock.callsTo("drive_upload")).toEqual([{ path }]));
   });
 });
 
@@ -89,24 +174,6 @@ describe("screen picker", () => {
     await fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(mock.callsTo("start_recording")).toHaveLength(0);
-  });
-
-  it("computer audio is unavailable without a loopback device, and says why", async () => {
-    mock.permissions.screen = "granted";
-    mock.devices.loopbacks = [];
-    await openPicker();
-    await screen.findAllByRole("radio");
-    expect(screen.getByRole("checkbox")).toBeDisabled();
-    expect(screen.getByText(/BlackHole/)).toBeInTheDocument();
-  });
-
-  it("computer audio can be switched off when a loopback device exists", async () => {
-    mock.permissions.screen = "granted";
-    await openPicker();
-    await waitFor(() => expect(screen.getByRole("checkbox")).toBeEnabled());
-    expect(screen.getByRole("checkbox")).toBeChecked();
-    await fireEvent.click(screen.getByRole("checkbox"));
-    await waitFor(() => expect(mock.settings.audio.systemAudio).toEqual({ kind: "off" }));
   });
 });
 

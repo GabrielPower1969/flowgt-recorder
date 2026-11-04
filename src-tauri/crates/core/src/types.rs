@@ -518,3 +518,25 @@ pub struct AppInfo {
     pub encoder: Option<EncoderChoice>,
     pub system_audio_available: bool,
 }
+
+// ───────────────────────────── cloud ─────────────────────────────
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveStatus {
+    /// This build has a Google OAuth client compiled in.
+    pub configured: bool,
+    /// The signed-in account; None = signed out.
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveProgress {
+    pub path: String,
+    pub percent: f64,
+    pub done: bool,
+    /// Link to the file in Google Drive once uploaded.
+    pub url: Option<String>,
+    pub error: Option<String>,
+}

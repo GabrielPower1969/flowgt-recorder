@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { AppInfo, CameraSettings, Corner, DeviceList, PipShape, RecoverableSession, Settings, Theme, Language } from "../lib/types";
+  import type { AppInfo, CameraSettings, Corner, PipShape, RecoverableSession, Settings, Theme, Language } from "../lib/types";
   import { invoke } from "../lib/ipc";
   import { t } from "../lib/stores/i18n.svelte";
   import { navigate } from "../lib/router.svelte";
@@ -11,35 +11,25 @@
   import Segmented from "../lib/components/Segmented.svelte";
   import ShortcutField from "../lib/components/ShortcutField.svelte";
   import StagePreview from "../lib/components/StagePreview.svelte";
-  import LevelMeter from "../lib/components/LevelMeter.svelte";
   import { openCamera, stopStream } from "../lib/media/camera";
-  import { startLevelMeter } from "../lib/media/level";
+  import { driveState, signInToGoogle, signOutOfGoogle } from "../lib/stores/drive.svelte";
 
   type Tab = "general" | "camera" | "video" | "audio" | "shortcuts" | "recovery" | "about";
   const tabs: Tab[] = ["general", "camera", "audio", "video", "shortcuts", "recovery", "about"];
   let tab = $state<Tab>("general");
   let info = $state<AppInfo | null>(null);
   let recoverable = $state<RecoverableSession[]>([]);
-  let devices = $state<DeviceList>({ screens: [], cameras: [], microphones: [], loopbacks: [] });
   let stream = $state<MediaStream | null>(null);
-  let level = $state(0);
   const s = $derived(getSettings());
   const budget = $derived(budgetFromMbPerHour(s.video.targetMbPerHour, s.audio.bitrateKbps, s.audio.tracks === "separate" ? 2 : 1));
   const save = (patch: (x: Settings) => void) => void updateSettings(patch);
   const num = (e: Event) => Number((e.target as HTMLInputElement).value);
 
   const patchCamera = (p: Partial<CameraSettings>) => save((x) => Object.assign(x.camera, p));
-  const sysValue = $derived(s.audio.systemAudio.kind === "device" ? `device:${s.audio.systemAudio.id}` : s.audio.systemAudio.kind);
-  const sysOptions = $derived([
-    { value: "off", label: t("main.systemAudio.off") },
-    { value: "auto", label: t("main.systemAudio.auto") },
-    ...devices.loopbacks.map((d) => ({ value: `device:${d.id}`, label: d.name })),
-  ]);
-
-  // Live devices only while their tab is open.
+  // The camera only while its tab is open.
   $effect(() => {
     if (tab !== "camera") return;
-    const label = devices.cameras.find((c) => c.id === s.camera.deviceId)?.name ?? null;
+    const label = s.camera.deviceId;
     let cancelled = false;
     let opened: MediaStream | null = null;
     void openCamera(label).then((st) => {
@@ -53,22 +43,6 @@
       stream = null;
     };
   });
-  $effect(() => {
-    if (tab !== "audio" || !s.audio.micEnabled) return;
-    const label = devices.microphones.find((m) => m.id === s.audio.micDeviceId)?.name ?? null;
-    let cancelled = false;
-    let handle: { stop(): void } | null = null;
-    void startLevelMeter(label, (v) => (level = v)).then((h) => {
-      if (cancelled) h?.stop();
-      else handle = h;
-    });
-    return () => {
-      cancelled = true;
-      handle?.stop();
-      level = 0;
-    };
-  });
-
   async function pickDir() {
     const dir = await invoke("pick_output_dir");
     if (dir) save((x) => (x.outputDir = dir));
@@ -89,7 +63,6 @@
   }
   onMount(() => {
     void invoke("get_app_info").then((i) => (info = i));
-    void invoke("list_devices").then((d) => (devices = d));
     void loadRecoverable();
   });
 </script>
@@ -107,6 +80,15 @@
   </nav>
   <section class="card stack" style="gap: var(--space-4)">
     {#if tab === "general"}
+      <div class="field"><span class="label">{t("settings.general.account")}</span>
+        <div class="row">
+          <span data-testid="account">{driveState.status.email ?? t("settings.general.notSignedIn")}</span>
+          {#if driveState.status.email}
+            <button type="button" class="btn btn-sm" onclick={signOutOfGoogle}>{t("settings.general.signOut")}</button>
+          {:else}
+            <button type="button" class="btn btn-sm" onclick={signInToGoogle} disabled={driveState.signingIn}>{driveState.signingIn ? t("home.signingIn") : t("home.signIn")}</button>
+          {/if}
+        </div></div>
       <div class="field"><span class="label">{t("settings.general.language")}</span>
         <Segmented label={t("settings.general.language")} value={s.language} onchange={(v: Language) => save((x) => (x.language = v))} options={(["auto", "zh", "en"] as Language[]).map((l) => ({ value: l, label: t(`lang.${l}`) }))} /></div>
       <div class="field"><span class="label">{t("settings.general.theme")}</span>
@@ -122,11 +104,6 @@
         <input type="range" min="1" max="50" value={s.lowDiskWarnGb} onchange={(e) => save((x) => (x.lowDiskWarnGb = num(e)))} /></label>
     {:else if tab === "camera"}
       <StagePreview camera={s.camera} {stream} onchange={patchCamera} />
-      <label class="field"><span>{t("main.camera.device")}</span>
-        <select class="input" value={s.camera.deviceId ?? ""} onchange={(e) => patchCamera({ deviceId: (e.target as HTMLSelectElement).value || null })}>
-          <option value="">{t("common.default")}</option>
-          {#each devices.cameras as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
-        </select></label>
       <div class="field"><span class="label">{t("main.camera.corner")}</span>
         <Segmented label={t("main.camera.corner")} value={s.camera.corner} onchange={(v: Corner) => patchCamera({ corner: v, offsetX: 0, offsetY: 0 })} options={(["top-left", "top-right", "bottom-left", "bottom-right"] as Corner[]).map((c) => ({ value: c, label: t(`corner.${c}`) }))} /></div>
       <div class="field"><span class="label">{t("main.camera.shape")}</span>
@@ -145,19 +122,10 @@
       <div class="field"><span class="label">{t("settings.video.encoder")}</span>
         <Segmented label={t("settings.video.encoder")} value={s.video.encoderPreference} onchange={(v: Settings["video"]["encoderPreference"]) => save((x) => (x.video.encoderPreference = v))} options={(["auto", "hevc", "h264"] as const).map((v) => ({ value: v, label: t(`settings.video.encoder.${v}`) }))} /></div>
     {:else if tab === "audio"}
-      <label class="field"><span>{t("main.mic.device")}</span>
-        <select class="input" value={s.audio.micDeviceId ?? ""} onchange={(e) => save((x) => (x.audio.micDeviceId = (e.target as HTMLSelectElement).value || null))}>
-          <option value="">{t("common.default")}</option>
-          {#each devices.microphones as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
-        </select></label>
-      <div class="field"><span class="label">{t("main.mic.level")}</span><LevelMeter {level} /></div>
       <div class="field"><span class="label">{t("settings.audio.tracks")}</span>
         <Segmented label={t("settings.audio.tracks")} value={s.audio.tracks} onchange={(v: Settings["audio"]["tracks"]) => save((x) => (x.audio.tracks = v))} options={(["mixed", "separate"] as const).map((v) => ({ value: v, label: t(`settings.audio.tracks.${v}`) }))} /></div>
       <div class="field"><span class="label">{t("settings.audio.bitrate")}</span>
         <Segmented label={t("settings.audio.bitrate")} value={String(s.audio.bitrateKbps)} onchange={(v: string) => save((x) => (x.audio.bitrateKbps = Number(v)))} options={["64", "96", "128"].map((v) => ({ value: v, label: `${v} kbps` }))} /></div>
-      <div class="field"><span class="label">{t("settings.audio.system")}</span>
-        <Segmented label={t("settings.audio.system")} value={sysValue} options={sysOptions} onchange={(v: string) => save((x) => { x.audio.systemAudio = v.startsWith("device:") ? { kind: "device", id: v.slice(7) } : ({ kind: v } as Settings["audio"]["systemAudio"]); })} />
-        <span class="faint">{t(devices.loopbacks.length ? `main.systemAudio.hint.${s.audio.systemAudio.kind}` : "picker.systemAudioMissing")}</span></div>
     {:else if tab === "shortcuts"}
       <ShortcutField label={t("settings.shortcuts.toggle")} value={s.shortcuts.toggle} onchange={(v) => save((x) => (x.shortcuts.toggle = v))} />
       <ShortcutField label={t("settings.shortcuts.pause")} value={s.shortcuts.pause} onchange={(v) => save((x) => (x.shortcuts.pause = v))} />

@@ -85,6 +85,12 @@ mod mac {
         }
     }
 
+    /// Name of the device macOS currently uses by default. Does not prompt.
+    pub fn default_device_name(kind: Kind) -> Option<String> {
+        // SAFETY: class method with a valid media type; the name is copied out.
+        unsafe { AVCaptureDevice::defaultDeviceWithMediaType(media(kind)).map(|d| d.localizedName().to_string()) }
+    }
+
     /// Blocks until the user answers the system dialog (up to two minutes).
     pub fn av_request(kind: Kind) -> PermissionState {
         if av_status(kind) != PermissionState::NotDetermined {
@@ -114,6 +120,19 @@ pub fn check() -> PermissionStatus {
         // Windows has no screen-capture gate; the camera/microphone toggles are only visible to
         // the user in Settings → Privacy, so they are reported as not applicable.
         PermissionStatus { screen: PermissionState::NotApplicable, camera: PermissionState::NotApplicable, microphone: PermissionState::NotApplicable }
+    }
+}
+
+/// The system's current default camera or microphone, by name, where the OS can tell us.
+pub fn default_device_name(kind: Kind) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        mac::default_device_name(kind)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = kind;
+        None
     }
 }
 

@@ -15,3 +15,6 @@ tests/out/
 *.m4a
 *.wav
 !tests/fixtures/**
+
+# Google OAuth client for builds
+.env.google

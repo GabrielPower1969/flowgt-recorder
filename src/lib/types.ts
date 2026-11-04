@@ -184,6 +184,9 @@ export interface AppInfo {
   systemAudioAvailable: boolean;
 }
 
+export interface DriveStatus { configured: boolean; email: string | null }
+export interface DriveProgress { path: string; percent: number; done: boolean; url: string | null; error: string | null }
+
 /** Tauri command names (snake_case) and their signatures. Implemented in src-tauri/src/commands.rs. */
 export interface Commands {
   get_app_info: () => AppInfo;
@@ -211,6 +214,11 @@ export interface Commands {
   set_floating_visible: (args: { visible: boolean }) => void;
   screen_thumbnail: (args: { id: string }) => string | null; // data URL; null = no permission yet
   relaunch_app: () => void;
+  drive_status: () => DriveStatus;
+  drive_sign_in: () => DriveStatus;
+  drive_sign_out: () => DriveStatus;
+  drive_upload: (args: { path: string }) => void;
+  open_drive_link: (args: { url: string }) => void;
 }
 
 /** Events emitted by the Rust side (payload types). */
@@ -224,4 +232,5 @@ export interface Events {
   "shortcut://pause": null;
   "compress://progress": { jobId: string; percent: number; done: boolean; output: string | null; error: string | null };
   "countdown://tick": { remaining: number };
+  "drive://progress": DriveProgress;
 }
