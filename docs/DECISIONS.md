@@ -114,3 +114,10 @@ directory, not the Keychain: an ad-hoc-signed build would raise a Keychain promp
 when the app is signed. (e) This is a deliberate change to invariant 12: the app talks to Google only when the
 user has signed in, from Rust, so the webview CSP stays as it was.
 
+D20 · 2026-11-04 · **VideoToolbox gets a 4x rate ceiling instead of 1.5x (amends D5).** On real screen capture the
+1.5x `-maxrate` made VideoToolbox drop frames after each keyframe: a 0.2–0.33 s stall every 2 s (225/240
+frames in 8 s). Tested variants: 4x ceiling 240/240, 605 kbps; no ceiling 239/240, 722 kbps; so 4x keeps a guard
+against runaway sizes without stalls. The app, re-measured: 985/986 frames, 30 in every second, 292 MB/h. High
+motion (testsrc2 + noise, lavfi): 300/300, 361 MB/h. Other encoders keep 1.5x (untested). `BitrateBudget`
+still reports 1.5x, as the budget of record.
+

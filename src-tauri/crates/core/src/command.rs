@@ -240,14 +240,17 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
 
     // ---- video encode
     let b = &plan.budget;
+    // VideoToolbox enforces maxrate by DROPPING frames: at 1.5x every keyframe stalled the picture
+    // for 0.3 s, every 2 s (D20, measured on real capture). A 4x ceiling only stops runaway sizes.
+    let (maxrate, bufsize) = if plan.encoder.name.contains("videotoolbox") { (b.video_kbps * 4, b.video_kbps * 4) } else { (b.maxrate_kbps, b.bufsize_kbps) };
     push(&mut args, &["-c:v", &plan.encoder.name]);
     args.extend(plan.encoder.extra_args.iter().cloned());
     push(
         &mut args,
         &[
             "-b:v", &format!("{}k", b.video_kbps),
-            "-maxrate", &format!("{}k", b.maxrate_kbps),
-            "-bufsize", &format!("{}k", b.bufsize_kbps),
+            "-maxrate", &format!("{maxrate}k"),
+            "-bufsize", &format!("{bufsize}k"),
             "-g", &(plan.fps * 2).to_string(),
             "-pix_fmt", "yuv420p",
             "-r", &plan.fps.to_string(),
@@ -492,8 +495,9 @@ mod tests {
         assert_eq!(value_of(a, "-c:v"), "hevc_videotoolbox");
         assert!(has_pair(a, "-tag:v", "hvc1"));
         assert_eq!(value_of(a, "-b:v"), "793k");
-        assert_eq!(value_of(a, "-maxrate"), "1190k");
-        assert_eq!(value_of(a, "-bufsize"), "1586k");
+        // VideoToolbox: a loose ceiling, or it drops frames at every keyframe.
+        assert_eq!(value_of(a, "-maxrate"), "3172k");
+        assert_eq!(value_of(a, "-bufsize"), "3172k");
         assert_eq!(value_of(a, "-g"), "60");
         assert_eq!(value_of(a, "-pix_fmt"), "yuv420p");
         assert_eq!(value_of(a, "-fps_mode"), "cfr");
@@ -513,6 +517,15 @@ mod tests {
         assert!(fc.contains("overlay=1632:912"));
         assert!(fc.contains("[2:a]aresample=48000:async=1[aout]"));
         assert!(has_pair(a, "-map", "[vout]") && has_pair(a, "-map", "[aout]"));
+    }
+
+    #[test]
+    fn other_encoders_keep_the_tight_rate_cap() {
+        let mut plan = sample_plan();
+        plan.encoder = crate::encoders::choose(&["hevc_nvenc".to_string()], Platform::Windows, EncoderPreference::Auto).unwrap();
+        let a = recording_command("ffmpeg", &plan).args;
+        assert_eq!(value_of(&a, "-maxrate"), "1190k");
+        assert_eq!(value_of(&a, "-bufsize"), "1586k");
     }
 
     #[test]
