@@ -68,6 +68,16 @@ describe("device pickers", () => {
     expect((screen.getByLabelText("麦克风") as HTMLSelectElement).value).toBe("");
   });
 
+  it("an index stored by an older version shows as that device, and an unplugged one as the default", async () => {
+    const settings = defaultSettings("macos");
+    settings.camera.deviceId = "0";
+    settings.audio.micDeviceId = "Unplugged Mic";
+    render(Main, { settings });
+    await screen.findByRole("option", { name: "FaceTime HD Camera" });
+    await waitFor(() => expect((screen.getByLabelText("摄像头") as HTMLSelectElement).value).toBe("FaceTime HD Camera"));
+    expect((screen.getByLabelText("麦克风") as HTMLSelectElement).value).toBe("");
+  });
+
   it("choosing a device stores its name, not its index", async () => {
     render(Main, { settings: defaultSettings("macos") });
     await screen.findByRole("option", { name: "AirPods Pro" });

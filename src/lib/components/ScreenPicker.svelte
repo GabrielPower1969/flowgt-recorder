@@ -67,7 +67,9 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="picker-title">
     <h2 id="picker-title">{t("picker.title")}</h2>
 
-    {#if permission !== null && !allowed}
+    {#if permission === null}
+      <div class="thumb loading" aria-busy="true"></div>
+    {:else if !allowed}
       <div class="perm" data-testid="perm">
         <strong>{t("picker.perm.title")}</strong>
         <p class="muted">{t("picker.perm.body")}</p>
@@ -110,6 +112,7 @@
   .tile[aria-checked="true"] { border-color: var(--color-accent); background: var(--color-accent-soft); }
   .thumb { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: var(--radius-s); background: var(--color-surface-3); overflow: hidden; }
   .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .loading { height: 200px; aspect-ratio: auto; }
   .perm { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-m); background: var(--color-surface-2); }
   .foot { display: flex; justify-content: flex-end; gap: var(--space-2); }
 </style>

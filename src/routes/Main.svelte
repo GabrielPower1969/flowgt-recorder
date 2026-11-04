@@ -1,7 +1,7 @@
 <script lang="ts">
   /** Home: self-view, mic and camera toggles, one button. Everything else lives in Settings. */
   import { onMount } from "svelte";
-  import type { AppInfo, DeviceList, PermissionKind, PermissionStatus, Settings } from "../lib/types";
+  import type { AppInfo, Device, DeviceList, PermissionKind, PermissionStatus, Settings } from "../lib/types";
   import { invoke } from "../lib/ipc";
   import { t } from "../lib/stores/i18n.svelte";
   import { navigate } from "../lib/router.svelte";
@@ -26,7 +26,11 @@
   const micAllowed = $derived(perms?.microphone === "granted" || perms?.microphone === "notApplicable");
   const defaultCamera = $derived(devices?.cameras.find((c) => c.isDefault)?.name ?? devices?.cameras[0]?.name ?? null);
   const defaultMic = $derived(devices?.microphones.find((m) => m.isDefault)?.name ?? null);
-  /** Settings keep the device NAME (avfoundation indices shift); null = follow the system. */
+  /** Settings keep the device NAME (avfoundation indices shift); null = follow the system. Older
+   *  files hold an index, and a device can be unplugged: both must read as a real choice or default. */
+  const chosen = (list: Device[] | undefined, stored: string | null) => list?.find((d) => d.name === stored || d.id === stored)?.name ?? "";
+  const cameraChoice = $derived(chosen(devices?.cameras, settings.camera.deviceId));
+  const micChoice = $derived(chosen(devices?.microphones, settings.audio.micDeviceId));
   const followLabel = (name: string | null) => (name ? t("home.followSystem", { name }) : t("home.followSystemPlain"));
   const canRecordOutput = $derived(!!info?.systemAudioAvailable || (devices?.loopbacks.length ?? 0) > 0);
   const outputValue = $derived(!canRecordOutput || settings.audio.systemAudio.kind === "off" ? "off" : settings.audio.systemAudio.kind === "device" ? `device:${settings.audio.systemAudio.id}` : "auto");
@@ -63,7 +67,7 @@
   // The camera preview belongs to the webview only while idle; ffmpeg needs the camera to record (D6).
   $effect(() => {
     const wanted = settings.camera.enabled && camAllowed && !recorder.isActive;
-    const label = settings.camera.deviceId ?? defaultCamera;
+    const label = cameraChoice || defaultCamera;
     if (!wanted) return;
     let cancelled = false;
     let opened: MediaStream | null = null;
@@ -82,7 +86,7 @@
   // The level meter shows that the chosen microphone really hears you.
   $effect(() => {
     if (!settings.audio.micEnabled || !micAllowed || recorder.isActive) return;
-    const label = settings.audio.micDeviceId ?? defaultMic;
+    const label = micChoice || defaultMic;
     let cancelled = false;
     let handle: { stop(): void } | null = null;
     void startLevelMeter(label, (v) => (level = v)).then((h) => {
@@ -136,25 +140,25 @@
   <div class="devices">
     <label class="field">
       <span>{t("home.camera")}</span>
-      <select class="input" disabled={!settings.camera.enabled} value={settings.camera.deviceId ?? ""} onchange={(e) => { const v = (e.target as HTMLSelectElement).value || null; void updateSettings((s) => { s.camera.deviceId = v; }); }}>
+      <select class="input" disabled={!settings.camera.enabled} onchange={(e) => { const v = (e.target as HTMLSelectElement).value || null; void updateSettings((s) => { s.camera.deviceId = v; }); }}>
         <option value="">{followLabel(defaultCamera)}</option>
-        {#each devices?.cameras ?? [] as c (c.id)}<option value={c.name}>{c.name}</option>{/each}
+        {#each devices?.cameras ?? [] as c (c.id)}<option value={c.name} selected={c.name === cameraChoice}>{c.name}</option>{/each}
       </select>
     </label>
     <label class="field">
       <span>{t("home.mic")}</span>
-      <select class="input" disabled={!settings.audio.micEnabled} value={settings.audio.micDeviceId ?? ""} onchange={(e) => { const v = (e.target as HTMLSelectElement).value || null; void updateSettings((s) => { s.audio.micDeviceId = v; }); }}>
+      <select class="input" disabled={!settings.audio.micEnabled} onchange={(e) => { const v = (e.target as HTMLSelectElement).value || null; void updateSettings((s) => { s.audio.micDeviceId = v; }); }}>
         <option value="">{followLabel(defaultMic)}</option>
-        {#each devices?.microphones ?? [] as m (m.id)}<option value={m.name}>{m.name}</option>{/each}
+        {#each devices?.microphones ?? [] as m (m.id)}<option value={m.name} selected={m.name === micChoice}>{m.name}</option>{/each}
       </select>
       <LevelMeter {level} />
     </label>
     <label class="field">
       <span>{t("home.output")}</span>
-      <select class="input" disabled={!canRecordOutput} value={outputValue} onchange={(e) => setOutput((e.target as HTMLSelectElement).value)}>
-        {#if canRecordOutput}<option value="auto">{t("home.followSystemPlain")}</option>{/if}
-        <option value="off">{t("home.noOutput")}</option>
-        {#each devices?.loopbacks ?? [] as d (d.id)}<option value="device:{d.id}">{d.name}</option>{/each}
+      <select class="input" disabled={!canRecordOutput} onchange={(e) => setOutput((e.target as HTMLSelectElement).value)}>
+        {#if canRecordOutput}<option value="auto" selected={outputValue === "auto"}>{t("home.followSystemPlain")}</option>{/if}
+        <option value="off" selected={outputValue === "off"}>{t("home.noOutput")}</option>
+        {#each devices?.loopbacks ?? [] as d (d.id)}<option value="device:{d.id}" selected={outputValue === `device:${d.id}`}>{d.name}</option>{/each}
       </select>
     </label>
   </div>

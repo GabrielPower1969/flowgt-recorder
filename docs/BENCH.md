@@ -57,3 +57,42 @@ on real screen content.
 - Crash-recovery test (`kill -9` while recording); the script is not written yet.
 - Retina scaling cost, multi-display, 4K sources.
 - Battery and thermal behaviour over a one-hour recording.
+
+## Real capture through the app (2026-11-04, source A: command output)
+
+Apple M1 Pro, macOS 27.0.1. The app was started from a shell that already holds the screen-recording
+permission, so the camera was not allowed and **no PiP was in these runs**. Screen 3840×2160 → 1920×1080,
+real microphone + real system audio, hevc_videotoolbox.
+
+| Measure | Result |
+|---|---|
+| Frames, 32.9 s recording | 985 of 986, 30 in every second, largest gap 0.055 s |
+| Size on real desktop content (mostly static) | 648 kbps = 292 MB/h, budget 400 |
+| CPU, app + ffmpeg + helper, 11 samples at 2.5 s | 12–26 % of one core |
+| Memory, same | 308–326 MB, above the 300 MB target |
+| Pause, resume, stop, concat into one playable file | works (earlier 38 s run with one pause) |
+| Peak audio level, mic + system mixed | −14 dB |
+
+## Rate ceiling on VideoToolbox (D20)
+
+| Real capture, 8 s | Frames / 240 | Largest gap | kbps |
+|---|---|---|---|
+| `-maxrate` 1.5×, `-bufsize` 2× (old) | 225 | 0.333 s | 553 |
+| `-maxrate` 4×, `-bufsize` 4× (chosen) | 240 | 0.033 s | 605 |
+| no ceiling | 239 | 0.033 s | 722 |
+
+| High motion, lavfi `testsrc2` + noise, 10 s | Frames / 300 | MB/h |
+|---|---|---|
+| 1.5× | 300 | 357 |
+| 4× (chosen) | 300 | 361 |
+| no ceiling | 300 | 399 |
+
+## Other real checks
+
+- System audio through the helper + FIFO + ffmpeg, Glass.aiff at volume 0.3: max_volume −24.4 dB; silence still delivers samples.
+- Drive resumable upload to real Google Drive with a token from another OAuth client: 721 210 bytes stored, same size locally.
+
+## Still not measured
+
+Camera + PiP on real capture (needs the camera permission on the Desktop app) · Google sign-in (needs an OAuth client) · a full hour · Windows.
+

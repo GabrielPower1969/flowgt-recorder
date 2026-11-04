@@ -324,9 +324,11 @@ async fn screen_size(tools: &Tools, device: &Device) -> CmdResult<(u32, u32)> {
             program: tools.ffmpeg_str(),
             args: ["-hide_banner", "-f", "avfoundation", "-framerate", "30", "-i", &format!("{}:none", device.id), "-frames:v", "1", "-f", "null", "-"].iter().map(|s| s.to_string()).collect(),
         };
-        let out = sidecar::run(&cmd).await?;
-        if let Some(size) = devices::parse_avfoundation_screen_size(&out.stderr) {
-            return Ok(size);
+        // Never let a stuck device hold the countdown forever; the OS size is a fine fallback.
+        if let Ok(out) = tokio::time::timeout(Duration::from_secs(8), sidecar::run(&cmd)).await {
+            if let Some(size) = devices::parse_avfoundation_screen_size(&out?.stderr) {
+                return Ok(size);
+            }
         }
     }
     match (device.width, device.height) {

@@ -1,3 +1,7 @@
+> **2026-11-04 22:15 现状**：MacBook 版真实全流程跑通（抓屏 + 麦克风 + 系统声音 → 暂停 → 继续 → 停止 → 一个 MP4），界面已按 Google Meet 共享屏幕重做（D18）。
+> **下一步**：① Gabriel 给桌面版授权，验证摄像头画中画；② Gabriel 建 Google OAuth 客户端（`docs/MANUAL-CHECKLIST.md` 顶部），才能测登录；③ Chrome 插件在 `chrome-extension` 分支（独立会话），做完合并。Windows 零实测。
+> 数字见 `docs/BENCH.md`，决定见 `docs/DECISIONS.md` D18–D20。下面的内容写于更早的阶段。
+
 # 00 · START HERE
 
 **现在的阶段（2026-11-04）**：首版可跑（core ＋ app ＋ 前端），待人工真机验收。`cargo test --workspace` 131 项通过
