@@ -249,6 +249,8 @@ export class MockBackend implements Transport {
       this.recoverable = this.recoverable.filter((s) => s.sessionId !== sessionId);
     },
     set_floating_visible: (_args: { visible: boolean }) => undefined,
+    screen_thumbnail: (_args: { id: string }) => null,
+    relaunch_app: () => undefined,
   };
 
   // ---- Recording lifecycle -----------------------------------------------------------------
@@ -324,6 +326,7 @@ export class MockBackend implements Transport {
       finished: false,
     };
     this.emit("recorder://progress", progress);
+    this.emit("recorder://state", this.state); // the real supervisor sends both at the same pace
   }
 
   private closeSegment() {

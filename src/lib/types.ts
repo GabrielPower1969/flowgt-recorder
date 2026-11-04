@@ -209,6 +209,8 @@ export interface Commands {
   recover_session: (args: { sessionId: string }) => RecordingResult;
   discard_session: (args: { sessionId: string }) => void;
   set_floating_visible: (args: { visible: boolean }) => void;
+  screen_thumbnail: (args: { id: string }) => string | null; // data URL; null = no permission yet
+  relaunch_app: () => void;
 }
 
 /** Events emitted by the Rust side (payload types). */

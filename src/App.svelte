@@ -6,7 +6,6 @@
   import { bindRecorderEvents } from "./lib/stores/recorder.svelte";
   import { t } from "./lib/stores/i18n.svelte";
   import Toast from "./lib/components/Toast.svelte";
-  import Onboarding from "./routes/Onboarding.svelte";
   import Main from "./routes/Main.svelte";
   import Settings from "./routes/Settings.svelte";
   import Summary from "./routes/Summary.svelte";
@@ -22,9 +21,7 @@
     const unbindEvents = bindRecorderEvents((r) => {
       if (getRoute() !== "/floating" && r) navigate("/summary");
     });
-    void loadSettings().then((s) => {
-      if (!s.onboardingDone && getRoute() === "/") navigate("/onboarding");
-    });
+    void loadSettings();
     return () => {
       unbindRouter();
       unbindEvents();
@@ -36,8 +33,6 @@
   <Floating />
 {:else if !isLoaded()}
   <div class="page muted">{t("common.loading")}</div>
-{:else if route === "/onboarding"}
-  <Onboarding />
 {:else if route === "/settings"}
   <Settings />
 {:else if route === "/summary"}

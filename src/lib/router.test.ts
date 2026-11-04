@@ -14,7 +14,7 @@ describe("parseHash", () => {
 
   it("recognises known routes", () => {
     expect(parseHash("#/settings")).toBe("/settings");
-    expect(parseHash("#/onboarding")).toBe("/onboarding");
+    expect(parseHash("#/onboarding")).toBe("/");
     expect(parseHash("#/summary")).toBe("/summary");
     expect(parseHash("#/floating")).toBe("/floating");
   });
