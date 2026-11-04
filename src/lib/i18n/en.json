@@ -278,5 +278,6 @@
   "history.empty": "No recordings yet.",
   "history.play": "Play",
   "history.reveal": "Show in Finder",
-  "history.driveError": "Could not read the Google Drive list, so only recordings on this computer are shown: {detail}"
+  "history.driveError": "Could not read the Google Drive list, so only recordings on this computer are shown: {detail}",
+  "summary.driveProcessing": "Google takes a few minutes to process a video before it plays in Drive."
 }

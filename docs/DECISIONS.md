@@ -142,7 +142,14 @@ Moving to ScreenCaptureKit video could exclude windows; not now. The tools move 
 one in `Contents/MacOS` got its own Dock icon whenever it used avfoundation.
 
 D24 · 2026-11-05 · **Level the mic.** First real recording measured −34.8 LUFS, peak −15.3 dBFS, through AirPods.
-Mic chain now: `highpass=f=80,speechnorm=e=8:r=0.0005:l=1`, limiter last; the same file through it measures −22.8
+Mic chain now: `highpass=f=80,speechnorm=e=8:t=0.01:r=0.0005:l=1`, limiter last; the same file through it measures −22.8
 LUFS, peak −0.9 dBFS, at 435x real time. Computer audio is not levelled. A Bluetooth mic stays narrowband (−64.5 dB
 above 4 kHz against −49.0 dB below 3.4 kHz) and no filter restores that, so the home page warns about it; detection
 is by device name, a heuristic.
+
+D25 · 2026-11-05 · **The mic goes through the helper, not ffmpeg (macOS).** Recordings had speech only in short
+bursts. Measured with `ashowinfo`, 8 s each, MacBook mic: ffmpeg's avfoundation audio delivered 88 % alone and 61 %
+next to a screen capture, gaps up to 0.203 s. `sck-audio --mic` (AVCaptureSession, 48 kHz s16le stereo) feeds a FIFO
+per segment like system audio. If the helper path fails to start, the fallback uses ffmpeg's input again.
+Drive playback: not a format problem. A new upload shows "still being processed" for 1 to 5 minutes (H.264 and HEVC
+alike in a test matrix), then a real HEVC recording played in Drive, so the format stays and the summary explains the wait.

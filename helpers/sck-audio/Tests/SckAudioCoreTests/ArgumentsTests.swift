@@ -15,6 +15,17 @@ final class ArgumentsTests: XCTestCase {
         XCTAssertEqual(o.bytesPerSecond, 192_000)
     }
 
+    func testMicOptions() throws {
+        guard case .stream(_, let plain) = try ArgumentParser.parse(["--out", "a", "--mic"]) else { return XCTFail("expected stream") }
+        XCTAssertTrue(plain.mic)
+        XCTAssertNil(plain.micDevice)
+        guard case .stream(_, let named) = try ArgumentParser.parse(["--out", "a", "--mic-device", "My Mic"]) else { return XCTFail("expected stream") }
+        XCTAssertTrue(named.mic)
+        XCTAssertEqual(named.micDevice, "My Mic")
+        guard case .stream(_, let system) = try ArgumentParser.parse(["--out", "a"]) else { return XCTFail("expected stream") }
+        XCTAssertFalse(system.mic)
+    }
+
     func testAllOptionsBothSpellings() throws {
         let cmd = try ArgumentParser.parse([
             "-o", "out.pcm", "--rate=44100", "--channels", "1", "--format=f32le",

@@ -80,6 +80,7 @@
         <span class="chip chip-ok">{t("summary.uploaded")}</span>
         <button type="button" class="btn btn-sm" onclick={() => upload?.url && invoke("open_drive_link", { url: upload.url })}>{t("summary.openDrive")}</button>
       </div>
+      <span class="muted" data-testid="drive-wait">{t("summary.driveProcessing")}</span>
       {#if localGone}<span class="muted" data-testid="drive-only">{t("summary.driveOnly")}</span>{/if}
     {:else if upload?.error}
       <div class="over" data-testid="drive">

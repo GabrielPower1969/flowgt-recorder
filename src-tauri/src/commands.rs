@@ -421,6 +421,7 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
             None => s.camera.enabled = false,
         }
     }
+    let wanted_mic = s.audio.mic_device_id.is_some();
     if s.audio.mic_enabled {
         match resolve_device(&list.microphones, s.audio.mic_device_id.as_deref()) {
             Some(id) => s.audio.mic_device_id = Some(id),
@@ -431,6 +432,9 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
     }
 
     let helper = find_helper();
+    // A chosen mic goes to the helper by name; none chosen follows the system.
+    let chosen_mic = s.audio.mic_device_id.as_deref().filter(|_| wanted_mic).and_then(|id| list.microphones.iter().find(|d| d.id == id)).map(|d| d.name.clone());
+    let mic_helper = helper.clone().filter(|_| platform == Platform::MacOs && s.audio.mic_enabled).map(|h| (h, chosen_mic));
     let system = resolve_system_audio(&s, &list, helper.as_deref());
     let uses_helper = matches!(system, Some(InputSource::PcmPipe { .. }));
 
@@ -461,6 +465,7 @@ pub async fn build_params(app: &AppHandle, state: &AppState, meeting_name: &str)
         low_disk_warn_gb: s.low_disk_warn_gb,
         tools: t,
         helper: if uses_helper { helper } else { None },
+        mic_helper,
     })
 }
 
@@ -507,7 +512,7 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
 /// with less, and say what was dropped.
 async fn start_with_fallbacks(app: &AppHandle, state: &AppState, full: StartParams) -> CmdResult<RecorderState> {
     let has_camera = full.plan.camera.is_some();
-    let has_helper = full.helper.is_some();
+    let has_helper = full.helper.is_some() || full.mic_helper.is_some();
     let without = |camera: bool, helper: bool| {
         let mut q = full.clone();
         if camera {
@@ -517,6 +522,7 @@ async fn start_with_fallbacks(app: &AppHandle, state: &AppState, full: StartPara
         if helper {
             q.plan.system_audio = None;
             q.helper = None;
+            q.mic_helper = None;
         }
         q
     };
