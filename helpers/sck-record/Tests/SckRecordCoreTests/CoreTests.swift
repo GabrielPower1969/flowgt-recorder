@@ -149,4 +149,16 @@ final class CameraWatchTests: XCTestCase {
         w.frameArrived(at: 4)
         XCTAssertEqual(w.update(now: 4.1, startedAt: 0), .back)
     }
+
+    func testPreviewOption() throws {
+        let cmd = try ArgumentParser.parse(["--display", "1", "--out", "o.mp4", "--size", "640x480", "--preview", "/w/preview.jpg", "--preview-fps", "4"])
+        guard case .record(let o) = cmd else { return XCTFail("expected record") }
+        XCTAssertEqual(o.preview, "/w/preview.jpg")
+        XCTAssertEqual(o.previewInterval, 0.25, accuracy: 0.0001)
+        let plain = try ArgumentParser.parse(["--display", "1", "--out", "o.mp4", "--size", "640x480"])
+        guard case .record(let p) = plain else { return XCTFail("expected record") }
+        XCTAssertNil(p.preview)
+        XCTAssertEqual(p.previewInterval, 0.125, accuracy: 0.0001)
+        XCTAssertThrowsError(try ArgumentParser.parse(["--display", "1", "--out", "o.mp4", "--size", "640x480", "--preview", ""]))
+    }
 }

@@ -67,7 +67,12 @@ pub struct StartParams {
     /// Record through the native helper instead of ffmpeg (macOS, D27). `helper` and
     /// `mic_helper` are then unused.
     pub native: Option<NativeCapture>,
+    /// What is being recorded, for the floating panel.
+    pub target: Option<RecordTarget>,
 }
+
+/// Name of the live preview the native helper keeps in the work directory.
+pub const PREVIEW_FILE: &str = "preview.jpg";
 
 const STOP_GRACE: Duration = Duration::from_secs(8);
 const START_TIMEOUT: Duration = Duration::from_secs(12);
@@ -148,6 +153,7 @@ fn snapshot(inner: &Inner) -> RecorderState {
     let bytes = s.closed_bytes + s.live_bytes;
     RecorderState {
         phase: inner.phase,
+        target: s.params.target.clone(),
         session_id: Some(s.params.session_id.clone()),
         meeting_name: Some(s.params.meeting_name.clone()),
         elapsed_ms,
@@ -187,6 +193,14 @@ impl Recorder {
 
     pub async fn phase(&self) -> Phase {
         self.shared.inner.lock().await.phase
+    }
+
+    /// Where the native helper keeps the live preview while a session records or is paused.
+    pub async fn preview_path(&self) -> Option<PathBuf> {
+        let inner = self.shared.inner.lock().await;
+        let s = inner.session.as_ref()?;
+        matches!(inner.phase, Phase::Recording | Phase::Paused)
+            .then(|| s.params.work_dir.join(PREVIEW_FILE))
     }
 
     /// Mark the countdown phase (the commands layer ticks; the recorder only remembers).
@@ -336,6 +350,7 @@ impl Recorder {
             if !s.camera_connected {
                 cap.camera = None;
             }
+            cap.preview = Some(s.params.work_dir.join(PREVIEW_FILE));
             let args = native::helper_args(&cap, &s.params.plan, &path);
             let mut c = Command::new(&cap.helper);
             c.args(&args)
@@ -605,7 +620,12 @@ impl Recorder {
                             if code == "warn.cameraLost" {
                                 rec_out.camera_gone().await;
                             }
-                            rec_out.push_warning(&code, &detail).await;
+                            // The window came back: the "hidden" warning is over, not a new one.
+                            if code == "warn.windowBack" {
+                                rec_out.clear_warning("warn.windowHidden").await;
+                            } else {
+                                rec_out.push_warning(&code, &detail).await;
+                            }
                         }
                         Some(NativeEvent::Error { code, detail }) => {
                             let mut inner = rec_out.shared.inner.lock().await;
@@ -709,6 +729,20 @@ impl Recorder {
         self.shared.sink.warning(&w);
         let st = snapshot(&inner);
         self.shared.sink.state(&st);
+    }
+
+    /// Drop a warning whose cause is gone, so the panel stops showing it.
+    async fn clear_warning(&self, code: &str) {
+        let mut inner = self.shared.inner.lock().await;
+        let Some(s) = inner.session.as_mut() else {
+            return;
+        };
+        let before = s.warnings.len();
+        s.warnings.retain(|w| w.code != code);
+        if s.warnings.len() != before {
+            let st = snapshot(&inner);
+            self.shared.sink.state(&st);
+        }
     }
 
     // ─────────────────── closing segments, pause, resume ───────────────────

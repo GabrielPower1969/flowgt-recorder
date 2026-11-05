@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/svelte";
 import { setTransport } from "../lib/ipc";
 import { mock } from "../lib/ipc-mock";
@@ -311,12 +311,42 @@ describe("screen picker", () => {
 describe("recording bar", () => {
   const recording = { ...idleRecorderState(), phase: "recording" as const, elapsedMs: 83_000, segments: 1 };
 
-  it("shows status, time, pause and stop and nothing else", () => {
+  it("shows status, time, pause, stop and the preview toggle, nothing else", () => {
     __setRecorderState(recording);
     render(Floating);
     expect(screen.getByText("正在录制")).toBeInTheDocument();
     expect(screen.getByTestId("timer")).toHaveTextContent("00:01:23");
-    expect(screen.getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["暂停", "停止录制"]);
+    expect(screen.getAllByRole("button").map((b) => b.textContent?.trim() || b.getAttribute("aria-label"))).toEqual(["暂停", "停止录制", "收起画面"]);
+  });
+
+  it("names the window being recorded and waits for the first frame", () => {
+    __setRecorderState({ ...recording, target: { kind: "window", screen: null, app: "Keynote", title: "季度回顾", icon: null }, cameraConnected: true });
+    render(Floating);
+    expect(screen.getByTestId("target")).toHaveTextContent("Keynote — 季度回顾");
+    expect(screen.getByText("带摄像头")).toBeInTheDocument();
+    expect(screen.getByText("等待第一帧…")).toBeInTheDocument();
+  });
+
+  it("says so when the recorded window has left the screen", () => {
+    __setRecorderState({ ...recording, target: { kind: "window", screen: null, app: "Keynote", title: "", icon: null }, warnings: [{ code: "warn.windowHidden", detail: "" }] });
+    render(Floating);
+    expect(screen.getByRole("status")).toHaveTextContent("被录的窗口已最小化");
+  });
+
+  it("names the screen being recorded", () => {
+    __setRecorderState({ ...recording, target: { kind: "screen", screen: 2, app: null, title: null, icon: null } });
+    render(Floating);
+    expect(screen.getByTestId("target")).toHaveTextContent("屏幕 2");
+  });
+
+  it("collapsing hides the preview and tells the backend", async () => {
+    const spy = vi.spyOn(mock, "invoke");
+    __setRecorderState({ ...recording, target: { kind: "screen", screen: 1, app: null, title: null, icon: null } });
+    render(Floating);
+    await fireEvent.click(screen.getByRole("button", { name: "收起画面" }));
+    expect(screen.queryByTestId("target")).toBeNull();
+    expect(spy).toHaveBeenCalledWith("set_floating_expanded", { expanded: false });
+    spy.mockRestore();
   });
 
   it("while paused the button says resume", () => {

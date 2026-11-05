@@ -156,7 +156,11 @@ pub struct Region {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub enum CaptureTarget {
     /// Whole display. `display_id` is the device id from DeviceList.screens.
     Display { display_id: String },
@@ -268,18 +272,33 @@ pub struct BitrateBudget {
 
 /// A video or audio input as ffmpeg sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub enum InputSource {
     /// macOS `-f avfoundation -i "<video>:<audio>"`; either side may be None.
-    AvFoundation { video_index: Option<String>, audio_index: Option<String>, capture_cursor: bool },
+    AvFoundation {
+        video_index: Option<String>,
+        audio_index: Option<String>,
+        capture_cursor: bool,
+    },
     /// Windows desktop duplication as a lavfi source: `ddagrab=output_idx=N:framerate=F`.
     DdaGrab { output_idx: u32 },
     /// Windows `-f gdigrab -i desktop` fallback.
     GdiGrab { offset: Option<Region> },
     /// Windows `-f dshow -i video="<name>"` / `audio="<name>"`.
-    DShow { video: Option<String>, audio: Option<String> },
+    DShow {
+        video: Option<String>,
+        audio: Option<String>,
+    },
     /// Raw PCM from a helper over a FIFO/file: `-f s16le -ar 48000 -ac 2 -i <path>`.
-    PcmPipe { path: String, sample_rate: u32, channels: u32 },
+    PcmPipe {
+        path: String,
+        sample_rate: u32,
+        channels: u32,
+    },
     /// Synthetic lavfi source for tests/benchmarks, e.g. "testsrc2=size=1920x1080:rate=30" or "sine=frequency=440".
     Lavfi { graph: String },
 }
@@ -378,10 +397,33 @@ pub enum Phase {
     Finalizing,
 }
 
+/// What a recording is of, for the floating panel: the screen's number, or the window's app
+/// and title with the app's icon (base64 PNG from the picker list).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTarget {
+    pub kind: RecordTargetKind,
+    /// 1-based screen number as the picker shows it (screen and region).
+    pub screen: Option<u32>,
+    pub app: Option<String>,
+    pub title: Option<String>,
+    pub icon: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordTargetKind {
+    Screen,
+    Region,
+    Window,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecorderState {
     pub phase: Phase,
+    /// What is being recorded; None when idle.
+    pub target: Option<RecordTarget>,
     pub session_id: Option<String>,
     pub meeting_name: Option<String>,
     /// Wall-clock ms since the first segment started, excluding paused time.

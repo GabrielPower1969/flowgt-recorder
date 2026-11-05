@@ -45,13 +45,17 @@
       });
     }
   }
+  /** Bumped when the picker starts a recording or closes, so a thumbnail loop in flight stops asking. */
+  let thumbRun = 0;
   async function loadWindows() {
+    const run = ++thumbRun;
     windows = null;
     const list = await invoke("list_windows");
     windows = list;
     if (!list.some((w) => w.id === selectedWindow)) selectedWindow = list[0]?.id ?? null;
     // One after the other: each thumbnail is one helper run, and the backend serialises them anyway.
     for (const w of list) {
+      if (run !== thumbRun) return;
       const url = await invoke("window_thumbnail", { id: w.id });
       windowThumbs = { ...windowThumbs, [w.id]: url };
     }
@@ -70,6 +74,7 @@
   async function start() {
     if (!canStart) return;
     starting = true;
+    thumbRun++;
     keepMarker = true;
     const id = selected;
     const win = selectedWindow;
@@ -104,6 +109,7 @@
       }
     })();
     return () => {
+      thumbRun++;
       window.removeEventListener("keydown", onKey);
       if (!keepMarker) void invoke("hide_screen_marker");
     };

@@ -631,8 +631,37 @@ pub async fn build_params(
             camera: s.camera.enabled.then_some(camera_name),
             cursor: true,
             exclude_pid: std::process::id(),
+            preview: None,
         }),
         _ => None,
+    };
+    let screen_n = list
+        .screens
+        .iter()
+        .position(|d| d.id == screen.id)
+        .map(|i| u32::try_from(i + 1).unwrap_or(u32::MAX));
+    let target = match (&window, &s.capture) {
+        (Some(w), _) => RecordTarget {
+            kind: RecordTargetKind::Window,
+            screen: None,
+            app: Some(w.app.clone()),
+            title: Some(w.title.clone()),
+            icon: w.icon.clone(),
+        },
+        (None, CaptureTarget::Region { .. }) => RecordTarget {
+            kind: RecordTargetKind::Region,
+            screen: screen_n,
+            app: None,
+            title: None,
+            icon: None,
+        },
+        (None, _) => RecordTarget {
+            kind: RecordTargetKind::Screen,
+            screen: screen_n,
+            app: None,
+            title: None,
+            icon: None,
+        },
     };
     let mic_helper = helper
         .clone()
@@ -693,6 +722,7 @@ pub async fn build_params(
         helper: if uses_helper { helper } else { None },
         mic_helper,
         native,
+        target: Some(target),
     })
 }
 
@@ -732,10 +762,13 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
             crate::windows::hide_floating(&handle);
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
+        // A thumbnail still being taken must finish before the stream starts (see SNAPSHOT_TURN).
+        let turn = SNAPSHOT_TURN.lock().await;
         let started = match build_params(&handle, &state, &meeting_name).await {
             Ok(p) => start_with_fallbacks(&handle, &state, p).await,
             Err(e) => Err(e),
         };
+        drop(turn);
         if let Err(e) = started {
             state.recorder.abort_countdown().await;
             let _ = handle.emit(
@@ -881,13 +914,19 @@ pub async fn list_windows() -> CmdResult<Vec<WindowInfo>> {
 
 /// A small JPEG of one window as a data URL, for the picker. `None` when it cannot be taken
 /// (no helper, no permission, the window closed, macOS 13).
+/// One snapshot at a time: several SCScreenshotManager clients at once leave the capture daemon
+/// (replayd) reconnecting forever and none of them finishes. A recording start takes it too, so
+/// no snapshot runs beside a starting SCStream (a thumbnail still loading when "Start" was
+/// pressed stalled the stream and ended the recording after a second, 2026-11-05).
+static SNAPSHOT_TURN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tauri::command]
-pub async fn window_thumbnail(id: u32) -> CmdResult<Option<String>> {
+pub async fn window_thumbnail(state: State<'_, AppState>, id: u32) -> CmdResult<Option<String>> {
     use base64::Engine;
-    // One at a time: several SCScreenshotManager clients at once leave the capture daemon
-    // (replayd) reconnecting forever and none of them finishes.
-    static ONE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _turn = ONE.lock().await;
+    if state.recorder.phase().await != Phase::Idle {
+        return Ok(None);
+    }
+    let _turn = SNAPSHOT_TURN.lock().await;
     let Some(helper) = find_record_helper().filter(|_| Platform::current() == Platform::MacOs)
     else {
         return Ok(None);
@@ -1108,6 +1147,57 @@ pub async fn cancel_recording(state: State<'_, AppState>) -> CmdResult<RecorderS
 #[tauri::command]
 pub async fn get_recorder_state(state: State<'_, AppState>) -> CmdResult<RecorderState> {
     Ok(state.recorder.state().await)
+}
+
+/// One frame of the live preview the native helper writes, as a data URL. `since` is the
+/// `mtimeMs` of the frame the caller already has; the same frame again returns None.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewFrame {
+    pub data_url: String,
+    pub mtime_ms: u64,
+}
+
+#[tauri::command]
+pub async fn preview_frame(
+    state: State<'_, AppState>,
+    since: Option<u64>,
+) -> CmdResult<Option<PreviewFrame>> {
+    use base64::Engine;
+    let Some(path) = state.recorder.preview_path().await else {
+        return Ok(None);
+    };
+    let Ok(meta) = tokio::fs::metadata(&path).await else {
+        return Ok(None);
+    };
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    if since == Some(mtime_ms) {
+        return Ok(None);
+    }
+    let Ok(bytes) = tokio::fs::read(&path).await else {
+        return Ok(None);
+    };
+    if bytes.len() < 4 {
+        return Ok(None);
+    }
+    Ok(Some(PreviewFrame {
+        data_url: format!(
+            "data:image/jpeg;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ),
+        mtime_ms,
+    }))
+}
+
+/// The floating window as the full panel (bar + live preview) or the bar alone.
+#[tauri::command]
+pub async fn set_floating_expanded(app: AppHandle, expanded: bool) -> CmdResult<()> {
+    crate::windows::set_floating_expanded(&app, expanded);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1510,6 +1600,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         screen_thumbnail,
         list_windows,
         window_thumbnail,
+        preview_frame,
+        set_floating_expanded,
         relaunch_app,
         list_recordings,
         show_screen_marker,

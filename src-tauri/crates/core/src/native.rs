@@ -30,6 +30,8 @@ pub struct NativeCapture {
     pub cursor: bool,
     /// The app's own windows (floating bar, outline) stay out of the picture.
     pub exclude_pid: u32,
+    /// The helper keeps a JPEG of the latest output frame here for the floating panel.
+    pub preview: Option<PathBuf>,
 }
 
 /// Audio tracks of a native segment, in file order: system first, then mic. Kept in the
@@ -43,7 +45,10 @@ pub struct NativeAudio {
 
 impl NativeAudio {
     pub fn of(cap: &NativeCapture) -> NativeAudio {
-        NativeAudio { system: cap.system_audio, mic: cap.mic.is_some() }
+        NativeAudio {
+            system: cap.system_audio,
+            mic: cap.mic.is_some(),
+        }
     }
 }
 
@@ -88,13 +93,27 @@ pub fn parse_window_list(json: &str) -> crate::Result<Vec<WindowInfo>> {
         apps: Vec<App>,
         windows: Vec<Win>,
     }
-    let list: List = serde_json::from_str(json).map_err(|e| crate::CoreError::Parse(format!("window list: {e}")))?;
-    let icons: std::collections::HashMap<u32, String> = list.apps.into_iter().filter_map(|a| a.icon.map(|i| (a.pid, i))).collect();
+    let list: List = serde_json::from_str(json)
+        .map_err(|e| crate::CoreError::Parse(format!("window list: {e}")))?;
+    let icons: std::collections::HashMap<u32, String> = list
+        .apps
+        .into_iter()
+        .filter_map(|a| a.icon.map(|i| (a.pid, i)))
+        .collect();
     Ok(list
         .windows
         .into_iter()
         .filter(|w| w.width >= 2 && w.height >= 2)
-        .map(|w| WindowInfo { icon: icons.get(&w.pid).cloned(), id: w.id, title: w.title, app: w.app, bundle_id: w.bundle_id, pid: w.pid, width: w.width, height: w.height })
+        .map(|w| WindowInfo {
+            icon: icons.get(&w.pid).cloned(),
+            id: w.id,
+            title: w.title,
+            app: w.app,
+            bundle_id: w.bundle_id,
+            pid: w.pid,
+            width: w.width,
+            height: w.height,
+        })
         .collect())
 }
 
@@ -107,9 +126,16 @@ pub fn helper_args(cap: &NativeCapture, plan: &RecordingPlan, output: &Path) -> 
         NativeSource::App(bundle) => a.extend(["--app".into(), bundle.clone()]),
     }
     a.extend(["--out".into(), output.to_string_lossy().into_owned()]);
-    a.extend(["--size".into(), format!("{}x{}", plan.out_width, plan.out_height)]);
+    a.extend([
+        "--size".into(),
+        format!("{}x{}", plan.out_width, plan.out_height),
+    ]);
     a.extend(["--fps".into(), plan.fps.to_string()]);
-    let codec = if plan.encoder.name.contains("264") { "h264" } else { "hevc" };
+    let codec = if plan.encoder.name.contains("264") {
+        "h264"
+    } else {
+        "hevc"
+    };
     a.extend(["--codec".into(), codec.into()]);
     a.extend(["--video-kbps".into(), plan.budget.video_kbps.to_string()]);
     a.extend(["--audio-kbps".into(), plan.audio_bitrate_kbps.to_string()]);
@@ -135,13 +161,26 @@ pub fn helper_args(cap: &NativeCapture, plan: &RecordingPlan, output: &Path) -> 
                 PipShape::Rounded => "rounded",
                 PipShape::Circle => "circle",
             };
-            a.extend(["--pip".into(), format!("{},{},{},{},{}", p.x, p.y, p.size, shape, u8::from(p.mirror))]);
+            a.extend([
+                "--pip".into(),
+                format!(
+                    "{},{},{},{},{}",
+                    p.x,
+                    p.y,
+                    p.size,
+                    shape,
+                    u8::from(p.mirror)
+                ),
+            ]);
         }
     }
     if !cap.cursor {
         a.push("--no-cursor".into());
     }
     a.extend(["--exclude-pid".into(), cap.exclude_pid.to_string()]);
+    if let Some(p) = &cap.preview {
+        a.extend(["--preview".into(), p.to_string_lossy().into_owned()]);
+    }
     if let Some(s) = plan.duration_limit_s {
         a.extend(["--duration".into(), s.to_string()]);
     }
@@ -150,7 +189,11 @@ pub fn helper_args(cap: &NativeCapture, plan: &RecordingPlan, output: &Path) -> 
 
 /// One line of the helper's stdout.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(tag = "event", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "event",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum NativeEvent {
     Started {
         width: u32,
@@ -189,10 +232,34 @@ pub fn parse_event(line: &str) -> Option<NativeEvent> {
 }
 
 /// The helper's progress in the shape the supervisor already understands.
-pub fn progress_from(seconds: f64, bytes: u64, frames: u64, dropped: u64, finished: bool) -> Progress {
-    let fps = if seconds > 0.0 { frames as f64 / seconds } else { 0.0 };
-    let bitrate = if seconds > 0.0 { bytes as f64 * 8.0 / 1000.0 / seconds } else { 0.0 };
-    Progress { frame: frames, fps, out_time_ms: (seconds * 1000.0).max(0.0) as u64, total_size: bytes, bitrate_kbps: bitrate, speed: 1.0, drop_frames: dropped, dup_frames: 0, finished }
+pub fn progress_from(
+    seconds: f64,
+    bytes: u64,
+    frames: u64,
+    dropped: u64,
+    finished: bool,
+) -> Progress {
+    let fps = if seconds > 0.0 {
+        frames as f64 / seconds
+    } else {
+        0.0
+    };
+    let bitrate = if seconds > 0.0 {
+        bytes as f64 * 8.0 / 1000.0 / seconds
+    } else {
+        0.0
+    };
+    Progress {
+        frame: frames,
+        fps,
+        out_time_ms: (seconds * 1000.0).max(0.0) as u64,
+        total_size: bytes,
+        bitrate_kbps: bitrate,
+        speed: 1.0,
+        drop_frames: dropped,
+        dup_frames: 0,
+        finished,
+    }
 }
 
 /// Helper error codes → the app's error codes.
@@ -209,7 +276,15 @@ pub fn error_code(helper_code: &str) -> &'static str {
 
 /// Native segments → the final file. The video is copied; the audio is levelled (mic) and mixed
 /// (one track) or kept apart (two tracks). `list` is a concat list for several segments.
-pub fn finish_command(ffmpeg: &str, input: &Path, concat: bool, output: &Path, audio: NativeAudio, tracks: AudioTracks, audio_kbps: u32) -> FfmpegCommand {
+pub fn finish_command(
+    ffmpeg: &str,
+    input: &Path,
+    concat: bool,
+    output: &Path,
+    audio: NativeAudio,
+    tracks: AudioTracks,
+    audio_kbps: u32,
+) -> FfmpegCommand {
     let mut args: Vec<String> = vec!["-hide_banner".into(), "-loglevel".into(), "error".into()];
     if concat {
         args.extend(["-f".into(), "concat".into(), "-safe".into(), "0".into()]);
@@ -221,12 +296,35 @@ pub fn finish_command(ffmpeg: &str, input: &Path, concat: bool, output: &Path, a
         (false, false) => {}
         (true, false) => args.extend(["-map".into(), "0:a:0".into(), "-c:a".into(), "copy".into()]),
         (false, true) => {
-            args.extend(["-filter_complex".into(), format!("[0:a:0]{MIC_FILTER},{LIMITER}[aout]"), "-map".into(), "[aout]".into(), "-c:a".into(), "aac".into(), "-b:a".into(), kbps]);
+            args.extend([
+                "-filter_complex".into(),
+                format!("[0:a:0]{MIC_FILTER},{LIMITER}[aout]"),
+                "-map".into(),
+                "[aout]".into(),
+                "-c:a".into(),
+                "aac".into(),
+                "-b:a".into(),
+                kbps,
+            ]);
         }
         (true, true) if tracks == AudioTracks::Separate => {
             // Output order matches the ffmpeg path: mic first, computer audio second.
-            args.extend(["-filter_complex".into(), format!("[0:a:1]{MIC_FILTER},{LIMITER}[am]"), "-map".into(), "[am]".into(), "-map".into(), "0:a:0".into()]);
-            args.extend(["-c:a:0".into(), "aac".into(), "-b:a:0".into(), kbps, "-c:a:1".into(), "copy".into()]);
+            args.extend([
+                "-filter_complex".into(),
+                format!("[0:a:1]{MIC_FILTER},{LIMITER}[am]"),
+                "-map".into(),
+                "[am]".into(),
+                "-map".into(),
+                "0:a:0".into(),
+            ]);
+            args.extend([
+                "-c:a:0".into(),
+                "aac".into(),
+                "-b:a:0".into(),
+                kbps,
+                "-c:a:1".into(),
+                "copy".into(),
+            ]);
         }
         (true, true) => {
             args.extend([
@@ -241,8 +339,16 @@ pub fn finish_command(ffmpeg: &str, input: &Path, concat: bool, output: &Path, a
             ]);
         }
     }
-    args.extend(["-movflags".into(), "+faststart".into(), "-y".into(), output.to_string_lossy().into_owned()]);
-    FfmpegCommand { program: ffmpeg.to_string(), args }
+    args.extend([
+        "-movflags".into(),
+        "+faststart".into(),
+        "-y".into(),
+        output.to_string_lossy().into_owned(),
+    ]);
+    FfmpegCommand {
+        program: ffmpeg.to_string(),
+        args,
+    }
 }
 
 #[cfg(test)]
@@ -261,18 +367,28 @@ mod tests {
             camera: Some(None),
             cursor: true,
             exclude_pid: 4242,
+            preview: Some(PathBuf::from("/w/preview.jpg")),
         }
     }
 
     #[test]
     fn args_cover_the_plan() {
         let mut plan = sample_plan();
-        plan.pip = Some(crate::PipLayout { size: 300, x: 1560, y: 740, shape: PipShape::Circle, mirror: true });
+        plan.pip = Some(crate::PipLayout {
+            size: 300,
+            x: 1560,
+            y: 740,
+            shape: PipShape::Circle,
+            mirror: true,
+        });
         let a = helper_args(&cap(), &plan, Path::new("/w/seg-000.mp4"));
         let s = a.join(" ");
-        assert!(s.starts_with("--display 1 --out /w/seg-000.mp4 --size "), "{s}");
+        assert!(
+            s.starts_with("--display 1 --out /w/seg-000.mp4 --size "),
+            "{s}"
+        );
         assert!(s.contains(" --fps 30 "), "{s}");
-        assert!(s.contains("--system-audio --mic-device USB Mic --camera --pip 1560,740,300,circle,1 --exclude-pid 4242"), "{s}");
+        assert!(s.contains("--system-audio --mic-device USB Mic --camera --pip 1560,740,300,circle,1 --exclude-pid 4242 --preview /w/preview.jpg"), "{s}");
         assert!(!s.contains("--no-cursor"));
         assert!(!s.contains("--crop"));
     }
@@ -285,18 +401,53 @@ mod tests {
         c.mic = Some(None);
         c.camera = None;
         c.cursor = false;
-        c.crop = Some(Region { x: 1, y: 2, w: 30, h: 40 });
+        c.crop = Some(Region {
+            x: 1,
+            y: 2,
+            w: 30,
+            h: 40,
+        });
+        c.preview = None;
         let s = helper_args(&c, &sample_plan(), Path::new("o.mp4")).join(" ");
         assert!(s.starts_with("--window 77 --out o.mp4"), "{s}");
-        assert!(s.contains("--crop 1,2,30,40 --mic --no-cursor --exclude-pid 4242"), "{s}");
+        assert!(
+            s.contains("--crop 1,2,30,40 --mic --no-cursor --exclude-pid 4242"),
+            "{s}"
+        );
         assert!(!s.contains("--pip"));
+        assert!(!s.contains("--preview"));
     }
 
     #[test]
     fn events_parse() {
-        assert_eq!(parse_event(r#"{"audioTracks":["system","mic"],"event":"started","height":1080,"width":1920}"#), Some(NativeEvent::Started { width: 1920, height: 1080, audio_tracks: vec!["system".into(), "mic".into()] }));
-        assert_eq!(parse_event(r#"{"bytes":10,"dropped":0,"event":"progress","frames":3,"seconds":1.235}"#), Some(NativeEvent::Progress { seconds: 1.235, bytes: 10, frames: 3, dropped: 0 }));
-        assert_eq!(parse_event(r#"{"code":"warn.cameraLost","detail":"x","event":"warning"}"#), Some(NativeEvent::Warning { code: "warn.cameraLost".into(), detail: "x".into() }));
+        assert_eq!(
+            parse_event(
+                r#"{"audioTracks":["system","mic"],"event":"started","height":1080,"width":1920}"#
+            ),
+            Some(NativeEvent::Started {
+                width: 1920,
+                height: 1080,
+                audio_tracks: vec!["system".into(), "mic".into()]
+            })
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"bytes":10,"dropped":0,"event":"progress","frames":3,"seconds":1.235}"#
+            ),
+            Some(NativeEvent::Progress {
+                seconds: 1.235,
+                bytes: 10,
+                frames: 3,
+                dropped: 0
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"code":"warn.cameraLost","detail":"x","event":"warning"}"#),
+            Some(NativeEvent::Warning {
+                code: "warn.cameraLost".into(),
+                detail: "x".into()
+            })
+        );
         assert_eq!(parse_event("sck-record: stopping"), None);
         assert_eq!(parse_event("{not json"), None);
     }
@@ -313,25 +464,95 @@ mod tests {
 
     #[test]
     fn finish_mixes_levels_and_copies() {
-        let mixed = finish_command("ffmpeg", Path::new("seg.mp4"), false, Path::new("out.mp4"), NativeAudio { system: true, mic: true }, AudioTracks::Mixed, 128);
+        let mixed = finish_command(
+            "ffmpeg",
+            Path::new("seg.mp4"),
+            false,
+            Path::new("out.mp4"),
+            NativeAudio {
+                system: true,
+                mic: true,
+            },
+            AudioTracks::Mixed,
+            128,
+        );
         let s = mixed.args.join(" ");
-        assert!(s.contains("-i seg.mp4 -map 0:v:0 -c:v copy -filter_complex [0:a:1]highpass"), "{s}");
-        assert!(s.contains("[am][0:a:0]amix=inputs=2:duration=longest:normalize=0,alimiter"), "{s}");
-        assert!(s.contains("-map [aout] -c:a aac -b:a 128k -movflags +faststart -y out.mp4"), "{s}");
+        assert!(
+            s.contains("-i seg.mp4 -map 0:v:0 -c:v copy -filter_complex [0:a:1]highpass"),
+            "{s}"
+        );
+        assert!(
+            s.contains("[am][0:a:0]amix=inputs=2:duration=longest:normalize=0,alimiter"),
+            "{s}"
+        );
+        assert!(
+            s.contains("-map [aout] -c:a aac -b:a 128k -movflags +faststart -y out.mp4"),
+            "{s}"
+        );
         assert!(!s.contains("concat"));
 
-        let sep = finish_command("ffmpeg", Path::new("l.txt"), true, Path::new("o.mp4"), NativeAudio { system: true, mic: true }, AudioTracks::Separate, 96);
+        let sep = finish_command(
+            "ffmpeg",
+            Path::new("l.txt"),
+            true,
+            Path::new("o.mp4"),
+            NativeAudio {
+                system: true,
+                mic: true,
+            },
+            AudioTracks::Separate,
+            96,
+        );
         let s = sep.args.join(" ");
         assert!(s.contains("-f concat -safe 0 -i l.txt"), "{s}");
-        assert!(s.contains("-map [am] -map 0:a:0 -c:a:0 aac -b:a:0 96k -c:a:1 copy"), "{s}");
+        assert!(
+            s.contains("-map [am] -map 0:a:0 -c:a:0 aac -b:a:0 96k -c:a:1 copy"),
+            "{s}"
+        );
 
-        let sys = finish_command("ffmpeg", Path::new("s.mp4"), false, Path::new("o.mp4"), NativeAudio { system: true, mic: false }, AudioTracks::Mixed, 128);
-        assert!(sys.args.join(" ").contains("-map 0:a:0 -c:a copy -movflags"));
+        let sys = finish_command(
+            "ffmpeg",
+            Path::new("s.mp4"),
+            false,
+            Path::new("o.mp4"),
+            NativeAudio {
+                system: true,
+                mic: false,
+            },
+            AudioTracks::Mixed,
+            128,
+        );
+        assert!(sys
+            .args
+            .join(" ")
+            .contains("-map 0:a:0 -c:a copy -movflags"));
 
-        let mic = finish_command("ffmpeg", Path::new("s.mp4"), false, Path::new("o.mp4"), NativeAudio { system: false, mic: true }, AudioTracks::Mixed, 128);
-        assert!(mic.args.join(" ").contains("-filter_complex [0:a:0]highpass"));
+        let mic = finish_command(
+            "ffmpeg",
+            Path::new("s.mp4"),
+            false,
+            Path::new("o.mp4"),
+            NativeAudio {
+                system: false,
+                mic: true,
+            },
+            AudioTracks::Mixed,
+            128,
+        );
+        assert!(mic
+            .args
+            .join(" ")
+            .contains("-filter_complex [0:a:0]highpass"));
 
-        let none = finish_command("ffmpeg", Path::new("s.mp4"), false, Path::new("o.mp4"), NativeAudio::default(), AudioTracks::Mixed, 128);
+        let none = finish_command(
+            "ffmpeg",
+            Path::new("s.mp4"),
+            false,
+            Path::new("o.mp4"),
+            NativeAudio::default(),
+            AudioTracks::Mixed,
+            128,
+        );
         assert_eq!(none.args.join(" "), "-hide_banner -loglevel error -i s.mp4 -map 0:v:0 -c:v copy -movflags +faststart -y o.mp4");
     }
 

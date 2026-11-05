@@ -6,11 +6,20 @@ use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, Webvie
 
 pub const FLOATING: &str = "floating";
 pub const BAR_SIZE: (f64, f64) = (420.0, 72.0);
+/// Bar plus the live preview (16:9 at 420 wide) and its caption.
+pub const PANEL_SIZE: (f64, f64) = (420.0, 356.0);
 pub const COUNTDOWN_SIZE: (f64, f64) = (420.0, 200.0);
 pub const MARKER: &str = "marker";
 
 /// The screen chosen in the picker, as its position in the screen list.
 static CHOSEN_SCREEN: Mutex<Option<usize>> = Mutex::new(None);
+/// Whether the recording window shows the live preview under the bar. Remembered for the
+/// process: collapsing it once keeps it collapsed for the next recording too.
+static EXPANDED: Mutex<bool> = Mutex::new(true);
+
+pub fn floating_expanded() -> bool {
+    *EXPANDED.lock().expect("expanded lock")
+}
 
 /// Logical rectangle (x, y, w, h) of the nth screen, in the order the capture tool lists them.
 #[cfg(target_os = "macos")]
@@ -53,7 +62,9 @@ pub fn display_at(index: usize) -> Option<(u32, u32, u32)> {
     let mut ids = [0u32; 16];
     let mut count = 0u32;
     // SAFETY: the buffer holds `max` entries.
-    if unsafe { CGGetActiveDisplayList(16, ids.as_mut_ptr(), &mut count) } != 0 || index >= count as usize {
+    if unsafe { CGGetActiveDisplayList(16, ids.as_mut_ptr(), &mut count) } != 0
+        || index >= count as usize
+    {
         return None;
     }
     let id = ids[index];
@@ -63,7 +74,10 @@ pub fn display_at(index: usize) -> Option<(u32, u32, u32)> {
         if mode.is_null() {
             return None;
         }
-        let (w, h) = (CGDisplayModeGetPixelWidth(mode), CGDisplayModeGetPixelHeight(mode));
+        let (w, h) = (
+            CGDisplayModeGetPixelWidth(mode),
+            CGDisplayModeGetPixelHeight(mode),
+        );
         CGDisplayModeRelease(mode);
         Some((id, w as u32, h as u32))
     }
@@ -79,14 +93,21 @@ fn screen_rect(app: &AppHandle, index: usize) -> Option<(f64, f64, f64, f64)> {
     let monitors = app.available_monitors().ok()?;
     let m = monitors.get(index)?;
     let s = m.scale_factor();
-    Some((m.position().x as f64 / s, m.position().y as f64 / s, m.size().width as f64 / s, m.size().height as f64 / s))
+    Some((
+        m.position().x as f64 / s,
+        m.position().y as f64 / s,
+        m.size().width as f64 / s,
+        m.size().height as f64 / s,
+    ))
 }
 
 /// Outline the screen that is about to be recorded. It must be gone before capture starts:
 /// a window hidden from sharing still shows up in avfoundation's capture (tested, D23).
 pub fn show_marker(app: &AppHandle, index: usize) -> tauri::Result<()> {
     *CHOSEN_SCREEN.lock().expect("screen lock") = Some(index);
-    let Some((x, y, w, h)) = screen_rect(app, index) else { return Ok(()) };
+    let Some((x, y, w, h)) = screen_rect(app, index) else {
+        return Ok(());
+    };
     let n = index + 1;
     let win = match app.get_webview_window(MARKER) {
         Some(win) => {
@@ -104,7 +125,9 @@ pub fn show_marker(app: &AppHandle, index: usize) -> tauri::Result<()> {
                 .shadow(false)
                 .focused(false)
                 .visible(false)
-                .initialization_script(format!("window.__markerN = {n}; location.hash = '#/marker';"))
+                .initialization_script(format!(
+                    "window.__markerN = {n}; location.hash = '#/marker';"
+                ))
                 .build()?;
             let _ = win.set_ignore_cursor_events(true);
             win
@@ -155,7 +178,9 @@ pub fn create_floating(app: &AppHandle) -> tauri::Result<()> {
         .shadow(false)
         .visible(false)
         .focused(false)
-        .initialization_script("if (!location.hash || location.hash === '#/') location.hash = '#/floating';")
+        .initialization_script(
+            "if (!location.hash || location.hash === '#/') location.hash = '#/floating';",
+        )
         .build()?;
     place_top_center(&win, BAR_SIZE.0);
     Ok(())
@@ -172,18 +197,48 @@ fn place_top_center(win: &tauri::WebviewWindow, width: f64) {
         let scale = m.scale_factor();
         let screen_w = m.size().width as f64 / scale;
         let origin = m.position().x as f64 / scale;
-        let _ = win.set_position(LogicalPosition::new(origin + (screen_w - width) / 2.0, m.position().y as f64 / scale + 48.0));
+        let _ = win.set_position(LogicalPosition::new(
+            origin + (screen_w - width) / 2.0,
+            m.position().y as f64 / scale + 48.0,
+        ));
     }
 }
 
-/// Show the floating window in the countdown size or the bar size.
+/// Show the floating window in the countdown size, or as the recording panel or bar.
 pub fn show_floating(app: &AppHandle, countdown: bool) {
-    let Some(win) = app.get_webview_window(FLOATING) else { return };
-    let (w, h) = if countdown { COUNTDOWN_SIZE } else { BAR_SIZE };
+    let Some(win) = app.get_webview_window(FLOATING) else {
+        return;
+    };
+    let (w, h) = if countdown {
+        COUNTDOWN_SIZE
+    } else if floating_expanded() {
+        PANEL_SIZE
+    } else {
+        BAR_SIZE
+    };
     let _ = win.set_size(LogicalSize::new(w, h));
     place_top_center(&win, w);
     let _ = win.set_always_on_top(true);
     let _ = win.show();
+}
+
+/// Grow the recording window into the panel or shrink it to the bar, keeping its top edge
+/// where it is (macOS resizes from the bottom-left corner).
+pub fn set_floating_expanded(app: &AppHandle, expanded: bool) {
+    *EXPANDED.lock().expect("expanded lock") = expanded;
+    let Some(win) = app.get_webview_window(FLOATING) else {
+        return;
+    };
+    let (w, h) = if expanded { PANEL_SIZE } else { BAR_SIZE };
+    let scale = win.scale_factor().unwrap_or(1.0);
+    let top_left = win
+        .outer_position()
+        .ok()
+        .map(|p| LogicalPosition::new(p.x as f64 / scale, p.y as f64 / scale));
+    let _ = win.set_size(LogicalSize::new(w, h));
+    if let Some(p) = top_left {
+        let _ = win.set_position(p);
+    }
 }
 
 pub fn hide_floating(app: &AppHandle) {
@@ -214,5 +269,7 @@ mod tests {
     fn sizes_match_the_design() {
         assert_eq!(BAR_SIZE, (420.0, 72.0));
         assert_eq!(COUNTDOWN_SIZE, (420.0, 200.0));
+        assert_eq!(PANEL_SIZE.0, BAR_SIZE.0);
+        assert!(PANEL_SIZE.1 > BAR_SIZE.1 + 236.0);
     }
 }

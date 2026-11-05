@@ -133,8 +133,21 @@ export type Phase = "idle" | "countdown" | "starting" | "recording" | "paused" |
 
 export interface Warning { code: string; detail: string }
 
+/** What a recording is of: the screen's number, or the window's app and title with its icon. */
+export interface RecordTarget {
+  kind: "screen" | "region" | "window";
+  screen: number | null;
+  app: string | null;
+  title: string | null;
+  icon: string | null;
+}
+
+/** One frame of the live preview the native helper writes while recording. */
+export interface PreviewFrame { dataUrl: string; mtimeMs: number }
+
 export interface RecorderState {
   phase: Phase;
+  target: RecordTarget | null;
   sessionId: string | null;
   meetingName: string | null;
   elapsedMs: number;
@@ -229,6 +242,8 @@ export interface Commands {
   recover_session: (args: { sessionId: string }) => RecordingResult;
   discard_session: (args: { sessionId: string }) => void;
   set_floating_visible: (args: { visible: boolean }) => void;
+  set_floating_expanded: (args: { expanded: boolean }) => void;
+  preview_frame: (args: { since: number | null }) => PreviewFrame | null; // null = no new frame (or no preview)
   screen_thumbnail: (args: { id: string }) => string | null; // data URL; null = no permission yet
   list_windows: () => WindowInfo[]; // empty when the native helper or the permission is missing
   window_thumbnail: (args: { id: number }) => string | null; // data URL; null = cannot be taken

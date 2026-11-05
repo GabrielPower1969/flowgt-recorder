@@ -75,6 +75,11 @@ public struct RecordOptions: Equatable {
     public var excludePid: Int32?
     /// Stop by itself after this many seconds (tests); nil = until "stop" on stdin or a signal.
     public var duration: Double?
+    /// A JPEG of the latest output frame is kept at this path (written atomically) so the app can
+    /// show what is being recorded. nil = no preview.
+    public var preview: String?
+    /// Seconds between preview frames.
+    public var previewInterval = 0.125
     /// MP4 fragment interval, so a crash leaves a playable file.
     public var fragmentSeconds = 2.0
     public var progressInterval = 0.5
@@ -148,6 +153,7 @@ public enum ArgumentParser {
                  [--crop x,y,w,h] [--system-audio] [--mic] [--mic-device <name>]
                  [--camera] [--camera-device <name>] [--pip x,y,size,square|rounded|circle,0|1]
                  [--no-cursor] [--exclude-pid <pid>] [--duration <s>] [--fragment <s>]
+                 [--preview <file.jpg>] [--preview-fps 8]
       sck-record --snapshot (--display <id> | --window <id>) --out <file.jpg> [--max-width 480]
       sck-record --list
       sck-record --check
@@ -156,6 +162,7 @@ public enum ArgumentParser {
     The recording runs until "stop" arrives on stdin, stdin closes, SIGINT/SIGTERM, or --duration.
     stdout carries one JSON object per line: started, progress, warning, stopped, error.
     Audio tracks in the file, in order: system (if --system-audio), mic (if --mic).
+    --preview keeps a JPEG (480 px wide) of the latest output frame at that path, replaced atomically.
 
     EXIT CODES
       0 ok · 1 usage · 2 permission-denied · 3 unsupported-os · 4 source-not-found
@@ -165,7 +172,7 @@ public enum ArgumentParser {
     private static let valued: Set<String> = [
         "--display", "--window", "--app", "--out", "-o", "--size", "--fps", "--codec", "--video-kbps",
         "--audio-kbps", "--crop", "--mic-device", "--camera-device", "--pip", "--exclude-pid", "--duration",
-        "--fragment", "--progress-interval", "--max-width",
+        "--fragment", "--progress-interval", "--max-width", "--preview", "--preview-fps",
     ]
 
     public static func parse(_ arguments: [String]) throws -> Command {
@@ -188,6 +195,8 @@ public enum ArgumentParser {
         var duration: Double?
         var fragment: Double?
         var progressInterval: Double?
+        var preview: String?
+        var previewFps: Double?
         var list = false
         var check = false
         var snapshot = false
@@ -278,6 +287,11 @@ public enum ArgumentParser {
             case "--duration": duration = try parseDouble(name, try value(), minimum: 0, inclusive: false)
             case "--fragment": fragment = try parseDouble(name, try value(), minimum: 0, inclusive: false)
             case "--progress-interval": progressInterval = try parseDouble(name, try value(), minimum: 0, inclusive: false)
+            case "--preview":
+                let v = try value()
+                guard !v.isEmpty else { throw ArgumentError.invalidValue(option: name, value: v, reason: "empty") }
+                preview = v
+            case "--preview-fps": previewFps = try parseDouble(name, try value(), minimum: 0, inclusive: false)
             default:
                 throw ArgumentError.unknownOption(name)
             }
@@ -325,6 +339,8 @@ public enum ArgumentParser {
         o.duration = duration
         if let fragment { o.fragmentSeconds = fragment }
         if let progressInterval { o.progressInterval = progressInterval }
+        o.preview = preview
+        if let previewFps { o.previewInterval = 1 / min(previewFps, 30) }
         return .record(o)
     }
 

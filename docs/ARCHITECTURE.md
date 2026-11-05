@@ -5,7 +5,7 @@
 │  Webview (Svelte 5 + TS)                 │  Rust app crate (src-tauri/src)         │
 │  main window ─ onboarding / main /       │  commands.rs   IPC surface (types.ts)   │
 │                settings / summary        │  recorder.rs   process supervisor:      │
-│  floating window ─ countdown / rec bar   │                segments, pause, stop,   │
+│  floating window ─ countdown / rec panel │                segments, pause, stop,   │
 │  camera preview + mic meter via          │                progress events          │
 │  getUserMedia (stopped while recording   │  sidecar.rs    find ffmpeg/ffprobe      │
 │  except the mic analyser)                │  permissions.rs TCC / Windows privacy   │

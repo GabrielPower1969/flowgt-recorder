@@ -225,3 +225,45 @@ window target fails at start with `error.start`; the tab is not shown there.
 only the window in the picture, shown on the Summary page. Quitting Calculator 5 s into a command-line window
 recording: helper reports `sourceNotFound`, then `stopped`, and leaves a playable 4.8 s file.
 
+## D29 · The recording window shows what is being recorded (2026-11-05)
+
+**Problem (Gabriel, 2026-11-05 afternoon):** while recording there was only a bar with a timer. He could not see
+himself, and when the recorded window was not in front he had no way to tell whether it was really being captured.
+
+**Decision:** the floating window becomes a panel: the bar on top, and under it the *live preview of the output
+frame* with the name of what is recorded ("Screen 1", or the window's app icon, app name and title) and chips for
+"camera on" and "live". A chevron on the bar collapses it to the bar alone; the choice is remembered for the process.
+The panel is transparent, always on top, draggable anywhere, and excluded from the capture like the bar
+(`--exclude-pid`; for a window recording nothing but that window is captured anyway).
+
+**How the preview is made:** the native helper takes `--preview <file.jpg> [--preview-fps 8]` and keeps a 480 px
+JPEG of the latest *composed* frame there (screen or window plus the camera square), written to `.tmp` and renamed,
+at most one encode in flight on a utility queue. The app's `preview_frame(since)` command returns it as a data URL
+when its mtime changed; the panel polls every 150 ms while it is open. So the picture is exactly what goes into the
+file, camera and mirror included, not a second capture (a second ScreenCaptureKit client per frame would stall
+`replayd`, D28). No extra camera session either: the face in the panel is the one the helper draws.
+
+**"Is it really recording?":** the helper's 3 s content refresh (already there for `--exclude-pid`) now also checks
+that a recorded window is still in the on-screen list. When it is not (minimised, or on another Space) it sends
+`warn.windowHidden`; when it is back, `warn.windowBack`, which the app turns into *removing* the first warning. The
+panel dims the preview and shows a notice while the warning is present. A frame timestamp cannot tell this: with the
+camera on, the composed frame keeps changing (the face moves) while the window part stays frozen, and with the camera
+off a still window legitimately produces no new frames. A window that is merely behind others keeps delivering
+(`desktopIndependentWindow`) and gets no notice. Measured on the command line (TextEdit, 2026-11-05): hidden reported
+within 3 s of minimising, back within 3 s of restoring, file playable (16 s, 226 frames).
+
+**Found on the way:** pressing "Start" while the picker was still taking window thumbnails ended the recording after
+1.2 s: the snapshot helper and the new `SCStream` ran at the same time and the capture daemon stalled (D28's problem
+from the other side). Now a recording start takes the same turn as the thumbnails (`SNAPSHOT_TURN`), a thumbnail is
+refused while the recorder is not idle, and the picker stops asking once "Start" is pressed or it closes.
+
+**Open:** the app died once right after "Stop" (crash report 2026-11-05 23:42:12, `abort()` on a tokio worker,
+release binary stripped so no symbols) and once at quit (23:26:48); three more recordings with the same steps did not
+reproduce it. An earlier report from 02:12 the same day predates the native work. Next step: build once with
+`strip = false` / `debug = 1` and keep that binary beside the crash reports.
+
+**Not done:** a separate live camera bubble (webview `getUserMedia` next to the helper's own session) — the composed
+preview already shows the face, and two sessions on one camera are a risk with Continuity Camera. Toggling the camera
+mid-recording still means stop and start. The ffmpeg path (Windows) has no preview; the panel then says "waiting
+for the first frame" for ever, which is wrong and should hide the panel instead.
+
