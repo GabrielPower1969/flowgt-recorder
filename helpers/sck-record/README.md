@@ -27,6 +27,9 @@ stdout, one JSON object per line:
 {"event":"error","code":"permission|sourceNotFound|captureFailed|outputFailed|unsupportedOs","detail":"..."}
 ```
 
+`--preview <file.jpg> [--preview-fps 8]` keeps a JPEG (480 px wide) of the latest output frame at that path, camera
+square included, replaced atomically (`.tmp` + rename), so the app can show what is being recorded.
+
 stdin: `stop` ends the recording; stdin closing (the app quit) does too; so do SIGINT/SIGTERM and
 `--duration`. Diagnostics go to stderr as `sck-record: …` lines.
 

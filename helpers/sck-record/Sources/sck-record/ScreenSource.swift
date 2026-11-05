@@ -14,6 +14,9 @@ final class ScreenSource: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stoppedByUs = false
     private var makeFilter: ((SCShareableContent) -> SCContentFilter?)?
     private var refreshTimer: DispatchSourceTimer?
+    /// A recorded window has left the on-screen list (minimised, or on another Space) and
+    /// `warn.windowHidden` was sent; cleared with `warn.windowBack`.
+    private var windowHidden = false
 
     /// A new, complete frame: the pixel buffer and its capture time (host clock).
     var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
@@ -134,9 +137,10 @@ final class ScreenSource: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     /// Rebuild the filter now and then so windows the excluded app opened after the start (the
-    /// app's own bar) drop out of the picture too. Cheap: one content query per interval.
+    /// app's own bar) drop out of the picture too, and notice a recorded window that is no
+    /// longer on screen. Cheap: one content query per interval.
     func startRefreshing(every seconds: Double, on queue: DispatchQueue) {
-        guard options.excludePid != nil else { return }
+        guard options.excludePid != nil || Self.isWindow(options.source) else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 1, repeating: seconds)
         timer.setEventHandler { [weak self] in self?.refreshFilter() }
@@ -150,12 +154,33 @@ final class ScreenSource: NSObject, SCStreamOutput, SCStreamDelegate {
         let stopped = stoppedByUs
         lock.unlock()
         guard let stream, !stopped, let makeFilter else { return }
-        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, _ in
-            guard let content, let filter = makeFilter(content) else { return }
+        let source = options.source
+        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { [weak self] content, _ in
+            guard let self, let content else { return }
+            if case .window(let id) = source {
+                let onScreen = content.windows.contains { $0.windowID == id && $0.isOnScreen }
+                self.lock.lock()
+                let changed = onScreen == self.windowHidden
+                self.windowHidden = !onScreen
+                self.lock.unlock()
+                if changed {
+                    Console.event(onScreen
+                        ? .warning(code: "warn.windowBack", detail: "window \(id) is on screen again")
+                        : .warning(code: "warn.windowHidden", detail: "window \(id) is not on screen (minimised or on another Space); frames stop until it is back"))
+                }
+                // Keep the filter: a minimised window comes back by itself; rebuilding would fail.
+                return
+            }
+            guard let filter = makeFilter(content) else { return }
             stream.updateContentFilter(filter) { error in
                 if let error { Console.err("filter-refresh-failed \(error.localizedDescription)") }
             }
         }
+    }
+
+    private static func isWindow(_ source: CaptureSource) -> Bool {
+        if case .window = source { return true }
+        return false
     }
 
     func stop(completion: @escaping () -> Void) {

@@ -21,6 +21,7 @@ import type {
   PermissionStatus,
   Progress,
   RecorderState,
+  RecordTarget,
   RecordingResult,
   RecoverableSession,
   Settings,
@@ -266,6 +267,8 @@ export class MockBackend implements Transport {
       this.recoverable = this.recoverable.filter((s) => s.sessionId !== sessionId);
     },
     set_floating_visible: (_args: { visible: boolean }) => undefined,
+    set_floating_expanded: (_args: { expanded: boolean }) => undefined,
+    preview_frame: (_args: { since: number | null }) => null,
     screen_thumbnail: (_args: { id: string }) => null,
     list_windows: () => (this.permissions.screen === "granted" ? this.windows : []),
     window_thumbnail: (_args: { id: number }) => null,
@@ -308,6 +311,7 @@ export class MockBackend implements Transport {
     this.state = {
       ...idleRecorderState(),
       sessionId: `mock-${this.startedAt.getTime()}`,
+      target: this.target(),
       meetingName,
       cameraConnected: this.settings.camera.enabled,
       phase: this.settings.countdownSeconds > 0 ? "countdown" : "starting",
@@ -411,6 +415,17 @@ export class MockBackend implements Transport {
       overBudgetRatio: overBudgetRatio(bytes, durationMs, this.settings.video.targetMbPerHour),
       recovered,
     };
+  }
+
+  /** What the floating panel labels the recording with, from the capture setting. */
+  private target(): RecordTarget {
+    const capture = this.settings.capture;
+    if (capture.kind === "window") {
+      const w = this.windows.find((x) => String(x.id) === capture.windowId) ?? null;
+      return { kind: "window", screen: null, app: w?.app ?? "App", title: w?.title ?? "", icon: w?.icon ?? null };
+    }
+    const i = this.devices.screens.findIndex((s) => s.id === capture.displayId);
+    return { kind: capture.kind === "region" ? "region" : "screen", screen: i < 0 ? 1 : i + 1, app: null, title: null, icon: null };
   }
 
   private syntheticInfo(path: string, bytes: number, durationMs: number): MediaInfo {

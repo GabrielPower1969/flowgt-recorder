@@ -22,6 +22,10 @@ thumbnail; the helper records just that window (follows moves and resizes; closi
 file). Verified in the real app with the WeChat window. Not verified: pause/resume with native segments, long recordings,
 Drive upload of a native file.
 
+**Recording panel (D29):** the floating window now shows, under the bar, the live output frame (what is going into the
+file, camera square included) with the name of the screen or window being recorded; a minimised recorded window
+shows a notice until it is back. Collapsible to the bar with the chevron; draggable anywhere.
+
 ## 下一步
 
 | # | 事 | 谁 | 怎么算完 |

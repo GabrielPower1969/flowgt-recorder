@@ -45,6 +45,7 @@ export function defaultSettings(platform: Platform = "macos"): Settings {
 export function idleRecorderState(): RecorderState {
   return {
     phase: "idle",
+    target: null,
     sessionId: null,
     meetingName: null,
     elapsedMs: 0,

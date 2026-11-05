@@ -16,6 +16,7 @@ final class Recorder {
     private var mic: MicSource?
     private var writer: SegmentWriter?
     private var compositor: Compositor?
+    private var preview: PreviewWriter?
 
     private var latestScreen: CVPixelBuffer?
     private var screenDirty = false
@@ -61,6 +62,9 @@ final class Recorder {
             writer = try SegmentWriter(options: options)
             if cameraOn, let pip = options.pip {
                 compositor = try Compositor(width: options.width, height: options.height, pip: pip)
+            }
+            if let path = options.preview {
+                preview = PreviewWriter(path: path, frameQueue: frameQueue)
             }
         } catch {
             fail(Self.helperError(error))
@@ -157,6 +161,7 @@ final class Recorder {
             frame = screenFrame
         }
         screenDirty = false
+        preview?.offer(frame, now: now.seconds, interval: options.previewInterval)
         writer.queue.async { [weak self] in
             if writer.appendVideo(frame, at: now) {
                 self?.frameQueue.async { self?.reportStarted() }
