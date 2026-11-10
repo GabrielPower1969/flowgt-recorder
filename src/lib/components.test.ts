@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { flushSync } from "svelte";
 import LevelMeter from "./components/LevelMeter.svelte";
+import Reel from "./components/Reel.svelte";
+import Lever from "./components/Lever.svelte";
 import Segmented from "./components/Segmented.svelte";
 import Toast from "./components/Toast.svelte";
 import StagePreview from "./components/StagePreview.svelte";
@@ -249,5 +251,57 @@ describe("ShortcutField", () => {
     render(ShortcutField, props(onchange));
     await fireEvent.keyDown(screen.getByRole("button", { name: /Toggle/ }), { key: "p", code: "KeyP", ctrlKey: true });
     expect(onchange).not.toHaveBeenCalled();
+  });
+});
+
+describe("Reel", () => {
+  it("an empty reel has no tape; a full one has a pack out to the edge of the windows", () => {
+    const empty = render(Reel, { size: 100, tape: 0 });
+    expect(empty.container.querySelector(".tape")).toBeNull();
+    empty.unmount();
+    const full = render(Reel, { size: 100, tape: 1 });
+    expect(full.container.querySelector(".tape")?.getAttribute("r")).toBe("150");
+  });
+
+  it("a little tape still shows as a ring, and the pack grows with the square root of what is on it", () => {
+    const a = render(Reel, { size: 100, tape: 0.001 });
+    expect(Number(a.container.querySelector(".tape")?.getAttribute("r"))).toBe(66);
+    a.unmount();
+    const half = render(Reel, { size: 100, tape: 0.5 });
+    expect(Number(half.container.querySelector(".tape")?.getAttribute("r"))).toBeCloseTo(Math.sqrt((60 * 60 + 150 * 150) / 2), 5);
+  });
+
+  it("turns while recording, holds while paused, and is named only when it stands for something", () => {
+    const on = render(Reel, { size: 100, spin: "paused", label: "disk" });
+    const rot = on.container.querySelector(".rot");
+    expect(rot?.classList.contains("on") && rot?.classList.contains("paused")).toBe(true);
+    expect(screen.getByRole("img", { name: "disk" })).toBeInTheDocument();
+    on.unmount();
+    const plain = render(Reel, { size: 100 });
+    expect(plain.container.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+});
+
+describe("Lever", () => {
+  const marks = [{ label: "off" }, { label: "on" }];
+
+  it("points at the chosen mark and reports the press", async () => {
+    const onclick = vi.fn();
+    const view = render(Lever, { marks, index: 1, label: "camera", pressed: true, onclick });
+    expect(view.container.querySelector(".turn")?.getAttribute("style")).toContain("rotate(40deg)");
+    const button = screen.getByRole("button", { name: "camera" });
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    await fireEvent.click(button);
+    expect(onclick).toHaveBeenCalledTimes(1);
+    await view.rerender({ marks, index: 0, label: "camera", pressed: false, onclick });
+    expect(view.container.querySelector(".turn")?.getAttribute("style")).toContain("rotate(-40deg)");
+  });
+
+  it("three marks put the middle one straight up; a knob spreads its marks wider", () => {
+    const three = render(Lever, { marks: [{ label: "1" }, { label: "2" }, { label: "3" }], index: 1, label: "screen" });
+    expect(three.container.querySelector(".turn")?.getAttribute("style")).toContain("rotate(0deg)");
+    three.unmount();
+    const knob = render(Lever, { marks, index: 1, label: "mic", round: true });
+    expect(knob.container.querySelector(".turn")?.getAttribute("style")).toContain("rotate(48deg)");
   });
 });
