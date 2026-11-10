@@ -13,8 +13,8 @@ type: 接口
 一小时约 400 MB，macOS 与 Windows 双平台。Tauri 2 ＋ Rust 纯核心 ＋ Svelte 5，ffmpeg 作旁车进程。
 没有任何网络代码，什么都不上传。用途：把会议、面试、演示录成能直接喂给 `interview-analysis` 管线的文件。
 
-⚠ 与兄弟目录 `flowgt-recorder/`（Chrome native host，只录浏览器标签页音频）是**两个项目**。Hours 里现有的
-`项目-flowgt-recorder` 指旧项目；本项目的笔记应叫 `项目-screen-recorder`。
+2026-11-11 起（D31）：桌面版和 Chrome 插件合成**一个公开仓库** `GabrielPower1969/flowgt-recorder`，插件在
+`chrome-extension/`。本机旧目录 `4-business/flowgt/flowgt-recorder/` 只是合并前的插件副本，以后不再在那里改。
 
 ## 谁负责
 

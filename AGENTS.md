@@ -29,6 +29,7 @@ Read `docs/DECISIONS.md` only for the decision numbers your task card names. Do 
 | macOS capture | `helpers/sck-record/` | its Swift tests + manual checklist |
 | Windows capture | Windows blocks in `src-tauri/src/`, `scripts/*.ps1`, later `helpers/win-record/` | `docs/WINDOWS-VERIFY.md` |
 | Google sign-in and upload | `src-tauri/src/drive.rs` | manual checklist |
+| the Chrome extension | `chrome-extension/` (its own `README.md` and `docs/ARCHITECTURE.md`) | `cd chrome-extension && npm test` |
 | look and feel | `design/tokens.css`, `docs/DESIGN.md` | component tests |
 
 ## 3. Principles this repository is built on, for agents

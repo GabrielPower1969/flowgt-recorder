@@ -1,7 +1,7 @@
 # Collaboration: two people, two platforms
 
-Written 2026-11-10. Status: **proposal, waiting for Gabriel's OK**. Nothing here is in force until the
-GitHub remote exists (invariant 10 in `CLAUDE.md`, D14).
+Written 2026-11-10. Status: **in force since 2026-11-11** (D31): the repository is
+`github.com/GabrielPower1969/flowgt-recorder`, public, MIT.
 
 Two developers work at the same time: the **Mac owner** (Gabriel, with Claude) and the **Windows owner**
 (new developer). This file says who owns which files, how changes meet, and what the Windows owner does first.
@@ -19,6 +19,7 @@ Two developers work at the same time: the **Mac owner** (Gabriel, with Claude) a
 | Windows tooling | `scripts/*.ps1`, `docs/WINDOWS-VERIFY.md`, the Windows installer settings in `tauri.conf.json` → `bundle.windows` | Windows |
 | **Shared contract** | `src-tauri/crates/core/src/types.rs` + `src/lib/types.ts`, `settings.rs`, the helper event protocol in `src-tauri/src/` (`native` module) | both: see section 3 |
 | Shared product | `src/**` (UI), `src/lib/i18n/`, `design/`, `src-tauri/crates/core/` (other files), `recorder.rs`, `commands.rs`, `tauri.conf.json` (rest), `capabilities/`, `.github/workflows/ci.yml` | both: see section 3 |
+| Chrome extension | `chrome-extension/**` | Mac (Gabriel) |
 | Product decisions | `docs/DECISIONS.md` (D-numbers), `docs/PRIVACY.md`, CSP line, `LICENSE` | Gabriel only |
 
 ## 2. Branches and merging
@@ -85,7 +86,7 @@ speaks the same protocol could reuse the supervisor in `recorder.rs`. The Window
 
 ## 7. Before any of this can start (Gabriel only)
 
-1. Create the private GitHub repository and say its name. Then the existing history is pushed.
+1. ~~Create the GitHub repository~~ Done 2026-11-11: merged into `flowgt-recorder` (D31).
 2. Invite the Windows owner, and turn on branch protection for `main` (pull request + passing CI required).
 3. Tell the Windows owner the project is MIT (`LICENSE`): what they contribute is published under MIT too.
 4. Decide whether the Windows owner tests Google sign-in (needs their own OAuth client) or skips it.

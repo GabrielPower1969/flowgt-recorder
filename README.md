@@ -5,6 +5,9 @@ microphone (and, experimentally, system audio)**, encoded in hardware to **about
 HEVC**. Built with Tauri 2, a pure Rust core and Svelte 5, with ffmpeg as a sidecar. macOS and Windows.
 Nothing is uploaded, ever — there is no network code in the app at all (see `docs/PRIVACY.md`).
 
+> **This repository also holds the FlowGT Recorder Chrome extension** (records a browser tab's audio plus
+> the microphone) in [`chrome-extension/`](chrome-extension/README.md). It builds and tests on its own.
+
 > Status 2026-11-04: **v0.1, first build.** macOS is built and being tested on this machine; Windows
 > exists as code and unit tests only. The honest status table is further down.
 
@@ -180,7 +183,7 @@ capture is not gated (`PermissionState::NotApplicable`).
 ## Project layout
 
 ```
-screen-recorder/
+flowgt-recorder/
 ├── README.md · CLAUDE.md · HOURS.md · 00-START-HERE.md · LICENSE
 ├── package.json · vite.config.ts · svelte.config.js · tsconfig.json · index.html
 ├── src/                        Svelte 5 frontend
@@ -204,6 +207,7 @@ screen-recorder/
 ├── design/tokens.css           design tokens, used verbatim (D13)
 ├── scripts/                    fetch-ffmpeg.sh · integration.sh · bench.sh
 ├── tests/                      integration fixtures and expectations
+├── chrome-extension/           Chrome MV3 extension + yt-dlp native host (own package.json and tests)
 ├── docs/                       see index below; reports/ holds numbered acceptance reports
 └── .github/workflows/ci.yml    cargo test + vitest + clippy + svelte-check
 ```
@@ -237,6 +241,8 @@ under the SIL Open Font License 1.1.
 ---
 
 ## 中文速览
+
+**同一个仓库里还有 Chrome 插件**（录浏览器标签页声音 ＋ 麦克风），在 `chrome-extension/`，单独构建和测试。
 
 **这是什么。** 一个只在本机工作的录屏软件：屏幕 ＋ 摄像头小窗（PiP）＋ 麦克风（系统声音为实验功能），
 硬件 HEVC 编码，一小时约 400 MB。Tauri 2 ＋ Rust 核心 ＋ Svelte 5，ffmpeg 作为旁车进程。macOS 与
