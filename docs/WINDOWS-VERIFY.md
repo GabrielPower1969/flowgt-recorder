@@ -81,6 +81,7 @@ camera on, audio came out 9.5 % shorter than video; the recording bar was in the
 ## Device defaults on Windows (D19)
 
 dshow cannot say which device is the system default, so the app takes the first camera and microphone it lists
-and labels it "Same as system". **Not verified** against Settings → Sound on this machine. Computer audio needs
+and labels it "Same as system". On this machine the first microphone listed is also the Windows default (Fifine), so the
+label was right, by coincidence of order. Computer audio needs
 a loopback device ("Stereo Mix" or `virtual-audio-capturer`): there is no ScreenCaptureKit, and a WASAPI
 loopback helper is W-5.
