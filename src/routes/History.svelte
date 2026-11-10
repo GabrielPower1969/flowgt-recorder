@@ -3,7 +3,8 @@
   import { onMount } from "svelte";
   import type { RecordingEntry } from "../lib/types";
   import { errorMessage, invoke, mediaUrl } from "../lib/ipc";
-  import { t } from "../lib/stores/i18n.svelte";
+  import { getLocale, t } from "../lib/stores/i18n.svelte";
+  import { getPlatform } from "../lib/platform.svelte";
   import { navigate } from "../lib/router.svelte";
   import { formatBytes } from "../lib/format";
 
@@ -14,8 +15,11 @@
   const when = (e: RecordingEntry) => e.modifiedMs ?? (e.driveCreated ? Date.parse(e.driveCreated) : 0);
   const label = (e: RecordingEntry) => {
     const ms = when(e);
-    return ms ? new Date(ms).toLocaleString() : "";
+    // In the language of the interface, not of the operating system.
+    return ms ? new Date(ms).toLocaleString(getLocale() === "zh" ? "zh-CN" : "en-GB", { dateStyle: "medium", timeStyle: "short" }) : "";
   };
+  /** The file manager is called by its own name on each system, as on the Summary screen. */
+  const revealLabel = $derived(getPlatform() === "windows" ? t("summary.revealWin") : getPlatform() === "macos" ? t("summary.revealMac") : t("summary.revealLinux"));
 
   async function play(e: RecordingEntry) {
     if (!e.path) return;
@@ -65,7 +69,7 @@
           <div class="acts">
             {#if e.path}
               <button type="button" class="btn btn-sm" onclick={() => play(e)}>{t("history.play")}</button>
-              <button type="button" class="btn btn-sm" onclick={() => e.path && invoke("reveal_in_file_manager", { path: e.path })}>{t("history.reveal")}</button>
+              <button type="button" class="btn btn-sm" onclick={() => e.path && invoke("reveal_in_file_manager", { path: e.path })}>{revealLabel}</button>
             {/if}
             {#if e.driveUrl}
               <button type="button" class="btn btn-sm" onclick={() => e.driveUrl && invoke("open_drive_link", { url: e.driveUrl })}>{t("summary.openDrive")}</button>

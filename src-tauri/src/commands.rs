@@ -163,13 +163,10 @@ pub async fn resolve_encoder(
     pref: EncoderPreference,
 ) -> CmdResult<EncoderChoice> {
     let mut cache = state.encoder.lock().await;
-    if let Some(e) = cache.as_ref() {
-        let wanted_codec = match pref {
-            EncoderPreference::Auto => true,
-            EncoderPreference::Hevc => e.codec == VideoCodec::Hevc,
-            EncoderPreference::H264 => e.codec == VideoCodec::H264,
-        };
-        if wanted_codec {
+    // The cache answers only the preference it was filled for. It used to answer "auto" with
+    // whatever was there, so after one H.264 recording "auto" kept using H.264 until a restart.
+    if let Some((cached_pref, e)) = cache.as_ref() {
+        if *cached_pref == pref {
             return Ok(e.clone());
         }
     }
@@ -179,7 +176,7 @@ pub async fn resolve_encoder(
         let choice = encoders::choose(&names, Platform::current(), pref)?;
         let test = sidecar::run(&encoders::self_test_command(&tools.ffmpeg_str(), &choice)).await?;
         if test.success {
-            *cache = Some(choice.clone());
+            *cache = Some((pref, choice.clone()));
             return Ok(choice);
         }
         log::warn!(
