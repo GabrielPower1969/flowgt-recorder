@@ -5,8 +5,10 @@
 //! false, then `denied`.
 
 use recorder_core::{PermissionState, PermissionStatus};
+#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(target_os = "macos")]
 static SCREEN_ASKED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,10 +176,7 @@ pub fn open_settings(kind: Kind) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     let mut c = std::process::Command::new("open");
     #[cfg(target_os = "windows")]
-    let mut c = {
-        let mut c = std::process::Command::new("explorer");
-        c
-    };
+    let mut c = std::process::Command::new("explorer");
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let mut c = std::process::Command::new("xdg-open");
     c.arg(url).spawn().map(|_| ())
