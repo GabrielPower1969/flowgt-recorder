@@ -41,7 +41,7 @@ Machine under test: Windows 11 Pro build 26300, GPU Intel integrated (Core Ultra
 
 - [x] Meeting name `win-verify`, camera on, mic on, one pause of about 10 s. Done twice: before and after the
       W-4 fixes.
-- [x] The floating bar shows the time and Pause / Stop. **It shows no size**, on any platform. Tray icon:
+- [x] The floating bar shows the time and Pause / Stop. **It shows no size.** Tray icon:
       **not checked** (no way to read the tray from the test driver).
 - [x] Stop; the Summary screen appears; the session folder under `.flowgt-recorder/` is removed. The empty
       `.flowgt-recorder` folder itself stays and is visible in Explorer (a leading dot hides nothing on Windows).
