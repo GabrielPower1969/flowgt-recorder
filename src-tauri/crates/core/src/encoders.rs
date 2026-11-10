@@ -88,6 +88,27 @@ pub fn choose(available: &[String], platform: Platform, pref: EncoderPreference)
     Err(crate::CoreError::NoEncoder(format!("none of the known encoders is available for {platform:?}/{pref:?} (looked for: {})", chain.join(", "))))
 }
 
+/// [`choose`], skipping every encoder that `works` rejects.
+///
+/// The `-encoders` listing names what was compiled into ffmpeg, not what this machine can open: a
+/// build with NVENC lists `hevc_nvenc` on a PC with no NVIDIA card. The caller's closure does the
+/// I/O, normally by running [`self_test_command`]; this function only walks the chain.
+pub fn choose_working(
+    available: &[String],
+    platform: Platform,
+    pref: EncoderPreference,
+    mut works: impl FnMut(&EncoderChoice) -> bool,
+) -> crate::Result<EncoderChoice> {
+    let mut names = available.to_vec();
+    loop {
+        let choice = choose(&names, platform, pref)?;
+        if works(&choice) {
+            return Ok(choice);
+        }
+        names.retain(|n| n != &choice.name);
+    }
+}
+
 /// Whether `available` was probed to actually work (the app may run a 1-frame test encode); pure helper to build that test command.
 pub fn self_test_command(ffmpeg: &str, enc: &EncoderChoice) -> FfmpegCommand {
     let mut args: Vec<String> = ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30", "-frames:v", "5", "-c:v"]
@@ -167,6 +188,26 @@ mod tests {
         let nv = choose(&all, p, a).unwrap();
         assert!(nv.extra_args.contains(&"p4".to_string()));
         assert!(nv.extra_args.contains(&"vbr".to_string()));
+    }
+
+    #[test]
+    fn choose_working_skips_encoders_that_fail_their_test() {
+        let p = Platform::Windows;
+        let a = EncoderPreference::Auto;
+        // A PC with Intel graphics and an ffmpeg build that also lists the NVIDIA encoders.
+        let listed = names(&["hevc_nvenc", "hevc_qsv", "h264_nvenc", "h264_qsv", "libopenh264"]);
+        let mut tried = Vec::new();
+        let c = choose_working(&listed, p, a, |e| {
+            tried.push(e.name.clone());
+            !e.name.ends_with("_nvenc")
+        })
+        .unwrap();
+        assert_eq!(c.name, "hevc_qsv");
+        assert_eq!(tried, vec!["hevc_nvenc", "hevc_qsv"]);
+        // The first entry is taken when it works; an error when nothing does.
+        assert_eq!(choose_working(&listed, p, a, |_| true).unwrap().name, "hevc_nvenc");
+        assert!(choose_working(&listed, p, a, |_| false).is_err());
+        assert!(choose_working(&[], p, a, |_| true).is_err());
     }
 
     #[test]
