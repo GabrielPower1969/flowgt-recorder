@@ -219,7 +219,7 @@ flowgt-recorder/
 | `00-START-HERE.md` | Where the project is, what comes next (Chinese) |
 | `docs/ARCHITECTURE.md` | Modules, pipeline, IPC, Windows path — the source of truth |
 | `docs/DECISIONS.md` | D1–D14 and why |
-| `docs/DESIGN.md` · `design/tokens.css` | The "Studio" look and its tokens |
+| `docs/DESIGN.md` · `design/tokens.css` | The "Faceplate" look and its tokens |
 | `docs/UX.md` | User journey, UX checklist per screen, shortcuts, accessibility (Chinese) |
 | `docs/TESTING.md` | The test pyramid: what each layer proves |
 | `docs/BENCH.md` | Measured CPU and MB/h |
