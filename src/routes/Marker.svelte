@@ -13,6 +13,6 @@
 </div>
 
 <style>
-  .frame { position: fixed; inset: 0; display: flex; align-items: flex-start; justify-content: center; border: 8px solid var(--color-accent); pointer-events: none; }
-  .label { margin-top: var(--space-6); padding: var(--space-3) var(--space-5); border-radius: var(--radius-pill); background: var(--color-accent); color: #fff; font-size: 24px; font-weight: 600; }
+  .frame { position: fixed; inset: 0; display: flex; align-items: flex-start; justify-content: center; border: 8px solid var(--color-marker); pointer-events: none; }
+  .label { margin-top: var(--space-6); padding: var(--space-3) var(--space-5); border-radius: var(--radius-pill); background: var(--color-marker); color: var(--color-marker-fg); font-size: 24px; font-weight: 600; }
 </style>

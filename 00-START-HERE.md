@@ -60,7 +60,7 @@ shows a notice until it is back. Collapsible to the bar with the chevron; dragga
 | `CLAUDE.md` | 给 LLM 和新人的地图：命令、目录、不变量、怎么验证、风险分级、加设置／加命令的菜谱 |
 | `HOURS.md` | Hours 读本目录的唯一入口 |
 | `docs/ARCHITECTURE.md` · `docs/DECISIONS.md` | 架构与决定（D1–D16），真相来源 |
-| `docs/DESIGN.md` · `design/tokens.css` | 「Studio」视觉与设计令牌 |
+| `docs/DESIGN.md` · `design/tokens.css` | 「Faceplate」视觉与设计令牌 |
 | `docs/UX.md` | 用户旅程、每屏 UX 清单、快捷键、无障碍 |
 | `docs/TESTING.md` | 测试金字塔：每层证明什么、证明不了什么 |
 | `docs/BENCH.md` | 实测 CPU 与 MB/h |

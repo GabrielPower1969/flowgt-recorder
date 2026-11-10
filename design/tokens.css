@@ -1,52 +1,99 @@
 /*
- * FlowGT Recorder — design tokens · look "Studio"
+ * FlowGT Recorder — design tokens · look "Faceplate"
  * Source of truth: the Claude Design canvas (see docs/DESIGN.md).
  * The app imports this file VERBATIM. Change a value here first, then in the canvas.
  *
- * Contrast notes (WCAG, measured against the surface the token is used on):
- *   light  text #16181D on #FFFFFF  ≈ 16.9:1 · muted #5B6170 on #FFFFFF ≈ 6.0:1 · faint #7D8290 on #FFFFFF ≈ 4.5:1
- *          accent #4452E6 on #FFFFFF ≈ 6.1:1 · accent-fg #FFFFFF on accent ≈ 6.1:1 · record #D63C41 on #FFFFFF ≈ 4.6:1
- *          warn #A8690A on #FFFFFF ≈ 4.6:1 · ok #1F8F5A on #FFFFFF ≈ 4.5:1
- *   dark   text #ECEEF3 on #171A21 ≈ 15.4:1 · muted #A3A9B8 on #171A21 ≈ 7.6:1 · faint #6C7382 on #171A21 ≈ 3.5:1 (decorative / ≥14px only)
- *          accent #7D8BFF on #171A21 ≈ 5.6:1 · accent-fg #0F1115 on accent ≈ 5.9:1 · record #E5484D on #171A21 ≈ 4.6:1
- *          warn #F5A524 on #171A21 ≈ 8.9:1 · ok #3DD68C on #171A21 ≈ 10.0:1
- *   One interactive accent (indigo). Red is reserved for REC / stop. Amber = warning, green = ok.
+ * The window is the front panel of a reel-to-reel recorder: an aluminium plate on a cream housing,
+ * two large reels, a row of off-white square keys, one red dot. Text-heavy screens (saved, history,
+ * settings) are cream paper cards laid on the plate.
+ *
+ * Contrast notes (WCAG, computed with the sRGB luminance formula):
+ *   light  plate ink #26282A on plate #D5D7D8 10.2:1 · plate muted #4F5255 5.4:1
+ *          text #26282A on card #F4F2EA 13.2:1 · muted #5A5C5E 6.0:1 · faint #66686A 5.0:1
+ *          glass text #F1F0EA on glass #16181A 15.6:1 · glass muted #A9ACAE 7.8:1
+ *          accent-fg #F1F0EA on accent #3D3F41 9.3:1
+ *          record #E2452D: on key #F1F0EA 3.6:1, on glass 4.3:1 (a graphic, needs 3:1; never text)
+ *   dark   plate ink #E6E6E2 on plate #2A2C2E 11.2:1 · plate muted #A9ACAE 6.1:1
+ *          text #E6E6E2 on card #1D1F20 13.2:1 · muted #A4A7A9 6.8:1 · faint #8E9193 5.2:1
+ *          key ink #26282A on key #E2E1DA 11.3:1 · record on key 3.1:1, on glass 4.7:1
+ *   One colour: red, and only for "recording". Actions are ink (anthracite); a warning is an ink
+ *   tag with light text, not amber; "ok" is plain ink text. The screen outline keeps its own blue.
  *
  * Theme switching: light values on :root, dark under [data-theme="dark"], and dark again under
  * prefers-color-scheme when no explicit [data-theme="light"] is set.
  */
 
 :root {
-  /* colour · light */
-  --color-bg: #F6F5F2;
-  --color-surface: #FFFFFF;
-  --color-surface-2: #F0EFEB;
-  --color-surface-3: #E7E6E1;
-  --color-border: #E2E0DA;
-  --color-border-strong: #C9C7C0;
-  --color-text: #16181D;
-  --color-text-muted: #5B6170;
-  --color-text-faint: #7D8290;
-  --color-accent: #4452E6;
-  --color-accent-hover: #3A48D6;
-  --color-accent-fg: #FFFFFF;
-  --color-accent-soft: rgba(68, 82, 230, 0.10);
-  --color-record: #D63C41;
-  --color-record-hover: #C23338;
-  --color-record-soft: rgba(214, 60, 65, 0.12);
-  --color-warn: #A8690A;
-  --color-warn-soft: rgba(245, 165, 36, 0.18);
-  --color-ok: #1F8F5A;
-  --color-ok-soft: rgba(31, 143, 90, 0.12);
-  --color-danger: #D63C41;
-  --color-focus: #4452E6;
-  --color-overlay: rgba(22, 24, 29, 0.45);
-  --color-floating-bg: rgba(255, 255, 255, 0.90);
+  /* colour · light — paper cards and general UI */
+  --color-bg: #ECE9DF;
+  --color-surface: #F4F2EA;
+  --color-surface-2: #E9E6DB;
+  --color-surface-3: #DDDAD0;
+  --color-border: #D5D2C6;
+  --color-border-strong: #BDBCB5;
+  --color-text: #26282A;
+  --color-text-muted: #5A5C5E;
+  --color-text-faint: #66686A;
+  --color-accent: #3D3F41;
+  --color-accent-hover: #26282A;
+  --color-accent-fg: #F1F0EA;
+  --color-accent-soft: rgba(38, 40, 42, 0.10);
+  --color-record: #E2452D;
+  --color-record-hover: #CC3A24;
+  --color-record-soft: rgba(226, 69, 45, 0.12);
+  --color-warn: #26282A;
+  --color-warn-fg: #F1F0EA;
+  --color-warn-soft: #DDDAD0;
+  --color-ok: #26282A;
+  --color-ok-soft: #E9E6DB;
+  --color-danger: #A8301C;
+  --color-focus: #26282A;
+  --color-overlay: rgba(22, 24, 26, 0.45);
+  --color-floating-bg: #D5D7D8;
+  --color-marker: #4452E6;
+  --color-marker-fg: #FFFFFF;
+
+  /* colour · light — the front panel */
+  --color-plate: #D5D7D8;
+  --color-plate-hi: #E6E8E9;
+  --color-plate-lo: #AEB1B3;
+  --color-plate-ink: #26282A;
+  --color-plate-muted: #4F5255;
+  --color-plate-off: #8B8E90;
+  --color-key: #F1F0EA;
+  --color-key-down: #E0DFD8;
+  --color-key-edge: #BDBCB5;
+  --color-key-shade: rgba(0, 0, 0, 0.11);
+  --color-key-ink: #26282A;
+  --color-well: #6E7173;
+  --color-knob: #B4B7B9;
+  --color-knob-line: #8E9193;
+  --color-knob-mark: #5E6163;
+  --color-knob-dark: #3D3F41;
+  --color-knob-dark-mark: #F1F0EA;
+  --color-knob-shadow: rgba(0, 0, 0, 0.16);
+  --color-tape: #3A2A24;
+  --color-tape-ring: #2B1F1A;
+  --color-flange: rgba(255, 255, 255, 0.34);
+  --color-flange-line: rgba(255, 255, 255, 0.95);
+  --color-flange-shadow: rgba(0, 0, 0, 0.22);
+  --color-hub: #F4F3EE;
+  --color-hub-line: #C9C8C1;
+  --color-hub-ink: #26282A;
+  --color-hub-muted: #5A5C5E;
+  --color-glass: #16181A;
+  --color-glass-fg: #F1F0EA;
+  --color-glass-dim: #3A3D40;
+  --color-glass-muted: #A9ACAE;
+  --color-lamp-off: #6A3A32;
+  --color-desk: #C3C8D0;
+  --color-desk-pane: #E4E7EB;
+  --color-desk-line: #AEB4BD;
 
   /* shape */
-  --radius-s: 8px;
-  --radius-m: 12px;
-  --radius-l: 16px;
+  --radius-s: 2px;
+  --radius-m: 3px;
+  --radius-l: 5px;
   --radius-pill: 999px;
 
   /* spacing */
@@ -60,87 +107,156 @@
   --space-8: 64px;
 
   /* type */
-  --font-ui: Inter, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-ui: Inter, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
   --text-xs: 11px;
   --text-sm: 12px;
   --text-md: 14px;
   --text-lg: 16px;
   --text-xl: 18px;
-  --text-2xl: 28px;
+  --text-2xl: 22px;
   --text-3xl: 56px;
   --leading-tight: 1.2;
   --leading-normal: 1.5;
 
   /* elevation */
-  --shadow-1: 0 1px 2px rgba(22, 24, 29, 0.04);
-  --shadow-2: 0 6px 20px rgba(22, 24, 29, 0.18);
-  --shadow-floating: 0 12px 40px rgba(22, 24, 29, 0.22);
+  --shadow-1: 0 1px 2px rgba(22, 24, 26, 0.10);
+  --shadow-2: 0 6px 20px rgba(22, 24, 26, 0.20);
+  --shadow-floating: 0 18px 44px rgba(0, 0, 0, 0.28);
 
   /* motion */
   --duration-fast: 120ms;
-  --duration-normal: 200ms;
+  --duration-normal: 180ms;
+  --duration-reel: 4s;
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 [data-theme="dark"] {
-  --color-bg: #0F1115;
-  --color-surface: #171A21;
-  --color-surface-2: #1F232C;
-  --color-surface-3: #272C37;
-  --color-border: #2A2F3A;
-  --color-border-strong: #3A4150;
-  --color-text: #ECEEF3;
-  --color-text-muted: #A3A9B8;
-  --color-text-faint: #6C7382;
-  --color-accent: #7D8BFF;
-  --color-accent-hover: #93A0FF;
-  --color-accent-fg: #0F1115;
-  --color-accent-soft: rgba(125, 139, 255, 0.14);
-  --color-record: #E5484D;
-  --color-record-hover: #F05A5F;
-  --color-record-soft: rgba(229, 72, 77, 0.16);
-  --color-warn: #F5A524;
-  --color-warn-soft: rgba(245, 165, 36, 0.14);
-  --color-ok: #3DD68C;
-  --color-ok-soft: rgba(61, 214, 140, 0.14);
-  --color-danger: #E5484D;
-  --color-focus: #93A0FF;
+  --color-bg: #141516;
+  --color-surface: #1D1F20;
+  --color-surface-2: #2A2C2E;
+  --color-surface-3: #34373A;
+  --color-border: #3A3D3F;
+  --color-border-strong: #5E6163;
+  --color-text: #E6E6E2;
+  --color-text-muted: #A4A7A9;
+  --color-text-faint: #8E9193;
+  --color-accent: #E6E6E2;
+  --color-accent-hover: #FFFFFF;
+  --color-accent-fg: #1D1F20;
+  --color-accent-soft: rgba(230, 230, 226, 0.12);
+  --color-record: #E2452D;
+  --color-record-hover: #F0563D;
+  --color-record-soft: rgba(226, 69, 45, 0.18);
+  --color-warn: #E6E6E2;
+  --color-warn-fg: #1D1F20;
+  --color-warn-soft: #34373A;
+  --color-ok: #E6E6E2;
+  --color-ok-soft: #2A2C2E;
+  --color-danger: #F0705A;
+  --color-focus: #E6E6E2;
   --color-overlay: rgba(0, 0, 0, 0.60);
-  --color-floating-bg: rgba(23, 26, 33, 0.86);
+  --color-floating-bg: #2A2C2E;
+  --color-marker: #7D8BFF;
+  --color-marker-fg: #0F1115;
+  --color-plate: #2A2C2E;
+  --color-plate-hi: #3A3D3F;
+  --color-plate-lo: #17181A;
+  --color-plate-ink: #E6E6E2;
+  --color-plate-muted: #A9ACAE;
+  --color-plate-off: #6C6F72;
+  --color-key: #E2E1DA;
+  --color-key-down: #C9C8C1;
+  --color-key-edge: #8F8E88;
+  --color-key-shade: rgba(0, 0, 0, 0.16);
+  --color-well: #0C0D0E;
+  --color-knob: #8E9193;
+  --color-knob-line: #5E6163;
+  --color-knob-mark: #26282A;
+  --color-knob-dark: #C4C6C7;
+  --color-knob-dark-mark: #26282A;
+  --color-knob-shadow: rgba(0, 0, 0, 0.35);
+  --color-tape: #6F4A3A;
+  --color-tape-ring: #5A3A2D;
+  --color-flange: rgba(255, 255, 255, 0.10);
+  --color-flange-line: rgba(255, 255, 255, 0.55);
+  --color-flange-shadow: rgba(0, 0, 0, 0.50);
+  --color-hub: #E2E1DA;
+  --color-hub-line: #8F8E88;
+  --color-hub-muted: #4A4C4E;
+  --color-glass: #0C0D0E;
+  --color-glass-dim: #2C2F31;
+  --color-lamp-off: #55302A;
+  --color-desk: #1B1E23;
+  --color-desk-pane: #2A2E35;
+  --color-desk-line: #3A3F48;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30);
   --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.45);
-  --shadow-floating: 0 12px 40px rgba(0, 0, 0, 0.50);
+  --shadow-floating: 0 18px 44px rgba(0, 0, 0, 0.55);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-bg: #0F1115;
-    --color-surface: #171A21;
-    --color-surface-2: #1F232C;
-    --color-surface-3: #272C37;
-    --color-border: #2A2F3A;
-    --color-border-strong: #3A4150;
-    --color-text: #ECEEF3;
-    --color-text-muted: #A3A9B8;
-    --color-text-faint: #6C7382;
-    --color-accent: #7D8BFF;
-    --color-accent-hover: #93A0FF;
-    --color-accent-fg: #0F1115;
-    --color-accent-soft: rgba(125, 139, 255, 0.14);
-    --color-record: #E5484D;
-    --color-record-hover: #F05A5F;
-    --color-record-soft: rgba(229, 72, 77, 0.16);
-    --color-warn: #F5A524;
-    --color-warn-soft: rgba(245, 165, 36, 0.14);
-    --color-ok: #3DD68C;
-    --color-ok-soft: rgba(61, 214, 140, 0.14);
-    --color-danger: #E5484D;
-    --color-focus: #93A0FF;
+    --color-bg: #141516;
+    --color-surface: #1D1F20;
+    --color-surface-2: #2A2C2E;
+    --color-surface-3: #34373A;
+    --color-border: #3A3D3F;
+    --color-border-strong: #5E6163;
+    --color-text: #E6E6E2;
+    --color-text-muted: #A4A7A9;
+    --color-text-faint: #8E9193;
+    --color-accent: #E6E6E2;
+    --color-accent-hover: #FFFFFF;
+    --color-accent-fg: #1D1F20;
+    --color-accent-soft: rgba(230, 230, 226, 0.12);
+    --color-record: #E2452D;
+    --color-record-hover: #F0563D;
+    --color-record-soft: rgba(226, 69, 45, 0.18);
+    --color-warn: #E6E6E2;
+    --color-warn-fg: #1D1F20;
+    --color-warn-soft: #34373A;
+    --color-ok: #E6E6E2;
+    --color-ok-soft: #2A2C2E;
+    --color-danger: #F0705A;
+    --color-focus: #E6E6E2;
     --color-overlay: rgba(0, 0, 0, 0.60);
-    --color-floating-bg: rgba(23, 26, 33, 0.86);
+    --color-floating-bg: #2A2C2E;
+    --color-marker: #7D8BFF;
+    --color-marker-fg: #0F1115;
+    --color-plate: #2A2C2E;
+    --color-plate-hi: #3A3D3F;
+    --color-plate-lo: #17181A;
+    --color-plate-ink: #E6E6E2;
+    --color-plate-muted: #A9ACAE;
+    --color-plate-off: #6C6F72;
+    --color-key: #E2E1DA;
+    --color-key-down: #C9C8C1;
+    --color-key-edge: #8F8E88;
+    --color-key-shade: rgba(0, 0, 0, 0.16);
+    --color-well: #0C0D0E;
+    --color-knob: #8E9193;
+    --color-knob-line: #5E6163;
+    --color-knob-mark: #26282A;
+    --color-knob-dark: #C4C6C7;
+    --color-knob-dark-mark: #26282A;
+    --color-knob-shadow: rgba(0, 0, 0, 0.35);
+    --color-tape: #6F4A3A;
+    --color-tape-ring: #5A3A2D;
+    --color-flange: rgba(255, 255, 255, 0.10);
+    --color-flange-line: rgba(255, 255, 255, 0.55);
+    --color-flange-shadow: rgba(0, 0, 0, 0.50);
+    --color-hub: #E2E1DA;
+    --color-hub-line: #8F8E88;
+    --color-hub-muted: #4A4C4E;
+    --color-glass: #0C0D0E;
+    --color-glass-dim: #2C2F31;
+    --color-lamp-off: #55302A;
+    --color-desk: #1B1E23;
+    --color-desk-pane: #2A2E35;
+    --color-desk-line: #3A3F48;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30);
     --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.45);
-    --shadow-floating: 0 12px 40px rgba(0, 0, 0, 0.50);
+    --shadow-floating: 0 18px 44px rgba(0, 0, 0, 0.55);
   }
 }

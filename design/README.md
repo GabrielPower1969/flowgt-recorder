@@ -1,6 +1,11 @@
-# Design — look "Studio"
+# Design — look "Faceplate"
 
-Canvas (Claude Design mode, 2026-11-04): https://claude.ai/artifact/S5hmhuFEHGxEU93FfHJtq7
+> Since 2026-11-11 the app wears the "Faceplate" look: the main window is the front panel of a reel-to-reel
+> recorder (aluminium plate, two reels, off-white square keys, one red dot). Canvas:
+> https://claude.ai/artifact/JSnvN5dF734tuFgCdgMYih · description in `docs/DESIGN.md` · values in `design/tokens.css`.
+> The rest of this file describes the previous look, "Studio", and is kept for reference until it is rewritten.
+
+Previous canvas (Claude Design mode, 2026-11-04): https://claude.ai/artifact/S5hmhuFEHGxEU93FfHJtq7
 Tokens the app uses verbatim: `design/tokens.css` (imported once in the app shell; nothing else defines colours).
 
 ## The look

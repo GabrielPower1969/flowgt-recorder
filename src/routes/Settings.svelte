@@ -67,18 +67,17 @@
   });
 </script>
 
-<header class="topbar">
-  <button type="button" class="btn btn-ghost" onclick={() => navigate("/")}>‹ {t("common.back")}</button>
-  <strong>{t("settings.title")}</strong>
-  <span></span>
+<header class="head">
+  <h1>{t("settings.title")}</h1>
+  <button type="button" class="btn" onclick={() => navigate("/")}>{t("common.back")}</button>
 </header>
-<div class="page layout">
+<div class="layout">
   <nav class="nav" aria-label={t("a11y.nav")}>
     {#each tabs as k (k)}
       <button type="button" class="navbtn" aria-current={tab === k ? "page" : undefined} onclick={() => (tab = k)}>{t(`settings.nav.${k}`)}{k === "recovery" && recoverable.length ? ` (${recoverable.length})` : ""}</button>
     {/each}
   </nav>
-  <section class="card stack" style="gap: var(--space-4)">
+  <section class="stack" style="gap: var(--space-4)">
     {#if tab === "general"}
       <div class="field"><span class="label">{t("settings.general.account")}</span>
         <div class="row">
@@ -157,11 +156,11 @@
 </div>
 
 <style>
-  .layout { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: var(--space-4); }
-  @media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .nav { flex-direction: row; flex-wrap: wrap; } }
-  .nav { display: flex; flex-direction: column; gap: 2px; }
-  .navbtn { text-align: left; padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-s); background: transparent; color: var(--color-text-muted); min-height: 36px; }
-  .navbtn[aria-current="page"] { background: var(--color-accent-soft); color: var(--color-accent); font-weight: 600; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+  .layout { display: flex; flex-direction: column; gap: var(--space-4); }
+  .nav { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); border-bottom: 1px solid var(--color-border); }
+  .navbtn { padding: var(--space-2) 0; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; color: var(--color-text-muted); min-height: 36px; }
+  .navbtn[aria-current="page"] { border-bottom-color: var(--color-text); color: var(--color-text); font-weight: 600; }
   .rec-row { padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn-soft); }
   .about { display: grid; grid-template-columns: 120px 1fr; gap: var(--space-2) var(--space-3); margin: 0; }
   .about dt { color: var(--color-text-muted); } .about dd { margin: 0; word-break: break-all; }
