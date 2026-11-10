@@ -27,6 +27,13 @@ pub fn lavfi_params(dir: &Path, camera: bool) -> Option<StartParams> {
     .ok()?;
     let mut settings = settings::default_settings(Platform::current());
     settings.camera.enabled = camera;
+    // dshow has no "default" device, so on Windows the plan wants device names. The synthetic
+    // sources below replace both inputs; without names this function returned None there and
+    // every test built on it reported "skipped: no ffmpeg" while counting as passed.
+    if Platform::current() == Platform::Windows {
+        settings.camera.device_id = Some("selftest".into());
+        settings.audio.mic_device_id = Some("selftest".into());
+    }
     let mut plan = command::make_plan(
         &settings,
         Platform::current(),
