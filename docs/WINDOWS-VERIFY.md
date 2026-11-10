@@ -52,12 +52,19 @@ After the W-4 fixes (`win-verify-2`, screen + camera + microphone, one pause):
 
 ```
 > ffprobe -v error -show_entries format=duration,size,bit_rate:stream=codec_name,width,height,avg_frame_rate -of default=nw=1 "2026-11-11 0145 win-verify-2.mp4"
-codec_name=hevc  width=1920  height=1080  avg_frame_rate≈29.82
+codec_name=hevc
+width=1920
+height=1080
+avg_frame_rate=74972160/2514427
 codec_name=aac
-duration=163.8  size=18.5 MB (17.65 MiB)  bit_rate=904 kb/s
+avg_frame_rate=0/0
+duration=163.799674
+size=18510859
+bit_rate=904073
 ```
 
-- [x] Duration 163.8 s (the driver was slow to stop; 120 s was the aim). 17.65 MiB = 388 MB per hour. 1 video +
+- [x] Duration 163.8 s (the driver was slow to stop; 120 s was the aim). 18,510,859 bytes = 388 MiB per hour,
+      inside the 400 budget. 1 video +
       1 audio stream. Video 163.7 s and audio 163.7 s, no gap in the audio timeline.
 - [x] Encoder `hevc_qsv`, 29.82 fps over the file. A full decode reports no error. **Not played by a person.**
 - [x] CPU and memory during the first recording, 5 s samples: ffmpeg 14 % of one core (1.4 % of the machine),
