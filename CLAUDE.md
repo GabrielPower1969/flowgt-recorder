@@ -5,6 +5,10 @@ in the Hours vault (`hours/30-项目/项目-screen-recorder`), reached through `
 next steps: `00-START-HERE.md`. Architecture and decisions: `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`
 — read both before changing anything; they are the source of truth and this file only points at them.
 
+Agents start at `AGENTS.md` (reading order, map by task, task cards in `docs/tasks/`). Target shape for all
+platforms: `docs/PLATFORM-ARCHITECTURE.md`. Two-person rules: `docs/COLLABORATION.md`. License: MIT
+(`LICENSE`). These three are proposals of 2026-11-10 until Gabriel accepts them.
+
 ## Commands
 
 ```bash
