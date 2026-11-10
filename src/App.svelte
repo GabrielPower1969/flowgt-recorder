@@ -24,7 +24,8 @@
     void initPlatform();
     void loadCapabilities();
     const unbindEvents = bindRecorderEvents((r) => {
-      if (getRoute() !== "/floating" && r) navigate("/summary");
+      // Only the main window shows the result: the floating bar and the screen outline are windows too.
+      if (getRoute() !== "/floating" && getRoute() !== "/marker" && r) navigate("/summary");
     });
     const unbindDrive = bindDriveEvents();
     void refreshDrive();

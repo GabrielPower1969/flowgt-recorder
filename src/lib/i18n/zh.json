@@ -295,7 +295,6 @@
   "history.title": "录制历史",
   "history.empty": "还没有录像。",
   "history.play": "播放",
-  "history.reveal": "在访达中显示",
   "history.driveError": "读不到 Google Drive 的列表，下面只显示本机的录像：{detail}",
   "summary.driveProcessing": "Google 需要几分钟处理视频，处理完才能在 Drive 里播放。"
 }
