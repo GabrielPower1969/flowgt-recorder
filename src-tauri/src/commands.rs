@@ -294,6 +294,12 @@ pub async fn get_app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
     })
 }
 
+/// What this platform can do right now (S-2). Cheap: no ffmpeg is started.
+#[tauri::command]
+pub fn get_capabilities() -> Capabilities {
+    Capabilities::of(Platform::current(), find_record_helper().is_some(), find_helper().is_some())
+}
+
 // ───────────────────────────── permissions ─────────────────────────────
 
 fn kind_of(s: &str) -> CmdResult<Kind> {
@@ -1575,6 +1581,7 @@ pub async fn discard_session(
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         get_app_info,
+        get_capabilities,
         list_devices,
         check_permissions,
         request_permission,

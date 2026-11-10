@@ -12,6 +12,7 @@
   import { t } from "../lib/stores/i18n.svelte";
   import { formatDuration } from "../lib/format";
   import { invoke } from "../lib/ipc";
+  import { getCapabilities } from "../lib/stores/capabilities.svelte";
 
   const POLL_MS = 150;
 
@@ -21,6 +22,8 @@
   const live = $derived(st.phase === "recording" || st.phase === "paused");
 
   let expanded = $state(true);
+  // Only a native capture engine writes preview frames; without one the panel would stay empty.
+  const previewOffered = $derived(getCapabilities().livePreview);
   let frame = $state<string | null>(null);
   let frameMtime = $state<number | null>(null);
   const stale = $derived(st.warnings.some((w) => w.code === "warn.windowHidden"));
@@ -54,7 +57,7 @@
   }
 
   $effect(() => {
-    if (!live || !expanded) return;
+    if (!live || !expanded || !previewOffered) return;
     const timer = setInterval(() => void poll(), POLL_MS);
     void poll();
     return () => clearInterval(timer);
@@ -88,11 +91,11 @@
       <span class="mono time" data-testid="timer" data-tauri-drag-region>{formatDuration(st.elapsedMs)}</span>
       <button type="button" class="btn btn-sm" onclick={() => togglePause()} disabled={!canAct}>{paused ? t("floating.resume") : t("floating.pause")}</button>
       <button type="button" class="btn btn-sm stop" onclick={() => stopRecording()} disabled={!canAct}>{t("floating.stopLong")}</button>
-      <button type="button" class="chev" aria-label={expanded ? t("floating.collapse") : t("floating.expand")} title={expanded ? t("floating.collapse") : t("floating.expand")} aria-expanded={expanded} onclick={toggleExpanded}>
+      {#if previewOffered}<button type="button" class="chev" aria-label={expanded ? t("floating.collapse") : t("floating.expand")} title={expanded ? t("floating.collapse") : t("floating.expand")} aria-expanded={expanded} onclick={toggleExpanded}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{#if expanded}<path d="M6 15l6-6 6 6" />{:else}<path d="M6 9l6 6 6-6" />{/if}</svg>
-      </button>
+      </button>{/if}
     </div>
-    {#if expanded}
+    {#if expanded && previewOffered}
       <div class="panel" data-tauri-drag-region>
         <div class="target" data-tauri-drag-region>
           {#if st.target?.icon}<img class="icon" src={`data:image/png;base64,${st.target.icon}`} alt="" />{/if}
