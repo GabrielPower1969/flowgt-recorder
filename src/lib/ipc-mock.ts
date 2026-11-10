@@ -6,7 +6,7 @@
  *
  * Tests drive it through the exported `mock` (reset(), emit(), calls, knobs).
  */
-import type { RecordingHistory } from "./types";
+import type { Capabilities, RecordingHistory } from "./types";
 import type {
   AppInfo,
   Device,
@@ -66,6 +66,11 @@ export function mockWindows(): WindowInfo[] {
   ];
 }
 
+/** The mock is a Mac with the native helper: everything except per-app audio. */
+export function mockCapabilities(): Capabilities {
+  return { windowCapture: true, systemAudio: true, perAppAudio: false, camera: true, pictureInPicture: true, floatingBar: true, tray: true, globalShortcuts: true, pauseResume: true, livePreview: true };
+}
+
 export function mockAppInfo(): AppInfo {
   return {
     version: "0.1.0",
@@ -96,6 +101,7 @@ export class MockBackend implements Transport {
   permissions: PermissionStatus = { screen: "notDetermined", camera: "notDetermined", microphone: "notDetermined" };
   windows: WindowInfo[] = mockWindows();
   appInfo: AppInfo = mockAppInfo();
+  capabilities: Capabilities = mockCapabilities();
   disk = { freeBytes: 120_000_000_000, totalBytes: 1_000_000_000_000 };
   drive: DriveStatus = { configured: true, email: null };
   recoverable: RecoverableSession[] = [];
@@ -141,6 +147,7 @@ export class MockBackend implements Transport {
     this.history = { entries: [], driveError: null };
     this.permissions = { screen: "notDetermined", camera: "notDetermined", microphone: "notDetermined" };
     this.appInfo = mockAppInfo();
+    this.capabilities = mockCapabilities();
     this.disk = { freeBytes: 120_000_000_000, totalBytes: 1_000_000_000_000 };
     this.recoverable = [];
     this.drive = { configured: true, email: null };
@@ -211,6 +218,7 @@ export class MockBackend implements Transport {
 
   private handlers: Handlers = {
     get_app_info: () => this.appInfo,
+    get_capabilities: () => this.capabilities,
     list_devices: () => this.devices,
     check_permissions: () => this.permissions,
     request_permission: ({ kind }) => {

@@ -211,7 +211,7 @@ pub fn show_floating(app: &AppHandle, countdown: bool) {
     };
     let (w, h) = if countdown {
         COUNTDOWN_SIZE
-    } else if floating_expanded() {
+    } else if floating_expanded() && crate::commands::get_capabilities().live_preview {
         PANEL_SIZE
     } else {
         BAR_SIZE
