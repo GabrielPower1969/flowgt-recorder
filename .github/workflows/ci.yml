@@ -1,4 +1,4 @@
-# This workflow has never run: there is no GitHub remote yet (D14).
+# Has not completed a run yet. 2026-11-11: every job ended with "account is locked due to a billing issue".
 name: ci
 on:
   pull_request:
@@ -29,6 +29,14 @@ jobs:
       - name: Install ffmpeg (Windows)
         if: runner.os == 'Windows'
         run: choco install ffmpeg -y
+      # The app crate does not compile without the sidecars: tauri-build checks that every
+      # bundle.externalBin file exists in src-tauri/binaries/.
+      - name: Sidecars (macOS)
+        if: runner.os == 'macOS'
+        run: bash scripts/fetch-ffmpeg.sh
+      - name: Sidecars (Windows)
+        if: runner.os == 'Windows'
+        run: pwsh scripts/fetch-ffmpeg.ps1
       - run: npm ci
       - run: npm run check
       - run: npm test
