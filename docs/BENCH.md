@@ -109,7 +109,8 @@ Node 26.13.0. Commands and full output: `docs/tasks/W-1.md` to `W-4.md`.
 |---|---|
 | `npm run check` | 206 files, 0 errors, 0 warnings |
 | `npm test` | 7 files, 129 passed |
-| `npm run core:test` | recorder-core 123 passed, flowgt-recorder 36 passed, 1 ignored |
+| `npm run core:test` | recorder-core 123 passed, flowgt-recorder 35 passed, 1 ignored. The first count of 36 included four supervisor tests that were silently skipped on Windows; they run now, and one Unix-only test is excluded |
+| `flowgt-recorder --selftest 5 --pause-at 2 --resume-at 4` | exit 0, result printed (with the fix on `shared/encoder-probe`) |
 | clippy `-D warnings` | clean |
 
 With the fixes of W-1 applied (`docs/tasks/W-1.md`); `main` alone is not green on Windows.
@@ -135,12 +136,17 @@ Screen 3840×2160 → 1920×1080 at 30 fps, `hevc_qsv`, microphone "Fifine Micro
 | `trial-1`, screen + mic, 15 s | 15.07 s, 30 fps | 14.60 s | 1.64 MiB | 389 | first recording on Windows; the camera was dropped |
 | `win-verify`, screen + camera + mic, one pause | 160.0 s, 29.98 fps | **152.5 s, 7.7 s missing at the pause** | 17.07 MiB | 384 | before the W-4 fixes |
 | `win-verify-2`, same | 163.7 s, 29.82 fps | 163.7 s, no gap | 17.65 MiB | 388 | after the W-4 fixes |
+| `L1`, 30 minutes, screen + camera + mic, `h264_qsv` | 1802.33 s, 30 fps | 1801.07 s, no gap | 191.08 MiB | 382 | full decode without error; the audio ends 1.3 s before the video |
+| `L2`, 30 minutes, screen + camera + mic, `hevc_qsv`, every fix merged | 1802.1 s, 30 fps | 1802.1 s, no gap | 193.52 MiB | 387 | full decode without error; ffmpeg 19 % of one core, 949 MB on average |
 
-| During `win-verify` (before the fixes), 5 s samples | CPU | Memory |
+| During `L1` (30 minutes, after the fixes), 60 samples 30 s apart | CPU | Memory |
 |---|---|---|
-| ffmpeg | 14 % of one core average, 29 % peak (1.4 % of the machine) | 925 MB |
-| app process | 0.8 % of one core | 48 MB |
-| the app's WebView2 processes (three windows) | 14 % of one core | 836 MB |
+| ffmpeg (`h264_qsv`, camera on) | 36 % of one core average, 44 % peak (3.6 % of the machine) | 852 MB at the start, 886 MB at the end |
+| app process | 1.4 % of one core | 45 MB |
+| the app's WebView2 processes (three windows) | 13 % of one core | about 690 MB |
+
+The two-minute run before the fixes (`hevc_qsv`) showed ffmpeg at 14 % of one core and 925 MB. The memory is
+therefore not a result of the camera defect; its cause was not looked into.
 
 | Latency, `win-verify-2` | Value |
 |---|---|
@@ -158,7 +164,9 @@ Screen 3840×2160 → 1920×1080 at 30 fps, `hevc_qsv`, microphone "Fifine Micro
 
 ### Not measured on Windows
 
-- ffmpeg memory after the camera timestamp fix (the 925 MB above was queued frames from that defect).
+- Why ffmpeg holds 870–950 MB.
+- Whether speech is recorded well. The room was silent and the Fifine microphone outputs digital silence a few
+  seconds after the last sound (also in a direct ffmpeg capture), so the recordings prove tracks and timing only.
 - Sound and picture in step, measured with a real signal: there was no loopback device and no sound was
   played at night. Only container timing was compared.
-- Recordings longer than three minutes, other GPUs, other cameras, Windows 10.
+- Recordings longer than 30 minutes, other GPUs, other cameras, Windows 10.

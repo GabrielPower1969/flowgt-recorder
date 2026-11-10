@@ -68,8 +68,8 @@ bit_rate=904073
       1 audio stream. Video 163.7 s and audio 163.7 s, no gap in the audio timeline.
 - [x] Encoder `hevc_qsv`, 29.82 fps over the file. A full decode reports no error. **Not played by a person.**
 - [x] CPU and memory during the first recording, 5 s samples: ffmpeg 14 % of one core (1.4 % of the machine),
-      925 MB; the app process 0.8 % and 48 MB; its WebView2 processes 14 % and 836 MB. The 925 MB was the
-      camera defect below; not measured again after the fix.
+      925 MB; the app process 0.8 % and 48 MB; its WebView2 processes 14 % and 836 MB. A 30-minute run after the fixes:
+      ffmpeg 36 % of one core (`h264_qsv`), 852–886 MB, flat.
 
 Defects found here and fixed in W-4: the app froze when the picker opened; the camera was dropped; with the
 camera on, audio came out 9.5 % shorter than video; the recording bar was in the video.
@@ -81,6 +81,7 @@ camera on, audio came out 9.5 % shorter than video; the recording bar was in the
 ## Device defaults on Windows (D19)
 
 dshow cannot say which device is the system default, so the app takes the first camera and microphone it lists
-and labels it "Same as system". **Not verified** against Settings → Sound on this machine. Computer audio needs
+and labels it "Same as system". On this machine the first microphone listed is also the Windows default (Fifine), so the
+label was right, by coincidence of order. Computer audio needs
 a loopback device ("Stereo Mix" or `virtual-audio-capturer`): there is no ScreenCaptureKit, and a WASAPI
 loopback helper is W-5.
