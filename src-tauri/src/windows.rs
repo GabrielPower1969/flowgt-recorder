@@ -182,6 +182,10 @@ pub fn create_floating(app: &AppHandle) -> tauri::Result<()> {
             "if (!location.hash || location.hash === '#/') location.hash = '#/floating';",
         )
         .build()?;
+    // Desktop duplication (ddagrab) records every window on the screen. Excluding this one from
+    // capture keeps the recording bar out of the video, as the native helper does on macOS.
+    #[cfg(windows)]
+    let _ = win.set_content_protected(true);
     place_top_center(&win, BAR_SIZE.0);
     Ok(())
 }
