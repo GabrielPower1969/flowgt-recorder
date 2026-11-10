@@ -96,3 +96,69 @@ real microphone + real system audio, hevc_videotoolbox.
 
 Camera + PiP on real capture (needs the camera permission on the Desktop app) · Google sign-in (needs an OAuth client) · a full hour · Windows.
 
+
+## Windows (first numbers, 2026-11-11, source A)
+
+Machine: Windows 11 Pro build 26300, Intel Core Ultra 5 225 (10 cores, integrated graphics, driver
+32.0.101.9033), 31 GB RAM, screen 3840×2160 at 150 %, ffmpeg n9.0.1-11-ge47273f4d9 (BtbN LGPL static), Rust 1.99.1,
+Node 26.13.0. Commands and full output: `docs/tasks/W-1.md` to `W-4.md`.
+
+### Test suites
+
+| Check | Result |
+|---|---|
+| `npm run check` | 206 files, 0 errors, 0 warnings |
+| `npm test` | 7 files, 129 passed |
+| `npm run core:test` | recorder-core 123 passed, flowgt-recorder 36 passed, 1 ignored |
+| clippy `-D warnings` | clean |
+
+With the fixes of W-1 applied (`docs/tasks/W-1.md`); `main` alone is not green on Windows.
+
+### Synthetic input
+
+| Script | Encoder | Result |
+|---|---|---|
+| `pwsh scripts/integration.ps1` | `hevc_qsv` | PASS: 1920×1080, 30 fps, 6 s, 997 kbps, hevc + aac |
+| `pwsh scripts/bench.ps1 -Seconds 20` | `hevc_qsv` | 9.72× real time, 121 % of one core, peak 308 MB, 411 MB/h |
+| `pwsh scripts/bench.ps1 -Seconds 20` | `h264_qsv` | 9.83× real time, 109 % of one core, peak 244 MB, **501 MB/h: over the 480 limit, the script ends in FAIL** |
+
+`hevc_nvenc`, `h264_nvenc`, `hevc_amf`, `h264_amf` are listed by this ffmpeg but cannot open here (no such
+hardware). `hevc_mf` and `h264_mf` fail with the script's `-hw_encoding 1`; `h264_mf` without it encoded a clip.
+
+### Real capture through the app
+
+Screen 3840×2160 → 1920×1080 at 30 fps, `hevc_qsv`, microphone "Fifine Microphone", camera "2K USB Camera"
+(640×480 MJPEG) as picture-in-picture, target 400 MB/h. The room was silent and the screen mostly still.
+
+| Recording | Video | Audio | Size | MB/h | Notes |
+|---|---|---|---|---|---|
+| `trial-1`, screen + mic, 15 s | 15.07 s, 30 fps | 14.60 s | 1.64 MiB | 389 | first recording on Windows; the camera was dropped |
+| `win-verify`, screen + camera + mic, one pause | 160.0 s, 29.98 fps | **152.5 s, 7.7 s missing at the pause** | 17.07 MiB | 384 | before the W-4 fixes |
+| `win-verify-2`, same | 163.7 s, 29.82 fps | 163.7 s, no gap | 17.65 MiB | 388 | after the W-4 fixes |
+
+| During `win-verify` (before the fixes), 5 s samples | CPU | Memory |
+|---|---|---|
+| ffmpeg | 14 % of one core average, 29 % peak (1.4 % of the machine) | 925 MB |
+| app process | 0.8 % of one core | 48 MB |
+| the app's WebView2 processes (three windows) | 14 % of one core | 836 MB |
+
+| Latency, `win-verify-2` | Value |
+|---|---|
+| "Start recording" click to phase `recording` (3 s countdown included) | 5.5 s |
+| Pause | 1.3 s |
+| Resume (camera and microphone reopen) | 2.8 s |
+| Stop to finished file | 1.2 s |
+
+### Camera hand-over (the reason the camera was dropped)
+
+| WebView2 camera path | Time until ffmpeg (dshow) can open the camera after the self-view stops |
+|---|---|
+| Media Foundation (WebView2 default) | 95 s and 115 s in two runs |
+| DirectShow (`--disable-features=MediaFoundationVideoCapture`, now set by the app) | under 1.2 s (first try) |
+
+### Not measured on Windows
+
+- ffmpeg memory after the camera timestamp fix (the 925 MB above was queued frames from that defect).
+- Sound and picture in step, measured with a real signal: there was no loopback device and no sound was
+  played at night. Only container timing was compared.
+- Recordings longer than three minutes, other GPUs, other cameras, Windows 10.
