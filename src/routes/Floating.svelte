@@ -23,6 +23,9 @@
   const canAct = $derived(!recorder.busy && (st.phase === "recording" || st.phase === "paused"));
   const live = $derived(st.phase === "recording" || st.phase === "paused");
   const spin = $derived(paused ? "paused" : "on");
+  // Until the first segment is closed the count of bytes written is only a few bytes, so the
+  // budget's estimate stands in for it, marked as an estimate.
+  const sizeText = $derived(st.bytesWritten >= 100_000 ? formatBytes(st.bytesWritten) : t("floating.estimate", { size: formatBytes(st.estimatedTotalBytes) }));
 
   let expanded = $state(true);
   // Only a native capture engine writes preview frames; without one the panel would stay empty.
@@ -108,7 +111,7 @@
           <span class="state" data-tauri-drag-region>{paused ? t("floating.paused") : t("floating.recording")}</span>
           <span class="mono time" data-testid="timer" data-tauri-drag-region>{formatDuration(st.elapsedMs)}</span>
         </span>
-        <span class="mono size" data-testid="size" data-tauri-drag-region>{formatBytes(st.bytesWritten)}</span>
+        <span class="mono size" data-testid="size" data-tauri-drag-region>{sizeText}</span>
       </div>
       <div class="well">
         <button type="button" class="key sm" aria-label={t("floating.stopLong")} title={t("floating.stopLong")} onclick={() => stopRecording()} disabled={!canAct}>
