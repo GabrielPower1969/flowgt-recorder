@@ -1153,7 +1153,9 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "uuid",
+ "webview2-com",
  "which",
+ "windows-core",
 ]
 
 [[package]]

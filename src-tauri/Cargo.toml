@@ -50,6 +50,11 @@ objc2-foundation = { version = "0.3", features = ["NSString"] }
 objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat", "block2"] }
 block2 = "0.6"
 
+# The same versions Tauri already brings in on Windows; used to answer WebView2 permission requests.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
+
 [profile.release]
 opt-level = 3
 lto = "thin"
