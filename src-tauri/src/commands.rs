@@ -1103,8 +1103,10 @@ fn merge_recordings(entries: &mut Vec<RecordingEntry>, remote: Vec<RecordingEntr
     }
 }
 
+/// `async` on purpose: the first call creates the marker window, and on Windows a synchronous
+/// command runs on the main thread, where building a webview window deadlocks the whole app.
 #[tauri::command]
-pub fn show_screen_marker(app: AppHandle, index: usize) -> CmdResult<()> {
+pub async fn show_screen_marker(app: AppHandle, index: usize) -> CmdResult<()> {
     crate::windows::show_marker(&app, index).map_err(|e| CommandError::io(e.to_string()))
 }
 
