@@ -5,6 +5,14 @@
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 
+// Web Storage: Node 25+ defines its own `localStorage` / `sessionStorage` globals, which are undefined
+// without `--localstorage-file` and shadow the jsdom ones. Point the globals back at jsdom's Storage.
+for (const key of ["localStorage", "sessionStorage"] as const) {
+  if (typeof globalThis[key] !== "undefined") continue;
+  const dom = (globalThis as { jsdom?: { window: Window } }).jsdom;
+  if (dom) Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true, writable: true });
+}
+
 // Deterministic language: the mock settings default to "auto", which resolves via navigator.language.
 Object.defineProperty(window.navigator, "language", { value: "zh-CN", configurable: true });
 
