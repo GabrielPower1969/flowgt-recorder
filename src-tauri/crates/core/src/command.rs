@@ -148,7 +148,11 @@ fn input_args(src: &InputSource, fps: u32, is_camera: bool) -> Vec<String> {
             if let Some(v) = video {
                 push(&mut a, &["-rtbufsize", "256M"]);
                 if is_camera {
-                    push(&mut a, &["-framerate", &fps.min(30).to_string()]);
+                    // A webcam asked for 30 fps may deliver fewer (25 in low light on the test
+                    // machine) while stamping its frames 1/30 s apart. The overlay follows those
+                    // stamps, so the whole recording ran at 0.83x and lost a tenth of its sound.
+                    // Stamping frames as they arrive keeps the camera on the same clock as the rest.
+                    push(&mut a, &["-framerate", &fps.min(30).to_string(), "-use_wallclock_as_timestamps", "1"]);
                 }
                 target.push(format!("video={v}"));
             }
@@ -618,6 +622,11 @@ mod tests {
         assert!(has_pair(&a, "-init_hw_device", "d3d11va"));
         assert!(a.contains(&"video=Integrated Camera".to_string()));
         assert!(a.contains(&"audio=Microphone Array".to_string()));
+        // The camera is stamped by arrival time; the option belongs to the camera input only.
+        let cam = a.iter().position(|x| x == "video=Integrated Camera").unwrap();
+        let wall = a.iter().position(|x| x == "-use_wallclock_as_timestamps").unwrap();
+        assert!(wall < cam && a[wall + 1] == "1" && a[wall..cam].iter().filter(|x| *x == "-i").count() == 1);
+        assert_eq!(a.iter().filter(|x| *x == "-use_wallclock_as_timestamps").count(), 1);
         assert!(value_of(&a, "-filter_complex").starts_with("[0:v]hwdownload,format=bgra,scale=1920:1200"));
         assert_eq!(value_of(&a, "-c:v"), "hevc_nvenc");
     }
