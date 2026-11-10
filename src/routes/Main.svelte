@@ -67,7 +67,9 @@
     ...(windowsOffered ? [{ label: t("face.window") }] : []),
   ]);
   const screenMark = $derived(settings.capture.kind === "window" && windowsOffered ? screenMarks.length - 1 : Math.min(screenIndex, 2));
-  const screenName = $derived(settings.capture.kind === "window" && windowsOffered ? t("picker.tab.window") : (screens[screenIndex]?.name ?? t("picker.screen", { n: 1 })));
+  /** Windows names a screen by its device path (\\.\DISPLAY1), which says nothing to a person. */
+  const friendly = (d: Device | undefined, i: number) => (d && !/^\\\\\.\\/.test(d.name) ? d.name : t("picker.screen", { n: i + 1 }));
+  const screenName = $derived(settings.capture.kind === "window" && windowsOffered ? t("picker.tab.window") : friendly(screens[screenIndex], screenIndex));
 
   /** Drive counts only when signed in; otherwise the local file is the only copy. */
   const driveOn = $derived(settings.saveDrive && !!driveState.status.email);
@@ -80,7 +82,8 @@
   const diskTape = $derived(disk && disk.totalBytes > 0 ? Math.max(0.02, disk.freeBytes / disk.totalBytes) : 1);
   const last = $derived(recorder.lastResult);
   const takeMs = $derived(busy ? st.elapsedMs : route === "/summary" ? (last?.info.durationMs ?? 0) : 0);
-  const takeBytes = $derived(busy ? st.bytesWritten : route === "/summary" ? (last?.info.bytes ?? 0) : 0);
+  // While recording, the count of bytes written lags until a segment closes; the estimate fills in.
+  const takeBytes = $derived(busy ? Math.max(st.bytesWritten, st.estimatedTotalBytes) : route === "/summary" ? (last?.info.bytes ?? 0) : 0);
   const clock = $derived(formatDuration(takeMs).split(":"));
   const spin = $derived(st.phase === "recording" ? "on" : paused ? "paused" : "off");
   const statusKey = $derived(st.phase === "recording" ? "floating.recording" : paused ? "floating.paused" : st.phase === "finalizing" ? "face.status.saving" : busy ? "face.status.ready" : route === "/summary" && last ? "common.saved" : "face.status.idle");
@@ -427,5 +430,5 @@
   .hint { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
   .link { padding: var(--space-1) var(--space-2); border: 0; border-radius: var(--radius-s); background: transparent; color: var(--color-plate-ink); text-decoration: underline; }
 
-  .sheet { left: 196px; top: 20px; width: 760px; height: 496px; z-index: 5; overflow: auto; padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-l); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-floating); font-size: var(--text-md); line-height: var(--leading-normal); }
+  .sheet { left: 226px; top: 20px; width: 700px; height: 496px; z-index: 5; overflow: auto; padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-l); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-floating); font-size: var(--text-md); line-height: var(--leading-normal); }
 </style>

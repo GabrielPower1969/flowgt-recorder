@@ -983,35 +983,39 @@ pub async fn window_thumbnail(state: State<'_, AppState>, id: u32) -> CmdResult<
     }))
 }
 
-/// A small JPEG of one screen as a data URL, for the screen picker. `None` when the
-/// screen-recording permission is missing (asking ffmpeg would only fail) or on other platforms.
+/// A small JPEG of one screen as a data URL, for the screen picker and the monitor on the front
+/// panel. `None` when the screen-recording permission is missing on macOS (asking ffmpeg would
+/// only fail) or on a platform without a screen input here. Windows has no such permission.
 #[tauri::command]
 pub async fn screen_thumbnail(state: State<'_, AppState>, id: String) -> CmdResult<Option<String>> {
     use base64::Engine;
-    if Platform::current() != Platform::MacOs
-        || permissions::check().screen != PermissionState::Granted
-    {
+    let platform = Platform::current();
+    let allowed = match platform {
+        Platform::MacOs => permissions::check().screen == PermissionState::Granted,
+        Platform::Windows => true,
+        Platform::Linux => false,
+    };
+    if !allowed {
         return Ok(None);
     }
     let t = tools(&state).await?;
     let mut c = tokio::process::Command::new(&t.ffmpeg);
+    c.args(["-hide_banner", "-loglevel", "error"]);
+    if platform == Platform::Windows {
+        // The same Desktop Duplication input the recording uses; the id is the output index.
+        let output_idx: u32 = id.parse().unwrap_or(0);
+        c.args(["-init_hw_device", "d3d11va", "-f", "lavfi", "-i"])
+            .arg(format!("ddagrab=output_idx={output_idx}:framerate=30:draw_mouse=0"))
+            .args(["-vf", "hwdownload,format=bgra,scale=480:-2"]);
+        #[cfg(windows)]
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    } else {
+        c.args(["-f", "avfoundation", "-framerate", "30", "-capture_cursor", "0", "-i"])
+            .arg(format!("{id}:none"))
+            // The first frames from a screen input can be black; take a later one.
+            .args(["-vf", "select=gte(n\\,5),scale=480:-2"]);
+    }
     c.args([
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-f",
-        "avfoundation",
-        "-framerate",
-        "30",
-        "-capture_cursor",
-        "0",
-        "-i",
-    ])
-    .arg(format!("{id}:none"))
-    // The first frames from a screen input can be black; take a later one.
-    .args([
-        "-vf",
-        "select=gte(n\\,5),scale=480:-2",
         "-frames:v",
         "1",
         "-c:v",
