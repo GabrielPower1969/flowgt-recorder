@@ -40,7 +40,7 @@
   });
 </script>
 
-<main class="page wrap">
+<main class="wrap">
   <div class="head">
     <h1>{t("history.title")}</h1>
     <button type="button" class="btn" onclick={() => navigate("/")}>{t("common.back")}</button>
@@ -82,13 +82,13 @@
 </main>
 
 <style>
-  .wrap { display: flex; flex-direction: column; gap: var(--space-4); max-width: 880px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .wrap { display: flex; flex-direction: column; gap: var(--space-4); }
   .head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
   .head h1 { margin: 0; }
-  .player { width: 100%; max-height: 50vh; border-radius: var(--radius-l); background: var(--color-surface-3); }
-  .err { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn-soft); color: var(--color-warn); }
-  .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-  .row-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3); border-radius: var(--radius-m); background: var(--color-surface-2); }
+  .player { width: 100%; max-height: 220px; border-radius: var(--radius-m); background: var(--color-glass); }
+  .err { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn-soft); color: var(--color-text); }
+  .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .row-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--color-border); }
   .info { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
   .name { word-break: break-all; }
   .tags, .acts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
