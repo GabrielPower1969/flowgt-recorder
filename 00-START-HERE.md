@@ -1,3 +1,4 @@
+> **Windows 状态（2026-11-11）**：第一次在真机上跑通。四项自动检查全绿（需合上 3 个修复）；屏幕＋摄像头＋麦克风能录成 HEVC 1080p 的 MP4，每小时约 388 MB，两次 30 分钟长录完整；修了 8 个问题。没有人看过或听过录像，音画同步没有用真实信号测，电脑声音录不了，CI 因 GitHub 账单问题没有运行。14 个草稿 PR 待审。详见 `docs/reports/02-Windows通宵开发-2026-11-11.md`。
 > **2026-11-11 合并（D31）**：桌面版和 Chrome 插件合进同一个公开仓库 `github.com/GabrielPower1969/flowgt-recorder`，插件在 `chrome-extension/`。Windows 负责人今晚在 winserver 上按 `AGENTS.md` 开工。
 > **2026-11-10 提案（已提交）**：双人分工 `docs/COLLABORATION.md`；全平台目标架构 `docs/PLATFORM-ARCHITECTURE.md`（不换 Qt，留在 Tauri，每个平台一个采集引擎）；agent 入口 `AGENTS.md` ＋ 任务卡 `docs/tasks/`。许可证：陈广宇 2026-11-10 定为 MIT，不收费，`LICENSE` 不变。
 > **2026-11-04 22:15 现状**：MacBook 版真实全流程跑通（抓屏 + 麦克风 + 系统声音 → 暂停 → 继续 → 停止 → 一个 MP4），界面已按 Google Meet 共享屏幕重做（D18）。
@@ -47,6 +48,7 @@ shows a notice until it is back. Collapsible to the bar with the chevron; dragga
 | # | 文件 | 内容 |
 |---|---|---|
 | 01 | `docs/reports/01-首版验收报告-2026-11-04.html` | **待写**：首版验收，测试、自检、基准、本机真录 |
+| 02 | `docs/reports/02-Windows通宵开发-2026-11-11.md` | Windows 第一次真机：环境、修复、测试矩阵、体验问题、要人做的事 |
 
 规则：报告按两位数编号，最大编号＝最新；每次新报告在这里加一行。
 
