@@ -7,6 +7,7 @@ Pass criteria for scripts written by other workers are summarised from the task 
 | Script | Purpose | How to run | Pass criteria | Verified on |
 |---|---|---|---|---|
 | `fetch-ffmpeg.sh` | Download LGPL ffmpeg + ffprobe into `src-tauri/binaries/` (sidecars) | `bash scripts/fetch-ffmpeg.sh` | Binaries present and runnable | macOS 2026-11-04 |
+| `make-icons.sh` | Rebuild `src-tauri/icons/` (PNG set, `.ico`, `.icns`) from the two rendered sources; see `src-tauri/icons/README.md` | `bash scripts/make-icons.sh` | Final line PASS | Windows 2026-11-11 (the `.icns` not looked at on macOS) |
 | `integration.sh` | Real ffmpeg, synthetic inputs, app argv -> MP4 -> ffprobe + pixel check | `bash scripts/integration.sh` | Final line PASS | macOS 2026-11-04 |
 | `crash-test.sh` | Kill the encoder mid-segment and check the fragmented MP4 is still playable | `bash scripts/crash-test.sh` | Final line PASS | macOS 2026-11-04 |
 | `size-check.sh` | Output size against the 400 MB/h (889 kbps) budget | `bash scripts/size-check.sh` | Final line PASS (within budget) | macOS 2026-11-04 |

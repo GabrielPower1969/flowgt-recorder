@@ -200,7 +200,7 @@ flowgt-recorder/
 │   ├── Cargo.toml              app crate + workspace
 │   ├── Info.plist · Entitlements.plist · capabilities/default.json
 │   ├── binaries/               ffmpeg-<triple>, ffprobe-<triple>  (fetched, not committed)
-│   ├── icons/
+│   ├── icons/                  app icon (rendered, see its README) and tray glyphs
 │   ├── src/                    lib.rs · commands.rs · recorder.rs · sidecar.rs · permissions.rs · tray.rs · shortcuts.rs · disk.rs
 │   └── crates/core/            recorder-core: pure logic + fixtures/ from real machines
 ├── helpers/sck-audio/          Swift ScreenCaptureKit audio → PCM helper (macOS)
