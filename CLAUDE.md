@@ -51,6 +51,7 @@ bash scripts/bench.sh --app --seconds 60      # the same while the app records f
 | `design/tokens.css` · `docs/DESIGN.md` | design tokens and the "Studio" look | tokens are used verbatim (D13) |
 | `helpers/sck-audio/` | Swift ScreenCaptureKit audio helper → PCM FIFO | experimental in v0.1 (D7) |
 | `scripts/` · `tests/` · `.github/workflows/ci.yml` | integration, bench, fetch-ffmpeg, CI | outputs in `tests/out/`, `bench-out/` (git-ignored) |
+| `chrome-extension/` | the FlowGT Recorder Chrome extension (MV3, tab + mic audio) and its yt-dlp native host | own `package.json`, tests and `docs/`; independent of the desktop app (D31) |
 | `docs/` | see `README.md` → Documentation | `docs/reports/NN-…` numbered, newest = latest |
 
 ## Invariants
@@ -76,7 +77,9 @@ bash scripts/bench.sh --app --seconds 60      # the same while the app records f
    `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` whenever an agent wrote it. Types:
    `feat` `fix` `docs` `test` `chore` `refactor` `design`; scopes: `core` `app` `ui` `docs` `scripts`
    `helper` `design`.
-10. **Never push, and never create a remote, without Gabriel's explicit OK** (D14: no GitHub remote yet).
+10. **Never push to `main`, force-push, or create another remote without Gabriel's explicit OK** (D31). The
+    remote is `github.com/GabrielPower1969/flowgt-recorder` (public). Agents may push their own
+    `win/…`, `mac/…`, `shared/…` branches and open draft pull requests; merging is a human decision.
 11. **Every "verified" or "tested" claim in a document is backed by command output** quoted or linked
     (a report under `docs/reports/`, a CI run, a pasted terminal block). Otherwise write "expected" or
     "not yet measured".
@@ -148,7 +151,7 @@ argv; the bench before changing the budget defaults.
 - `docs/ARCHITECTURE.md` — the diagram, the pipeline, module ownership, IPC, Windows.
 - `docs/DECISIONS.md` — D1 stack · D2 sidecar · D3 pure core · D4 segments · D5 budget · D6 webview
   preview · D7 system audio · D8 Windows · D9 window capture deferred · D10 file names · D11 floating
-  window · D12 settings store · D13 design tokens · D14 no remote.
+  window · D12 settings store · D13 design tokens · D14 no remote (replaced by D31: one public repository).
 - `docs/BENCH.md` — measured numbers; quote them, do not invent new ones.
 - `docs/WINDOWS-VERIFY.md` — nothing Windows-side has run on hardware; this is the plan.
 - `docs/SYSTEM-AUDIO.md` — helper vs BlackHole.

@@ -55,7 +55,7 @@ defaulted, so old files never block startup.
 D13 · 2026-11-04 · **Design first in Claude Design mode**, tokens exported to `design/tokens.css` and used
 verbatim. Look named "Studio": graphite/off-white grounds, one indigo accent, red reserved for REC.
 
-D14 · 2026-11-04 · **No GitHub remote yet.** Local commits only; creating the remote is a human decision
+D14 · 2026-11-04 · **No GitHub remote yet.** *(Replaced by D31 on 2026-11-11.)* Local commits only; creating the remote is a human decision
 listed in `00-START-HERE.md`.
 
 D15 · 2026-11-04 · **Takeover decisions in core.** (a) Manifest file is `<work_dir>/manifest.json`
@@ -266,4 +266,21 @@ reproduce it. An earlier report from 02:12 the same day predates the native work
 preview already shows the face, and two sessions on one camera are a risk with Continuity Camera. Toggling the camera
 mid-recording still means stop and start. The ffmpeg path (Windows) has no preview; the panel then says "waiting
 for the first frame" for ever, which is wrong and should hide the panel instead.
+
+## D31 · One public repository for every FlowGT Recorder (2026-11-11)
+
+**Decision (Gabriel, 2026-11-11):** the desktop app and the Chrome extension live in one repository,
+`github.com/GabrielPower1969/flowgt-recorder`, which is public and MIT. The desktop app stays at the root;
+the extension moved to `chrome-extension/` with its own `package.json`, tests and docs. Both histories are
+kept (merge commit, no rewrite). Future mobile code goes in `mobile/` (see `docs/PLATFORM-ARCHITECTURE.md`).
+
+**Why:** one name for one product, one place for issues and for agents to read, and the Windows developer
+can clone it. Replaces D14.
+
+**Pushing:** agents may push their own topic branches and open draft pull requests; pushing to `main`,
+force-pushing and merging stay with Gabriel (invariant 10).
+
+**Checked before publishing:** the whole history was searched for secrets and personal data on 2026-11-11;
+only placeholder names (`FLOWGT_GOOGLE_CLIENT_SECRET=…`) and `demo@gmail.com` in tests were found.
+`.env.google` and `.signing/` are git-ignored and were never committed.
 

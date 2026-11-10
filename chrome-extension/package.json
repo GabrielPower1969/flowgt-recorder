@@ -13,7 +13,7 @@
     "install-host": "host/install.sh"
   },
   "author": "FlowGT",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "puppeteer-core": "^25.9.0"
