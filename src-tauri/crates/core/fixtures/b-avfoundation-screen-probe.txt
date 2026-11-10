@@ -1,0 +1,19 @@
+objc[43187]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
+objc[43187]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
+objc[43187]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
+[AVFoundation indev @ 0x77d3038000] Configuration of video device failed, falling back to default.
+[avfoundation @ 0x77d2c28000] Stream #0: not enough frames to estimate rate; consider increasing probesize
+Input #0, avfoundation, from '3:':
+  Duration: N/A, start: 364658.309500, bitrate: N/A
+  Stream #0:0: Video: rawvideo (UYVY / 0x59565955), uyvy422, 1920x1200, 1000k tbr, 1000k tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (rawvideo (native) -> wrapped_avframe (native))
+Press [q] to stop, [?] for help
+Output #0, null, to 'pipe:':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: wrapped_avframe, uyvy422(progressive), 1920x1200, q=2-31, 200 kb/s, 1000k fps, 1000k tbn
+      Metadata:
+        encoder         : Lavc61.19.101 wrapped_avframe
+[out#0/null @ 0x77d3114540] video:1KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=    3 fps=0.0 q=-0.0 Lsize=N/A time=00:00:00.06 bitrate=N/A speed=0.902x    
