@@ -38,19 +38,18 @@
   });
 </script>
 
+{#snippet settingsSheet()}<Settings />{/snippet}
+{#snippet summarySheet()}<Summary />{/snippet}
+{#snippet historySheet()}<History />{/snippet}
+
 {#if route === "/marker"}
   <Marker />
 {:else if isFloating}
   <Floating />
 {:else if !isLoaded()}
   <div class="page muted">{t("common.loading")}</div>
-{:else if route === "/settings"}
-  <Settings />
-{:else if route === "/summary"}
-  <Summary />
-{:else if route === "/history"}
-  <History />
 {:else}
-  <Main settings={getSettings()} />
+  <!-- One front panel for the whole main window; the other screens are cards laid on it. -->
+  <Main settings={getSettings()} sheet={route === "/settings" ? settingsSheet : route === "/summary" ? summarySheet : route === "/history" ? historySheet : undefined} />
 {/if}
 {#if !isFloating}<Toast />{/if}

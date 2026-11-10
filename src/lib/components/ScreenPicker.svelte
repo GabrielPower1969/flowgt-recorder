@@ -1,6 +1,6 @@
 <script lang="ts">
   /** The "choose what to share" dialog, modelled on Google Meet / Chrome's screen picker. */
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import type { Device, PermissionState, WindowInfo } from "../types";
   import { invoke } from "../ipc";
   import { t } from "../stores/i18n.svelte";
@@ -9,7 +9,7 @@
   import { getCapabilities } from "../stores/capabilities.svelte";
   import Segmented from "./Segmented.svelte";
 
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, initialName = "" }: { onclose: () => void; initialName?: string } = $props();
 
   type Tab = "screen" | "window";
   let tab = $state<Tab>("screen");
@@ -21,7 +21,8 @@
   let selectedWindow = $state<number | null>(null);
   let permission = $state<PermissionState | null>(null);
   let asked = $state(false);
-  let name = $state("");
+  // The name typed on the front panel carries over; it can still be changed here.
+  let name = $state(untrack(() => initialName));
   let starting = $state(false);
 
   const allowed = $derived(permission === "granted" || permission === "notApplicable");
