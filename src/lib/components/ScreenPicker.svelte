@@ -6,7 +6,7 @@
   import { t } from "../stores/i18n.svelte";
   import { getSettings, updateSettings } from "../stores/settings.svelte";
   import { startRecording } from "../stores/recorder.svelte";
-  import { getPlatform } from "../platform.svelte";
+  import { getCapabilities } from "../stores/capabilities.svelte";
   import Segmented from "./Segmented.svelte";
 
   let { onclose }: { onclose: () => void } = $props();
@@ -25,8 +25,8 @@
   let starting = $state(false);
 
   const allowed = $derived(permission === "granted" || permission === "notApplicable");
-  // Recording one window needs the native helper, which only macOS has.
-  const windowsOffered = $derived(getPlatform() === "macos");
+  // Recording one window needs a native capture engine; the backend says whether there is one.
+  const windowsOffered = $derived(getCapabilities().windowCapture);
   const canStart = $derived(allowed && !starting && (tab === "screen" ? selected !== null : selectedWindow !== null));
 
   // Outline the real screen while choosing. The backend removes it before capture starts.

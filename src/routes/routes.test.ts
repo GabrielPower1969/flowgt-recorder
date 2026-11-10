@@ -5,6 +5,8 @@ import { mock } from "../lib/ipc-mock";
 import { __setLastResult, __setRecorderState, bindRecorderEvents, unbindRecorderEvents } from "../lib/stores/recorder.svelte";
 import { __setSettings } from "../lib/stores/settings.svelte";
 import { setPlatform } from "../lib/platform.svelte";
+import { setCapabilities } from "../lib/stores/capabilities.svelte";
+import { mockCapabilities } from "../lib/ipc-mock";
 import { defaultSettings, idleRecorderState } from "../lib/defaults";
 import { __resetDrive, bindDriveEvents, refreshDrive, signInToGoogle } from "../lib/stores/drive.svelte";
 import { getToasts, clearToasts } from "../lib/stores/toasts.svelte";
@@ -19,6 +21,7 @@ beforeEach(() => {
   unbindRecorderEvents();
   const settings = defaultSettings("macos");
   setPlatform("macos");
+  setCapabilities(mockCapabilities());
   __setSettings(settings);
   __setRecorderState(idleRecorderState());
   __setLastResult(null);
@@ -298,18 +301,36 @@ describe("screen picker", () => {
     expect(screen.getByRole("button", { name: "开始录制" })).toBeDisabled();
   });
 
-  it("on Windows there is no window tab", async () => {
+  it("without window capture there is no window tab, whatever the platform is called", async () => {
+    mock.permissions.screen = "granted";
+    setCapabilities({ windowCapture: false });
+    await openPicker();
+    await screen.findAllByRole("radio");
+    expect(screen.queryByRole("button", { name: "单个 App 窗口" })).toBeNull();
+  });
+
+  it("the window tab follows the capability, not the platform name", async () => {
     mock.permissions.screen = "granted";
     setPlatform("windows");
     await openPicker();
     await screen.findAllByRole("radio");
-    expect(screen.queryByRole("button", { name: "单个 App 窗口" })).toBeNull();
-    setPlatform("macos");
+    expect(screen.getByRole("button", { name: "单个 App 窗口" })).toBeInTheDocument();
   });
 });
 
 describe("recording bar", () => {
   const recording = { ...idleRecorderState(), phase: "recording" as const, elapsedMs: 83_000, segments: 1 };
+
+  it("without a live preview there is only the bar: no empty panel, nothing to expand", async () => {
+    setCapabilities({ livePreview: false });
+    __setRecorderState(recording);
+    render(Floating);
+    expect(screen.getByTestId("timer")).toBeInTheDocument();
+    expect(screen.queryByTestId("target")).toBeNull();
+    expect(screen.queryByRole("button", { name: "收起画面" })).toBeNull();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(mock.callsTo("preview_frame")).toHaveLength(0);
+  });
 
   it("shows status, time, pause, stop and the preview toggle, nothing else", () => {
     __setRecorderState(recording);
