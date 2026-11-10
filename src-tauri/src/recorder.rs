@@ -173,6 +173,21 @@ async fn write_manifest(m: &SessionManifest) -> CmdResult<()> {
     Ok(())
 }
 
+/// A leading dot hides nothing on Windows. The session folders live in `.flowgt-recorder` next to the
+/// recordings; mark that folder hidden so it does not show up in Explorer among the videos.
+#[cfg(windows)]
+fn hide_dot_folder(work_dir: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+    let Some(root) = work_dir.parent() else {
+        return;
+    };
+    if !root.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+        return;
+    }
+    // attrib ships with Windows; 0x0800_0000 = CREATE_NO_WINDOW. Failure only leaves the folder visible.
+    let _ = std::process::Command::new("attrib").arg("+h").arg(root).creation_flags(0x0800_0000).spawn();
+}
+
 impl Recorder {
     pub fn new(sink: Arc<dyn EventSink>) -> Self {
         Recorder {
@@ -258,6 +273,8 @@ impl Recorder {
 
     async fn start_inner(&self, params: StartParams) -> CmdResult<RecorderState> {
         tokio::fs::create_dir_all(&params.work_dir).await?;
+        #[cfg(windows)]
+        hide_dot_folder(&params.work_dir);
         let camera = params.plan.camera.is_some()
             || params.native.as_ref().is_some_and(|n| n.camera.is_some());
         let mut manifest = recovery::new_manifest(
