@@ -1,0 +1,23 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+src-tauri/gen/
+*.log
+.DS_Store
+coverage/
+.vite/
+# build outputs of helpers and bench
+helpers/**/.build/
+bench-out/
+tests/out/
+*.mp4
+*.m4a
+*.wav
+!tests/fixtures/**
+
+# Google OAuth client for builds
+.env.google
+
+# Local code-signing identity
+.signing/
