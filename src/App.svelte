@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { bindRouter, getRoute, navigate } from "./lib/router.svelte";
   import { initPlatform } from "./lib/platform.svelte";
+  import { loadCapabilities } from "./lib/stores/capabilities.svelte";
   import { loadSettings, getSettings, isLoaded } from "./lib/stores/settings.svelte";
   import { bindRecorderEvents } from "./lib/stores/recorder.svelte";
   import { bindDriveEvents, refreshDrive } from "./lib/stores/drive.svelte";
@@ -21,6 +22,7 @@
     const unbindRouter = bindRouter();
     document.body.dataset.window = getRoute() === "/floating" || getRoute() === "/marker" ? "floating" : "main";
     void initPlatform();
+    void loadCapabilities();
     const unbindEvents = bindRecorderEvents((r) => {
       // Only the main window shows the result: the floating bar and the screen outline are windows too.
       if (getRoute() !== "/floating" && getRoute() !== "/marker" && r) navigate("/summary");
