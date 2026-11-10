@@ -704,7 +704,12 @@ mod tests {
         }
         let listing = std::process::Command::new("ffmpeg").args(["-hide_banner", "-encoders"]).output().unwrap();
         let names = crate::encoders::parse_encoder_names(&String::from_utf8_lossy(&listing.stdout));
-        let encoder = crate::encoders::choose(&names, Platform::current(), EncoderPreference::Auto).unwrap();
+        // Like the app: take the first encoder of the chain that really encodes a test frame.
+        let encoder = crate::encoders::choose_working(&names, Platform::current(), EncoderPreference::Auto, |e| {
+            let test = crate::encoders::self_test_command("ffmpeg", e);
+            std::process::Command::new(&test.program).args(&test.args).output().is_ok_and(|o| o.status.success())
+        })
+        .unwrap();
 
         let dir = tempfile::tempdir().unwrap();
         let out: PathBuf = dir.path().join("smoke.mp4");

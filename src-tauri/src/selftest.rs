@@ -19,7 +19,12 @@ pub fn lavfi_params(dir: &Path, camera: bool) -> Option<StartParams> {
         .output()
         .ok()?;
     let names = encoders::parse_encoder_names(&String::from_utf8_lossy(&listing.stdout));
-    let encoder = encoders::choose(&names, Platform::current(), EncoderPreference::Auto).ok()?;
+    // Like `commands::resolve_encoder`: the first encoder of the chain that encodes a test frame.
+    let encoder = encoders::choose_working(&names, Platform::current(), EncoderPreference::Auto, |e| {
+        let test = encoders::self_test_command(&tools.ffmpeg_str(), e);
+        std::process::Command::new(&test.program).args(&test.args).output().is_ok_and(|o| o.status.success())
+    })
+    .ok()?;
     let mut settings = settings::default_settings(Platform::current());
     settings.camera.enabled = camera;
     let mut plan = command::make_plan(
