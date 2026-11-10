@@ -12,6 +12,7 @@ pub mod shortcuts;
 pub mod sidecar;
 pub mod state;
 pub mod tray;
+pub mod webview_permissions;
 pub mod windows;
 
 use std::sync::Arc;
@@ -36,6 +37,10 @@ pub fn run() {
             let sink = Arc::new(commands::TauriSink::new(handle.clone()));
             app.manage(state::AppState::new(recorder::Recorder::new(sink)));
             windows::create_floating(&handle)?;
+            #[cfg(windows)]
+            if let Some(main) = app.get_webview_window("main") {
+                webview_permissions::allow_own_media(&main);
+            }
             tray::build(&handle)?;
             match commands::load_settings(&handle) {
                 Ok(s) => shortcuts::register(&handle, &s),
