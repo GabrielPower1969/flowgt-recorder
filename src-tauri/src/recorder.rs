@@ -1337,6 +1337,8 @@ mod tests {
         );
     }
 
+    // Finds and kills the encoder with pgrep / kill; a Windows version of this test is not written.
+    #[cfg(unix)]
     #[tokio::test]
     async fn killed_ffmpeg_with_camera_continues_without_it() {
         let dir = tempfile::tempdir().unwrap();
