@@ -137,6 +137,7 @@ Screen 3840×2160 → 1920×1080 at 30 fps, `hevc_qsv`, microphone "Fifine Micro
 | `win-verify`, screen + camera + mic, one pause | 160.0 s, 29.98 fps | **152.5 s, 7.7 s missing at the pause** | 17.07 MiB | 384 | before the W-4 fixes |
 | `win-verify-2`, same | 163.7 s, 29.82 fps | 163.7 s, no gap | 17.65 MiB | 388 | after the W-4 fixes |
 | `L1`, 30 minutes, screen + camera + mic, `h264_qsv` | 1802.33 s, 30 fps | 1801.07 s, no gap | 191.08 MiB | 382 | full decode without error; the audio ends 1.3 s before the video |
+| `L2`, 30 minutes, screen + camera + mic, `hevc_qsv`, every fix merged | 1802.1 s, 30 fps | 1802.1 s, no gap | 193.52 MiB | 387 | full decode without error; ffmpeg 19 % of one core, 949 MB on average |
 
 | During `L1` (30 minutes, after the fixes), 60 samples 30 s apart | CPU | Memory |
 |---|---|---|
@@ -163,7 +164,9 @@ therefore not a result of the camera defect; its cause was not looked into.
 
 ### Not measured on Windows
 
-- Why ffmpeg holds about 870 MB.
+- Why ffmpeg holds 870–950 MB.
+- Whether speech is recorded well. The room was silent and the Fifine microphone outputs digital silence a few
+  seconds after the last sound (also in a direct ffmpeg capture), so the recordings prove tracks and timing only.
 - Sound and picture in step, measured with a real signal: there was no loopback device and no sound was
   played at night. Only container timing was compared.
 - Recordings longer than 30 minutes, other GPUs, other cameras, Windows 10.
