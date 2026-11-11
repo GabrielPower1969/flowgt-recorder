@@ -1,3 +1,4 @@
+> **2026-11-11 Mac 验收（Faceplate ＋ 新图标）**：PR #15、#16 在 Mac 上合并、打包、真录通过；修了标题栏按钮压面板、窗口不能拖、屏幕名三处（分支 `mac/faceplate-fixes`，草稿 PR）。没修的和要人工看的见 `docs/reports/03-Mac验收-Faceplate-2026-11-11.md`。
 > **2026-11-11 合并（D31）**：桌面版和 Chrome 插件合进同一个公开仓库 `github.com/GabrielPower1969/flowgt-recorder`，插件在 `chrome-extension/`。Windows 负责人今晚在 winserver 上按 `AGENTS.md` 开工。
 > **2026-11-10 提案（已提交）**：双人分工 `docs/COLLABORATION.md`；全平台目标架构 `docs/PLATFORM-ARCHITECTURE.md`（不换 Qt，留在 Tauri，每个平台一个采集引擎）；agent 入口 `AGENTS.md` ＋ 任务卡 `docs/tasks/`。许可证：陈广宇 2026-11-10 定为 MIT，不收费，`LICENSE` 不变。
 > **2026-11-04 22:15 现状**：MacBook 版真实全流程跑通（抓屏 + 麦克风 + 系统声音 → 暂停 → 继续 → 停止 → 一个 MP4），界面已按 Google Meet 共享屏幕重做（D18）。
@@ -47,6 +48,7 @@ shows a notice until it is back. Collapsible to the bar with the chevron; dragga
 | # | 文件 | 内容 |
 |---|---|---|
 | 01 | `docs/reports/01-首版验收报告-2026-11-04.html` | **待写**：首版验收，测试、自检、基准、本机真录 |
+| 03 | `docs/reports/03-Mac验收-Faceplate-2026-11-11.md` | Faceplate 界面与新图标在 Mac 上的逐项验收：命令输出、真录、修了什么、没修什么、要人工看的 |
 
 规则：报告按两位数编号，最大编号＝最新；每次新报告在这里加一行。
 
