@@ -266,7 +266,7 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
             "-maxrate", &format!("{maxrate}k"),
             "-bufsize", &format!("{bufsize}k"),
             "-g", &(plan.fps * 2).to_string(),
-            "-pix_fmt", "yuv420p",
+            "-pix_fmt", crate::encoders::input_pix_fmt(&plan.encoder.name),
             "-r", &plan.fps.to_string(),
             "-fps_mode", "cfr",
         ],
@@ -284,7 +284,7 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
 
     // ---- container, progress, limits
     if plan.fragmented {
-        push(&mut args, &["-movflags", "+frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "2000000"]);
+        push(&mut args, &["-movflags", crate::encoders::segment_movflags(&plan.encoder.name), "-frag_duration", "2000000"]);
     } else {
         push(&mut args, &["-movflags", "+faststart"]);
     }
@@ -351,7 +351,7 @@ pub fn compress_command(ffmpeg: &str, input: &Path, output: &Path, duration_ms: 
             "-b:v", &format!("{video_kbps}k"),
             "-maxrate", &format!("{}k", video_kbps.saturating_mul(3).div_ceil(2)),
             "-bufsize", &format!("{}k", video_kbps.saturating_mul(2)),
-            "-pix_fmt", "yuv420p",
+            "-pix_fmt", crate::encoders::input_pix_fmt(&encoder.name),
             "-c:a", "aac", "-b:a", &format!("{audio_kbps}k"),
             "-movflags", "+faststart",
             "-progress", "pipe:1", "-nostats", "-y",
