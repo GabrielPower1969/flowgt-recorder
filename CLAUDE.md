@@ -17,6 +17,8 @@ bash scripts/fetch-ffmpeg.sh                  # LGPL ffmpeg + ffprobe → src-ta
 bash scripts/build-mac.sh                     # helper + release .app (reads .env.google for sign-in)
 bash scripts/build-ffmpeg-mac.sh              # the ffmpeg/ffprobe a macOS release ships (LGPL, self-contained; ~10 min)
 bash scripts/build-mas.sh                     # Mac App Store variant: sandboxed, `--features mas` (needs the line above first)
+bash scripts/build-ffmpeg-win.sh              # the ffmpeg/ffprobe a Windows release ships (LGPL 2.1, self-contained; cross build on Linux/WSL/macOS)
+powershell -File scripts/build-store-win.ps1  # Microsoft Store variant: MSIX, `--features msix` (needs the line above first; docs/WINDOWS-STORE.md)
 
 npm run tauri dev                             # app with hot reload (Vite :1420 + cargo run)   ⚠ TCC prompts
 npm run dev                                   # frontend alone in a browser, against the ipc mock
@@ -63,7 +65,8 @@ bash scripts/bench.sh --app --seconds 60      # the same while the app records f
 2. **`recorder-core` does no I/O.** No `std::fs`, `std::process`, no network, no OS queries. It takes
    strings (ffmpeg output), paths and plain data and returns commands, plans and parsed data, so it is
    tested with `cargo test` on any OS — this is how Windows code paths are tested on a Mac (D3).
-3. **Every segment is a fragmented MP4** (`-movflags +frag_keyframe+empty_moov+default_base_moof`), and
+3. **Every segment is a fragmented MP4** (`-movflags +frag_keyframe+empty_moov+default_base_moof`; with a
+   Media Foundation encoder `delay_moov` takes the place of `empty_moov`, see `encoders::segment_movflags`), and
    the session manifest is rewritten on every state transition. Never "optimise" this away (D4).
 4. **Pause is a segment boundary**, stop is a concat with `-c copy`. No SIGSTOP, no second ffmpeg (D4).
 5. **No absolute paths in any document or script.** Paths are relative to the repository, or to the

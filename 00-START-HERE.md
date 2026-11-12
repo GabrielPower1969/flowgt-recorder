@@ -1,3 +1,4 @@
+> **2026-11-12 Windows 上架版**：新增 `scripts/build-ffmpeg-win.sh`（从 ffmpeg.org 源码编的独立 LGPL 2.1 ffmpeg）和 `scripts/build-store-win.ps1`（打出 MSIX 包，31 MB）。包能打出来、清单通过校验、包里的程序直接运行时真录通过；**包没有装过**（不改系统设置装不上），也没有提交过。分支 `win/store-msix`（草稿 PR），结果和留给 Gabriel 的事见 `docs/reports/07-Windows-上架版重构-2026-11-12.md`，英文说明见 `docs/WINDOWS-STORE.md`。
 > **2026-11-12 Mac 上架版**：新增 `scripts/build-mas.sh`，打出符合 Mac App Store 要求的包（全部进沙箱、独立 LGPL ffmpeg、不用私有接口）。本机测试签名下真录通过；上传还差 Apple 证书。分支 `mac/app-store-sandbox`（草稿 PR），结果和留给 Gabriel 的事见 `docs/reports/06-Mac-上架版重构-2026-11-12.md`，英文说明见 `docs/MAC-APP-STORE.md`。
 > **2026-11-11 Mac 验收（Faceplate ＋ 新图标）**：PR #15、#16 在 Mac 上合并、打包、真录通过；修了标题栏按钮压面板、窗口不能拖、屏幕名三处（分支 `mac/faceplate-fixes`，草稿 PR）。没修的和要人工看的见 `docs/reports/03-Mac验收-Faceplate-2026-11-11.md`。
 > **Windows 状态（2026-11-11）**：第一次在真机上跑通。四项自动检查全绿（需合上 3 个修复）；屏幕＋摄像头＋麦克风能录成 HEVC 1080p 的 MP4，每小时约 388 MB，两次 30 分钟长录完整；修了 8 个问题。没有人看过或听过录像，音画同步没有用真实信号测，电脑声音录不了，CI 因 GitHub 账单问题没有运行。16 个草稿 PR 待审（#15 是按新设计重做的界面「Faceplate」，#16 是新的应用图标）。详见 `docs/reports/02-Windows通宵开发-2026-11-11.md`。
@@ -51,6 +52,7 @@ shows a notice until it is back. Collapsible to the bar with the chevron; dragga
 |---|---|---|
 | 01 | `docs/reports/01-首版验收报告-2026-11-04.html` | **待写**：首版验收，测试、自检、基准、本机真录 |
 | 03 | `docs/reports/03-Mac验收-Faceplate-2026-11-11.md` | Faceplate 界面与新图标在 Mac 上的逐项验收：命令输出、真录、修了什么、没修什么、要人工看的 |
+| 07 | `docs/reports/07-Windows-上架版重构-2026-11-12.md` | Windows 上架版：MSIX 包、独立 LGPL ffmpeg、系统自带编码器；微软硬要求逐条对照、实测结果、没验证的、留给 Gabriel 的事 |
 | 06 | `docs/reports/06-Mac-上架版重构-2026-11-12.md` | Mac 上架版：沙箱、独立 LGPL ffmpeg、去掉私有接口；沙箱里的实测结果、没验证的、留给 Gabriel 的事（04、05 两份还在本机，未提交） |
 | 02 | `docs/reports/02-Windows通宵开发-2026-11-11.md` | Windows 第一次真机：环境、修复、测试矩阵、体验问题、要人做的事 |
 
