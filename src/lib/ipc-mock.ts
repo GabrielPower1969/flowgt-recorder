@@ -242,6 +242,7 @@ export class MockBackend implements Transport {
       this.scroll = "selecting";
     },
     scroll_capture_backdrop: () => ({ path: "/tmp/still.jpg" }),
+    scroll_capture_progress: () => null,
     scroll_capture_start: (_args: { rect: LogicalRect }) => {
       this.scroll = "capturing";
       this.emit("scroll://progress", { width: 800, height: 600, frames: 1, thumbnail: null, newestAt: 0 });

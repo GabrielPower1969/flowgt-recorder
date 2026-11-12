@@ -520,6 +520,9 @@ describe("quality", () => {
     expect(screen.getByRole("button", { name: "1080p" })).toHaveAttribute("aria-pressed", "true");
     await fireEvent.click(screen.getByRole("button", { name: "4K" }));
     await waitFor(() => expect(mock.settings.video.maxWidth).toBe(3840));
+    // The budget that was fine for 1080p would leave 3840 × 2160 soft: it is raised, and said.
+    expect(mock.settings.video.targetMbPerHour).toBe(1150);
+    expect(getToasts().some((x) => x.text.includes("1150"))).toBe(true);
   });
 
   it("4K is not offered for a screen that has no more pixels than 1440p", async () => {

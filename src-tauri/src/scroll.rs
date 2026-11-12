@@ -194,6 +194,26 @@ pub fn start(app: &AppHandle, rect: LogicalRect) -> CmdResult<()> {
     }
 }
 
+/// Where the picture stands, for a window that opened after the first frame had arrived.
+pub fn progress() -> Option<ScrollProgress> {
+    let stitcher = match SESSION.lock().expect("scroll lock").as_ref() {
+        Some(Session::Capturing(c)) => c.stitcher.clone(),
+        _ => return None,
+    };
+    let st = stitcher.lock().expect("stitcher lock");
+    if st.height() == 0 {
+        return None;
+    }
+    let (thumbnail, newest_at) = thumbnail(&st);
+    Some(ScrollProgress {
+        width: st.width(),
+        height: st.height(),
+        frames: 0,
+        thumbnail,
+        newest_at,
+    })
+}
+
 /// Step 3: stop reading, save the picture, put it on the clipboard, bring the main window back.
 pub fn finish(app: &AppHandle) -> CmdResult<ScrollShot> {
     let capturing = match SESSION.lock().expect("scroll lock").take() {
@@ -483,8 +503,20 @@ mod platform {
             .ok_or_else(|| CommandError::new("error.unsupported", "the capture helper is missing"))
     }
 
-    /// A full-size still of the screen as a JPEG in the temp folder.
+    /// A full-size still of the screen as a JPEG in the temp folder. The capture service can be
+    /// busy for a moment (the monitor's own thumbnail), so one failure is tried again.
     pub async fn still(screen: usize) -> CmdResult<PathBuf> {
+        match still_once(screen).await {
+            Ok(p) => Ok(p),
+            Err(first) => {
+                log::warn!("the still for the selection failed once: {}", first.detail);
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                still_once(screen).await
+            }
+        }
+    }
+
+    async fn still_once(screen: usize) -> CmdResult<PathBuf> {
         let d = display(screen)?;
         let file = std::env::temp_dir().join(format!(
             "flowgt-still-{}-{}.jpg",

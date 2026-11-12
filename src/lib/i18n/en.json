@@ -341,7 +341,7 @@
   "settings.shortcuts.reset": "Reset all to defaults",
   "shortcut.clear": "Clear",
   "shortcut.none": "Not set",
-  "face.key.scroll": "Long shot",
+  "face.key.scroll": "Scroll",
   "scroll.key": "Scrolling screenshot",
   "scroll.select.hint": "Drag over the area to capture. Then scroll the page yourself; the picture grows as you go. Esc cancels.",
   "scroll.select.tooSmall": "Too small. Drag a larger area.",
@@ -363,5 +363,6 @@
   "error.scrollTooSmall": "The area is too small",
   "error.captureFailed": "Capturing the screen failed",
   "error.sourceNotFound": "That screen is not there",
-  "error.internal": "Internal error"
+  "error.internal": "Internal error",
+  "face.budgetRaised": "Budget raised to {mb} MB per hour so the larger picture stays sharp"
 }

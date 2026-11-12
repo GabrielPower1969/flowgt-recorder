@@ -11,6 +11,7 @@
   import { toast } from "../lib/stores/toasts.svelte";
   import { budgetFromMbPerHour, formatBytes, formatMbps, outputSize, previewFilename, QUALITY_STEPS, qualityAvailable, qualityOf, suggestedMbPerHour, type QualityKey } from "../lib/format";
   import { __setLastResult } from "../lib/stores/recorder.svelte";
+  import logo from "../assets/brand/logo-256.png";
   import Segmented from "../lib/components/Segmented.svelte";
   import ShortcutField from "../lib/components/ShortcutField.svelte";
   import StagePreview from "../lib/components/StagePreview.svelte";
@@ -213,6 +214,7 @@
         {/each}
       {/if}
     {:else}
+      <div class="brand"><img src={logo} alt="" width="72" height="72" /><strong>{t("app.name")}</strong></div>
       <dl class="about">
         <dt>{t("settings.about.version")}</dt><dd class="mono">{info?.version ?? "…"}</dd>
         <dt>{t("settings.about.platform")}</dt><dd>{info ? t(`platform.${info.platform}`) : "…"}</dd>
@@ -225,6 +227,7 @@
 </div>
 
 <style>
+  .brand { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-lg); }
   .err { color: var(--color-danger); font-size: var(--text-sm); }
   .head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
   .layout { display: flex; flex-direction: column; gap: var(--space-4); }

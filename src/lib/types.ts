@@ -299,6 +299,7 @@ export interface Commands {
   shortcut_status: () => Partial<Record<ShortcutName, ShortcutState>>;
   scroll_capture_begin: () => void; // hides the main window and opens the selection
   scroll_capture_backdrop: () => { path: string };
+  scroll_capture_progress: () => ScrollProgress | null; // null before the first frame
   scroll_capture_start: (args: { rect: LogicalRect }) => void;
   scroll_capture_finish: () => ScrollShot;
   scroll_capture_cancel: () => void;
