@@ -17,9 +17,6 @@
 # Without them the script uses placeholder values: good for checking that the package builds, not
 # for an upload.
 #
-#   -Unsigned    adds the marker Windows 11 wants in the publisher of a package that is installed
-#                unsigned, for a local test:  Add-AppxPackage -Path <msix> -AllowUnsigned
-#                (from an administrator PowerShell). Never upload a package built with -Unsigned.
 #   -SkipBuild   reuse the app already built by an earlier run.
 #   -FfmpegDir   take ffmpeg / ffprobe, the notice and the licence text from this folder instead of
 #                src-tauri/binaries (see FFMPEG_OUT_DIR in scripts/build-ffmpeg-win.sh).
@@ -37,7 +34,6 @@ param(
   [string]$Publisher = 'CN=FlowGT-Local-Test',
   [string]$PublisherDisplayName = 'FlowGT',
   [string]$DisplayName = 'FlowGT Recorder',
-  [switch]$Unsigned,
   [switch]$SkipBuild,
   [string]$FfmpegDir = ''
 )
@@ -237,7 +233,6 @@ $version = "$($conf.version).0"
 if ($version -notmatch '^[1-9]\d*\.\d+\.\d+\.0$' -and $version -notmatch '^0\.\d+\.\d+\.0$') { Fail "version $version is not a.b.c.0" }
 if ($version -match '^0\.') { Note ''; Note "note: version $version starts with 0. The Store does not accept that; set a version of 1.0.0 or higher in tauri.conf.json before an upload." }
 $publisherValue = $Publisher
-if ($Unsigned) { $publisherValue = "$Publisher, OID.2.25.311729368913984317654407730594956997722=1" }
 $xml = Get-Content (Join-Path $Root 'src-tauri/msix/AppxManifest.xml') -Raw
 foreach ($pair in @{ k = 'IDENTITY_NAME'; v = $IdentityName }, @{ k = 'VERSION'; v = $version }, @{ k = 'PUBLISHER'; v = $publisherValue },
     @{ k = 'PUBLISHER_DISPLAY_NAME'; v = $PublisherDisplayName }, @{ k = 'DISPLAY_NAME'; v = $DisplayName }) {
@@ -271,8 +266,7 @@ if ($LASTEXITCODE -ne 0) { Fail 'makepri createconfig failed' }
 & $makepri new /pr $Layout /cf $priConfig /mn (Join-Path $Layout 'AppxManifest.xml') /of (Join-Path $Layout 'resources.pri') /o | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail 'makepri new failed' }
 
-$suffix = if ($Unsigned) { '-unsigned-test' } else { '' }
-$msix = Join-Path $Out "FlowGT-Recorder_${version}_x64$suffix.msix"
+$msix = Join-Path $Out "FlowGT-Recorder_${version}_x64.msix"
 $packLog = & $makeappx pack /d $Layout /p $msix /o
 if ($LASTEXITCODE -ne 0) { $packLog | Select-Object -Last 15 | ForEach-Object { Write-Host $_ }; Fail 'makeappx pack failed (the manifest did not validate, or a file is missing)' }
 
@@ -282,5 +276,4 @@ Note "identity: Name=$IdentityName  Publisher=$publisherValue  Version=$version"
 Note ("package:  {0}  {1:N0} bytes" -f (Split-Path -Leaf $msix), (Get-Item $msix).Length)
 Note "sha256:   $((Get-FileHash -Algorithm SHA256 $msix).Hash.ToLower())"
 if ($IdentityName -eq 'FlowGT.Recorder') { Note 'identity is the placeholder: pass -IdentityName, -Publisher and -PublisherDisplayName from Partner Center for an upload' }
-if ($Unsigned) { Note 'built with -Unsigned: for a local test only, never upload this file' }
 Write-Host "PASS: $msix"
