@@ -11,6 +11,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 body[data-window="floating"] { background: transparent; overflow: hidden; }
+/* A window that cannot be see-through (Mac App Store build): the page is the bar. */
+html[data-opaque] body[data-window="floating"] { background: var(--color-plate); }
 body[data-window="main"] { overflow: hidden; }
 #app { min-height: 100%; }
 h1, h2, h3 { margin: 0; line-height: var(--leading-tight); }

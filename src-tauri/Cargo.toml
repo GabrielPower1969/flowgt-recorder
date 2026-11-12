@@ -15,6 +15,10 @@ members = ["crates/core"]
 name = "flowgt_recorder_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Mac App Store build: App Sandbox, no private macOS calls. See scripts/build-mas.sh.
+mas = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
