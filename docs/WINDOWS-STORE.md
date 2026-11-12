@@ -89,14 +89,22 @@ powershell -ExecutionPolicy Bypass -File scripts/build-store-win.ps1 `
 and set `version` in `src-tauri/tauri.conf.json` to 1.0.0 or higher first: the Store does not take a
 version that starts with 0.
 
-For a local install on Windows 11 without any certificate, build with `-Unsigned` and run, from an
-**administrator** PowerShell, `Add-AppxPackage -Path <file>-unsigned-test.msix -AllowUnsigned`. That
-package has a different identity from the real one by design and must never be uploaded.
+For a local install without a certificate, turn on Developer Mode in Windows Settings and register the
+package contents in place (no elevation needed):
+
+```powershell
+Add-AppxPackage -Register src-tauri/target/store-win/layout/AppxManifest.xml
+```
+
+The app then runs from `layout/` with package identity; do not delete or rebuild that folder while it is
+registered. An unsigned `.msix` is not a route for this app: `Add-AppxPackage -AllowUnsigned` refuses any
+package with an executable in it, elevated or not ("an unsigned package cannot include Executable
+activations", `0x80073D2B`, seen 2026-11-12).
 
 ## Known gaps
 
 - **The package has never been installed.** On the build machine every route was refused without a
-  settings change: unsigned (`0x800B0100`), `-AllowUnsigned` without elevation (`0x80073D2B`), loose-file
+  settings change: unsigned (`0x800B0100`), `-AllowUnsigned` (`0x80073D2B`: not allowed for a package with an executable), loose-file
   registration without Developer Mode (`0x80073CFF`). Everything measured was measured by starting the
   programs in `layout/` directly, so without package identity. Not measured with identity: install,
   first launch, the camera and microphone consent, where settings land, uninstall.
