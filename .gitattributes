@@ -1,0 +1,2 @@
+# Shell scripts that run under Linux or WSL must keep LF line endings on a Windows checkout.
+scripts/build-ffmpeg-win.sh text eol=lf
