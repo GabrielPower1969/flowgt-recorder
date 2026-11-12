@@ -1,12 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { AppInfo, CameraSettings, Corner, PipShape, RecoverableSession, Settings, Theme, Language } from "../lib/types";
+  import type { AppInfo, AutostartStatus, CameraSettings, Corner, Device, PipShape, RecoverableSession, Settings, ShortcutName, ShortcutState, Theme, Language } from "../lib/types";
+  import { getCapabilities } from "../lib/stores/capabilities.svelte";
+  import { defaultSettings } from "../lib/defaults";
+  import { errorMessage } from "../lib/ipc";
   import { invoke } from "../lib/ipc";
   import { t } from "../lib/stores/i18n.svelte";
   import { navigate } from "../lib/router.svelte";
   import { getSettings, updateSettings } from "../lib/stores/settings.svelte";
   import { toast } from "../lib/stores/toasts.svelte";
-  import { budgetFromMbPerHour, formatBytes, formatMbps, previewFilename } from "../lib/format";
+  import { budgetFromMbPerHour, formatBytes, formatMbps, outputSize, previewFilename, QUALITY_STEPS, qualityAvailable, qualityOf, suggestedMbPerHour, type QualityKey } from "../lib/format";
   import { __setLastResult } from "../lib/stores/recorder.svelte";
   import Segmented from "../lib/components/Segmented.svelte";
   import ShortcutField from "../lib/components/ShortcutField.svelte";
@@ -24,6 +27,51 @@
   const budget = $derived(budgetFromMbPerHour(s.video.targetMbPerHour, s.audio.bitrateKbps, s.audio.tracks === "separate" ? 2 : 1));
   const save = (patch: (x: Settings) => void) => void updateSettings(patch);
   const num = (e: Event) => Number((e.target as HTMLInputElement).value);
+
+  const caps = $derived(getCapabilities());
+
+  // Quality: what the chosen screen has, what the file will have, and whether the budget fits.
+  let screens = $state<Device[]>([]);
+  const screen = $derived(screens.find((d) => s.capture.kind !== "window" && d.id === s.capture.displayId) ?? screens.find((d) => d.isDefault) ?? screens[0] ?? null);
+  const out = $derived(outputSize(screen, s.video.maxWidth));
+  const quality = $derived(qualityOf(s.video.maxWidth));
+  const wantMb = $derived(suggestedMbPerHour(out.width, out.height));
+  const setQuality = (key: QualityKey) => save((x) => (x.video.maxWidth = QUALITY_STEPS.find((q) => q.key === key)!.maxWidth));
+
+  // Start at login: the system holds the answer, so it is asked, never remembered.
+  let autostart = $state<AutostartStatus>("unsupported");
+  async function setAutostart(on: boolean) {
+    try {
+      autostart = await invoke("autostart_set", { enabled: on });
+    } catch (e) {
+      toast("error", errorMessage(e));
+      autostart = await invoke("autostart_status");
+    }
+  }
+
+  // Shortcuts: which ones the system really gave us.
+  const SHORTCUTS: { name: ShortcutName; optional: boolean; offered: () => boolean }[] = [
+    { name: "toggle", optional: false, offered: () => true },
+    { name: "pause", optional: false, offered: () => true },
+    { name: "scrollCapture", optional: true, offered: () => caps.scrollCapture },
+    { name: "showWindow", optional: true, offered: () => true },
+  ];
+  let shortcutState = $state<Partial<Record<ShortcutName, ShortcutState>>>({});
+  const refreshShortcuts = () => invoke("shortcut_status").then((r) => (shortcutState = r)).catch(() => {});
+  async function setShortcut(name: ShortcutName, accel: string) {
+    const other = SHORTCUTS.find((o) => o.name !== name && accel && s.shortcuts[o.name].toLowerCase() === accel.toLowerCase());
+    if (other) {
+      toast("error", t("settings.shortcuts.duplicate", { other: t(`settings.shortcuts.${other.name}`) }));
+      return;
+    }
+    await updateSettings((x) => (x.shortcuts[name] = accel));
+    await refreshShortcuts();
+  }
+  async function resetShortcuts() {
+    await updateSettings((x) => (x.shortcuts = defaultSettings().shortcuts));
+    await refreshShortcuts();
+  }
+  const shortcutProblem = (name: ShortcutName) => (shortcutState[name] === "taken" ? t("settings.shortcuts.taken") : shortcutState[name] === "invalid" ? t("settings.shortcuts.invalid") : "");
 
   const patchCamera = (p: Partial<CameraSettings>) => save((x) => Object.assign(x.camera, p));
   // The camera only while its tab is open.
@@ -64,6 +112,9 @@
   onMount(() => {
     void invoke("get_app_info").then((i) => (info = i));
     void loadRecoverable();
+    void invoke("list_devices").then((d) => (screens = d.screens)).catch(() => {});
+    void invoke("autostart_status").then((a) => (autostart = a)).catch(() => {});
+    void refreshShortcuts();
   });
 </script>
 
@@ -101,6 +152,15 @@
         <input type="range" min="0" max="10" value={s.countdownSeconds} onchange={(e) => save((x) => (x.countdownSeconds = num(e)))} /></label>
       <label class="field"><span>{t("settings.general.lowDisk")} · {t("settings.general.lowDiskValue", { gb: s.lowDiskWarnGb })}</span>
         <input type="range" min="1" max="50" value={s.lowDiskWarnGb} onchange={(e) => save((x) => (x.lowDiskWarnGb = num(e)))} /></label>
+      {#if caps.autostart}
+        <div class="field">
+          <label class="row"><input type="checkbox" data-testid="autostart" checked={autostart === "on" || autostart === "needsApproval"} onchange={(e) => setAutostart((e.target as HTMLInputElement).checked)} /> {t("settings.general.autostart")}</label>
+          {#if autostart === "needsApproval"}
+            <div class="row"><span class="err" data-testid="autostart-approval">{t("settings.general.autostartApproval")}</span><button type="button" class="btn btn-sm" onclick={() => invoke("open_login_items_settings")}>{t("settings.general.autostartOpen")}</button></div>
+          {/if}
+          <label class="row faint"><input type="checkbox" checked={s.startHiddenOnLogin} disabled={autostart === "off"} onchange={(e) => save((x) => (x.startHiddenOnLogin = (e.target as HTMLInputElement).checked))} /> {t("settings.general.autostartHidden")}</label>
+        </div>
+      {/if}
     {:else if tab === "camera"}
       <StagePreview camera={s.camera} {stream} onchange={patchCamera} />
       <div class="field"><span class="label">{t("main.camera.corner")}</span>
@@ -116,8 +176,14 @@
         <span class="faint mono" data-testid="target-live">{t("settings.video.targetLive", { mbps: formatMbps(budget.totalKbps).replace(" Mbps", ""), video: budget.videoKbps })}</span></label>
       <div class="field"><span class="label">{t("settings.video.fps")}</span>
         <Segmented label={t("settings.video.fps")} value={String(s.video.fps)} onchange={(v: string) => save((x) => (x.video.fps = Number(v)))} options={["24", "30", "60"].map((v) => ({ value: v, label: v }))} /></div>
-      <div class="field"><span class="label">{t("settings.video.maxWidth")}</span>
-        <Segmented label={t("settings.video.maxWidth")} value={String(s.video.maxWidth)} onchange={(v: string) => save((x) => (x.video.maxWidth = Number(v)))} options={["1280", "1920", "2560"].map((v) => ({ value: v, label: v }))} /></div>
+      <div class="field"><span class="label">{t("settings.video.quality")}</span>
+        <Segmented label={t("settings.video.quality")} value={quality} onchange={setQuality} options={QUALITY_STEPS.map((q) => ({ value: q.key, label: t(`quality.${q.key}`), disabled: !qualityAvailable(q.key, screen?.width), hint: !qualityAvailable(q.key, screen?.width) && screen ? t("settings.video.qualityTooBig", { w: screen.width ?? 0, h: screen.height ?? 0 }) : undefined }))} />
+        {#if screen?.width}<span class="faint mono" data-testid="quality-out">{t("settings.video.qualityHint", { w: screen.width, h: screen.height ?? 0, ow: out.width, oh: out.height })}</span>{/if}
+        {#if s.video.targetMbPerHour < wantMb * 0.8}
+          <div class="row"><span class="err" data-testid="budget-low">{t("settings.video.budgetLow", { mb: wantMb })}</span><button type="button" class="btn btn-sm" onclick={() => save((x) => (x.video.targetMbPerHour = Math.min(2000, wantMb)))}>{t("settings.video.budgetRaise", { mb: Math.min(2000, wantMb) })}</button></div>
+        {/if}
+        {#if out.width > 2560 && s.video.fps >= 60 && info?.encoder && !info.encoder.hardware}<span class="err">{t("settings.video.heavy")}</span>{/if}
+      </div>
       <div class="field"><span class="label">{t("settings.video.encoder")}</span>
         <Segmented label={t("settings.video.encoder")} value={s.video.encoderPreference} onchange={(v: Settings["video"]["encoderPreference"]) => save((x) => (x.video.encoderPreference = v))} options={(["auto", "hevc", "h264"] as const).map((v) => ({ value: v, label: t(`settings.video.encoder.${v}`) }))} /></div>
     {:else if tab === "audio"}
@@ -126,8 +192,11 @@
       <div class="field"><span class="label">{t("settings.audio.bitrate")}</span>
         <Segmented label={t("settings.audio.bitrate")} value={String(s.audio.bitrateKbps)} onchange={(v: string) => save((x) => (x.audio.bitrateKbps = Number(v)))} options={["64", "96", "128"].map((v) => ({ value: v, label: `${v} kbps` }))} /></div>
     {:else if tab === "shortcuts"}
-      <ShortcutField label={t("settings.shortcuts.toggle")} value={s.shortcuts.toggle} onchange={(v) => save((x) => (x.shortcuts.toggle = v))} />
-      <ShortcutField label={t("settings.shortcuts.pause")} value={s.shortcuts.pause} onchange={(v) => save((x) => (x.shortcuts.pause = v))} />
+      {#each SHORTCUTS.filter((o) => o.offered()) as o (o.name)}
+        <ShortcutField label={t(`settings.shortcuts.${o.name}`)} value={s.shortcuts[o.name]} optional={o.optional} problem={shortcutProblem(o.name)} onchange={(v) => setShortcut(o.name, v)} />
+      {/each}
+      <p class="faint">{t("settings.shortcuts.hint")}</p>
+      <div><button type="button" class="btn btn-sm" data-testid="shortcuts-reset" onclick={resetShortcuts}>{t("settings.shortcuts.reset")}</button></div>
     {:else if tab === "recovery"}
       {#if recoverable.length === 0}
         <p class="muted">{t("settings.recovery.empty")}</p>
@@ -156,6 +225,7 @@
 </div>
 
 <style>
+  .err { color: var(--color-danger); font-size: var(--text-sm); }
   .head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
   .layout { display: flex; flex-direction: column; gap: var(--space-4); }
   .nav { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); border-bottom: 1px solid var(--color-border); }

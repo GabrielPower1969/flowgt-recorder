@@ -60,6 +60,16 @@ final class ArgumentTests: XCTestCase {
         XCTAssertThrowsError(try ArgumentParser.parse(["--bogus"]))
     }
 
+    func testScroll() throws {
+        XCTAssertEqual(
+            try ArgumentParser.parse(["--scroll", "--display", "1", "--crop", "10,20,800,600", "--exclude-pid", "42"]),
+            .scroll(ScrollOptions(display: 1, crop: CropSpec(x: 10, y: 20, w: 800, h: 600), excludePid: 42, fps: 10))
+        )
+        XCTAssertThrowsError(try ArgumentParser.parse(["--scroll", "--display", "1"]))
+        XCTAssertThrowsError(try ArgumentParser.parse(["--scroll", "--window", "3", "--crop", "0,0,100,100"]))
+        XCTAssertThrowsError(try ArgumentParser.parse(["--scroll", "--snapshot", "--display", "1", "--crop", "0,0,100,100"]))
+    }
+
     func testSnapshot() throws {
         XCTAssertEqual(
             try ArgumentParser.parse(["--snapshot", "--window", "12", "--out", "t.jpg"]),

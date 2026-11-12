@@ -113,8 +113,26 @@ public struct SnapshotOptions: Equatable {
     }
 }
 
+/// `--scroll`: raw frames of one rectangle of a display on stdout, for a scrolling screenshot.
+public struct ScrollOptions: Equatable {
+    public var display: UInt32
+    /// The rectangle in the display's native pixels; every frame has exactly this size.
+    public var crop: CropSpec
+    public var excludePid: Int32?
+    public var fps: Int
+
+    public init(display: UInt32, crop: CropSpec, excludePid: Int32?, fps: Int) {
+        self.display = display
+        self.crop = crop
+        self.excludePid = excludePid
+        self.fps = fps
+    }
+}
+
 public enum Command: Equatable {
     case record(RecordOptions)
+    /// `--scroll --display <id> --crop x,y,w,h [--exclude-pid <pid>] [--fps 10]`.
+    case scroll(ScrollOptions)
     /// `--snapshot (--window <id> | --display <id>) --out <file.jpg> [--max-width 480]`.
     case snapshot(SnapshotOptions)
     /// `--list`: displays, windows, apps, cameras and microphones as JSON on stdout.
@@ -155,6 +173,7 @@ public enum ArgumentParser {
                  [--no-cursor] [--exclude-pid <pid>] [--duration <s>] [--fragment <s>]
                  [--preview <file.jpg>] [--preview-fps 8]
       sck-record --snapshot (--display <id> | --window <id>) --out <file.jpg> [--max-width 480]
+      sck-record --scroll --display <id> --crop x,y,w,h [--exclude-pid <pid>] [--fps 10]
       sck-record --list
       sck-record --check
       sck-record --help | --version
@@ -162,6 +181,8 @@ public enum ArgumentParser {
     The recording runs until "stop" arrives on stdin, stdin closes, SIGINT/SIGTERM, or --duration.
     stdout carries one JSON object per line: started, progress, warning, stopped, error.
     Audio tracks in the file, in order: system (if --system-audio), mic (if --mic).
+    --scroll writes one record per changed frame to stdout until stdin closes or says "stop":
+      "FGTF", width and height (two little-endian UInt32), then width*height*4 bytes of BGRA rows.
     --preview keeps a JPEG (480 px wide) of the latest output frame at that path, replaced atomically.
 
     EXIT CODES
@@ -200,6 +221,7 @@ public enum ArgumentParser {
         var list = false
         var check = false
         var snapshot = false
+        var scroll = false
         var maxWidth: Int?
         var help = false
         var version = false
@@ -228,6 +250,7 @@ public enum ArgumentParser {
             case "--list": list = true
             case "--check": check = true
             case "--snapshot": snapshot = true
+            case "--scroll": scroll = true
             case "--max-width": maxWidth = try parseInt(name, try value(), range: 16...8192)
             case "--display":
                 if source != nil { throw ArgumentError.conflicting(["--display", "--window", "--app"]) }
@@ -302,10 +325,16 @@ public enum ArgumentParser {
         var modes: [String] = []
         if list { modes.append("--list") }
         if check { modes.append("--check") }
-        if snapshot { modes.append("--snapshot") } else if source != nil || output != nil { modes.append("--out") }
+        if scroll { modes.append("--scroll") }
+        if snapshot { modes.append("--snapshot") } else if !scroll, source != nil || output != nil { modes.append("--out") }
         guard modes.count <= 1 else { throw ArgumentError.conflicting(modes) }
         if list { return .list }
         if check { return .check }
+        if scroll {
+            guard case .display(let id)? = source else { throw ArgumentError.missing("--display <id>") }
+            guard let crop, crop.w >= 16, crop.h >= 16 else { throw ArgumentError.missing("--crop x,y,w,h of at least 16x16") }
+            return .scroll(ScrollOptions(display: id, crop: crop, excludePid: excludePid, fps: min(max(fps ?? 10, 1), 30)))
+        }
         if snapshot {
             guard let source else { throw ArgumentError.missing("--display or --window") }
             if case .app = source { throw ArgumentError.invalidValue(option: "--snapshot", value: "--app", reason: "snapshots take a display or a window") }

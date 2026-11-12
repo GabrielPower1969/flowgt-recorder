@@ -59,6 +59,14 @@ The app runs ffmpeg and ffprobe as **separate sidecar processes** (D2); it never
 - The release checklist below is still open for Windows: the source tarball for this exact build is not
   archived, and upstream removes old autobuild releases, so the pinned URL will stop working one day.
 
+## Scrolling-screenshot stitching
+
+`src-tauri/crates/core/src/stitch.rs` is this project's own code. Its method (row hashes, runs of
+equal rows, a brightness check before a join) follows `longstitch` from
+[jietuba](https://github.com/1003129155/jietuba), MIT License, Copyright (c) 2025 JYAARU. The
+licence and the source were read on 2026-11-13 at commit `4c0d20f`. No file of that project is
+included. Level A.
+
 ## Patents
 
 HEVC and AAC are patent-encumbered formats. Encoding goes through the operating system's hardware

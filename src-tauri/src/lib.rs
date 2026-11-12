@@ -9,6 +9,8 @@ pub mod error;
 pub mod permissions;
 pub mod recorder;
 pub mod selftest;
+pub mod autostart;
+pub mod scroll;
 pub mod shortcuts;
 pub mod sidecar;
 pub mod state;
@@ -70,7 +72,14 @@ pub fn run() {
             }
             tray::build(&handle)?;
             match commands::load_settings(&handle) {
-                Ok(s) => shortcuts::register(&handle, &s),
+                Ok(s) => {
+                    shortcuts::register(&handle, &s);
+                    // Started by the system at login: stay in the menu bar / tray.
+                    if s.start_hidden_on_login && autostart::launched_at_login() {
+                        log::info!("started at login: the main window stays hidden");
+                        windows::hide_main(&handle);
+                    }
+                }
                 Err(e) => log::warn!("settings unavailable at startup: {e}"),
             }
             Ok(())

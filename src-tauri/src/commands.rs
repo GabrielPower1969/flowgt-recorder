@@ -198,6 +198,7 @@ pub async fn save_settings(app: AppHandle, settings: Settings) -> CmdResult<Sett
     let clean = recorder_core::settings::from_json(&json, Platform::current())?;
     store_settings(&app, &clean)?;
     crate::shortcuts::register(&app, &clean);
+    crate::tray::refresh_menu(&app, &clean);
     Ok(clean)
 }
 
@@ -350,7 +351,107 @@ pub async fn get_app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
 /// What this platform can do right now (S-2). Cheap: no ffmpeg is started.
 #[tauri::command]
 pub fn get_capabilities() -> Capabilities {
-    Capabilities::of(Platform::current(), find_record_helper().is_some(), find_helper().is_some())
+    let mut c = Capabilities::of(Platform::current(), find_record_helper().is_some(), find_helper().is_some());
+    c.scroll_capture = crate::scroll::supported();
+    c.autostart = crate::autostart::supported();
+    c
+}
+
+// ───────────────────────────── start at login ─────────────────────────────
+
+#[tauri::command]
+pub fn autostart_status() -> crate::autostart::AutostartStatus {
+    crate::autostart::status()
+}
+
+#[tauri::command]
+pub fn autostart_set(enabled: bool) -> CmdResult<crate::autostart::AutostartStatus> {
+    crate::autostart::set(enabled).map_err(|e| CommandError::new("error.autostart", e))
+}
+
+#[tauri::command]
+pub fn open_login_items_settings() {
+    crate::autostart::open_settings();
+}
+
+// ───────────────────────────── shortcuts ─────────────────────────────
+
+/// Per shortcut name: "ok", "taken" (another program holds it), "invalid" or "unset".
+#[tauri::command]
+pub fn shortcut_status() -> std::collections::BTreeMap<String, String> {
+    crate::shortcuts::status()
+}
+
+// ───────────────────────────── scrolling screenshot ─────────────────────────────
+
+#[tauri::command]
+pub async fn scroll_capture_begin(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    if state.recorder.phase().await != Phase::Idle {
+        return Err(CommandError::busy("a recording is in progress"));
+    }
+    if Platform::current() == Platform::MacOs && permissions::check().screen != PermissionState::Granted {
+        return Err(CommandError::new(
+            "error.permission",
+            "screen recording permission is not granted",
+        ));
+    }
+    let _turn = SNAPSHOT_TURN.lock().await;
+    crate::scroll::begin(&app).await
+}
+
+#[tauri::command]
+pub fn scroll_capture_backdrop() -> CmdResult<crate::scroll::ScrollBackdrop> {
+    crate::scroll::backdrop()
+}
+
+#[tauri::command]
+pub async fn scroll_capture_start(app: AppHandle, rect: crate::scroll::LogicalRect) -> CmdResult<()> {
+    crate::scroll::start(&app, rect)
+}
+
+#[tauri::command]
+pub async fn scroll_capture_finish(app: AppHandle) -> CmdResult<crate::scroll::ScrollShot> {
+    tauri::async_runtime::spawn_blocking(move || crate::scroll::finish(&app))
+        .await
+        .map_err(|e| CommandError::new("error.internal", e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn scroll_capture_cancel(app: AppHandle) -> CmdResult<()> {
+    let _ = tauri::async_runtime::spawn_blocking(move || crate::scroll::cancel(&app)).await;
+    Ok(())
+}
+
+/// The shortcut and the tray: start one, or finish the one that is running.
+pub async fn toggle_scroll_capture(app: &AppHandle) {
+    let result = if crate::scroll::active() {
+        let handle = app.clone();
+        match tauri::async_runtime::spawn_blocking(move || crate::scroll::finish(&handle)).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) if e.code == "error.busy" => {
+                // Still choosing the area: the same key backs out.
+                let handle = app.clone();
+                let _ = tauri::async_runtime::spawn_blocking(move || crate::scroll::cancel(&handle)).await;
+                Ok(())
+            }
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(CommandError::new("error.internal", e.to_string())),
+        }
+    } else {
+        let state = app.state::<AppState>();
+        if state.recorder.phase().await != Phase::Idle {
+            Err(CommandError::busy("a recording is in progress"))
+        } else {
+            crate::scroll::begin(app).await
+        }
+    };
+    if let Err(e) = result {
+        crate::windows::show_main(app);
+        let _ = app.emit(
+            "recorder://error",
+            json!({ "code": e.code, "detail": e.detail }),
+        );
+    }
 }
 
 // ───────────────────────────── permissions ─────────────────────────────
@@ -792,6 +893,9 @@ pub async fn build_params(
 /// Countdown, then start. Used by the command, the tray and the shortcut.
 pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderState> {
     let state = app.state::<AppState>();
+    if crate::scroll::active() {
+        return Err(CommandError::busy("a scrolling screenshot is in progress"));
+    }
     if Platform::current() == Platform::MacOs
         && permissions::check().screen != PermissionState::Granted
     {
@@ -1681,6 +1785,15 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         drive_sign_out,
         drive_upload,
         open_drive_link,
+        autostart_status,
+        autostart_set,
+        open_login_items_settings,
+        shortcut_status,
+        scroll_capture_begin,
+        scroll_capture_backdrop,
+        scroll_capture_start,
+        scroll_capture_finish,
+        scroll_capture_cancel,
     ]
 }
 

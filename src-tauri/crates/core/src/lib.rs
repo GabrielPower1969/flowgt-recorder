@@ -30,6 +30,7 @@ pub mod pip;
 pub mod progress;
 pub mod recovery;
 pub mod settings;
+pub mod stitch;
 pub mod types;
 
 #[cfg(test)]
