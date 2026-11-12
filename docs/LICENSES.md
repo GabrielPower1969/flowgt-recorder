@@ -28,6 +28,16 @@ The app runs ffmpeg and ffprobe as **separate sidecar processes** (D2); it never
   and the LGPL 2.1 text in `Contents/Resources/licenses/`. Not done: showing them in the About screen.
 - Legal reference: https://ffmpeg.org/legal.html (level B until read in full and quoted; not yet done).
 
+- **Windows (2026-11-12):** `scripts/build-ffmpeg-win.sh` builds ffmpeg 9.0.2 from
+  `https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz` (SHA-256
+  `8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e`; the release signature was checked by
+  hand against the same FFmpeg release key, "Good signature", 2026-11-12). LGPL 2.1 or later (no
+  `--enable-version3`), no external libraries, no network protocols; the video encoders are Windows' own
+  through Media Foundation. `scripts/build-store-win.ps1` puts the notice (source URL, hash, compiler,
+  configure line), the LGPL 2.1 text and the app's own licence in `licenses/` inside the MSIX package.
+  This settles the open point below for the Store variant: it ships LGPL 2.1, not the LGPL 3 development
+  build. Not done: showing the texts in the About screen.
+
 ### Windows development build (W-2, 2026-11-11)
 
 `scripts/fetch-ffmpeg.ps1` downloads one pinned build, checks its SHA-256, checks the licence and copies
