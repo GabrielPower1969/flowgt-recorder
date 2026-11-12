@@ -57,12 +57,15 @@ pub fn default_settings(platform: Platform) -> Settings {
         shortcuts: ShortcutSettings {
             toggle: "CmdOrCtrl+Shift+R".to_string(),
             pause: "CmdOrCtrl+Shift+P".to_string(),
+            scroll_capture: "Alt+Shift+S".to_string(),
+            show_window: String::new(),
         },
         countdown_seconds: 3,
         low_disk_warn_gb: 2,
         onboarding_done: false,
         save_local: true,
         save_drive: true,
+        start_hidden_on_login: true,
     }
 }
 
@@ -95,9 +98,11 @@ pub fn validate(settings: &Settings) -> crate::Result<()> {
     if !ALLOWED_FPS.contains(&s.video.fps) {
         problems.push(format!("video.fps: must be one of 24, 30 or 60, got {}", s.video.fps));
     }
-    if !MAX_WIDTH_RANGE.contains(&s.video.max_width) {
+    if s.video.max_width == 0 {
+        // No cap: the screen is recorded at its own size.
+    } else if !MAX_WIDTH_RANGE.contains(&s.video.max_width) {
         problems.push(format!(
-            "video.maxWidth: must be between {} and {}, got {}",
+            "video.maxWidth: must be 0 (the screen's own size) or between {} and {}, got {}",
             MAX_WIDTH_RANGE.start(),
             MAX_WIDTH_RANGE.end(),
             s.video.max_width
@@ -166,6 +171,21 @@ pub fn validate(settings: &Settings) -> crate::Result<()> {
     }
     if !toggle.is_empty() && toggle.eq_ignore_ascii_case(pause) {
         problems.push("shortcuts: toggle and pause must differ".to_string());
+    }
+    // The two optional shortcuts may be empty; a set one must not repeat another.
+    let all = [
+        ("toggle", toggle),
+        ("pause", pause),
+        ("scrollCapture", s.shortcuts.scroll_capture.trim()),
+        ("showWindow", s.shortcuts.show_window.trim()),
+    ];
+    for (i, (name, accel)) in all.iter().enumerate().skip(2) {
+        if accel.is_empty() {
+            continue;
+        }
+        if let Some((other, _)) = all[..i].iter().find(|(_, a)| a.eq_ignore_ascii_case(accel)) {
+            problems.push(format!("shortcuts: {name} and {other} must differ"));
+        }
     }
 
     if !s.output_dir.is_empty() && !looks_absolute(&s.output_dir) {
@@ -270,6 +290,9 @@ pub fn migrate(value: &mut Value, from_version: u32) {
             // already have the v1 layout, so nothing is renamed. Later bumps go here as
             // `1 => rename_xyz(fields)`.
             0 => {}
+            // 1 → 2: new keys only (shortcuts.scrollCapture, shortcuts.showWindow,
+            // startHiddenOnLogin); the defaults fill them. video.maxWidth gained the value 0.
+            1 => {}
             _ => {}
         }
         version += 1;
@@ -638,6 +661,43 @@ mod tests {
             s.filename_template = ok.to_string();
             validate(&s).unwrap_or_else(|e| panic!("{ok:?}: {e}"));
         }
+    }
+
+    #[test]
+    fn optional_shortcuts_may_be_empty_but_not_repeat() {
+        let mut s = default_settings(Platform::MacOs);
+        assert_eq!(s.shortcuts.scroll_capture, "Alt+Shift+S");
+        assert_eq!(s.shortcuts.show_window, "");
+        s.shortcuts.scroll_capture = String::new();
+        assert!(validate(&s).is_ok(), "both optional shortcuts empty");
+        s.shortcuts.scroll_capture = "cmdorctrl+shift+r".to_string();
+        assert!(validation_error(&s).contains("scrollCapture and toggle"));
+        s.shortcuts.scroll_capture = "Alt+Shift+S".to_string();
+        s.shortcuts.show_window = "Alt+Shift+S".to_string();
+        assert!(validation_error(&s).contains("showWindow and scrollCapture"));
+    }
+
+    #[test]
+    fn version_1_file_keeps_its_values_and_gains_the_new_keys() {
+        let s = from_json(
+            r#"{"version": 1, "video": {"maxWidth": 2560}, "shortcuts": {"toggle": "Alt+R", "pause": "Alt+P"}}"#,
+            Platform::MacOs,
+        )
+        .unwrap();
+        assert_eq!(s.version, SETTINGS_VERSION);
+        assert_eq!(s.video.max_width, 2560);
+        assert_eq!(s.shortcuts.toggle, "Alt+R");
+        assert_eq!(s.shortcuts.scroll_capture, "Alt+Shift+S");
+        assert!(s.start_hidden_on_login);
+    }
+
+    #[test]
+    fn max_width_zero_means_the_screens_own_size() {
+        let mut s = default_settings(Platform::MacOs);
+        s.video.max_width = 0;
+        assert!(validate(&s).is_ok());
+        s.video.max_width = 3840;
+        assert!(validate(&s).is_ok());
     }
 
     #[test]

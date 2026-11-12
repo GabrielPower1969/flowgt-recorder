@@ -108,14 +108,46 @@ export function previewFilename(template: string, name: string, date: Date = new
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => (key in tokens ? tokens[key] : whole));
 }
 
-/** Output frame size: width capped at maxWidth, height follows the aspect ratio, rounded to even. */
+/** The quality steps offered, as `video.maxWidth` values; 0 = the screen's own pixels. */
+export const QUALITY_STEPS = [
+  { maxWidth: 1280, key: "720p", mbPerHour: 250 },
+  { maxWidth: 1920, key: "1080p", mbPerHour: 400 },
+  { maxWidth: 2560, key: "1440p", mbPerHour: 700 },
+  { maxWidth: 3840, key: "4k", mbPerHour: 1500 },
+  { maxWidth: 0, key: "native", mbPerHour: 1500 },
+] as const;
+export type QualityKey = (typeof QUALITY_STEPS)[number]["key"];
+
+/** The step a stored `maxWidth` belongs to (an in-between value counts as the next step down). */
+export function qualityOf(maxWidth: number): QualityKey {
+  if (maxWidth === 0) return "native";
+  const capped = QUALITY_STEPS.filter((q) => q.maxWidth !== 0 && q.maxWidth <= maxWidth);
+  return (capped[capped.length - 1] ?? QUALITY_STEPS[0]).key;
+}
+
+/** A step needs a screen wider than the step below it; otherwise it would record the same picture. */
+export function qualityAvailable(key: QualityKey, screenWidth: number | null | undefined): boolean {
+  if (key === "native" || !screenWidth) return true;
+  const i = QUALITY_STEPS.findIndex((q) => q.key === key);
+  return i === 0 || screenWidth > QUALITY_STEPS[i - 1].maxWidth;
+}
+
+/** Megabytes per hour that keep this picture size sharp; below it the UI suggests raising the budget. */
+export function suggestedMbPerHour(width: number, height: number): number {
+  const megapixels = (width * height) / 1_000_000;
+  // 400 MB/h is the measured default for 1920×1080 (2.07 MP); larger pictures need less than
+  // proportionally more, because detail does not grow as fast as the pixel count.
+  return Math.round((400 * Math.pow(megapixels / 2.0736, 0.75)) / 50) * 50;
+}
+
+/** Output frame size: width capped at maxWidth (0 = no cap), height follows the aspect ratio, rounded to even. */
 export function outputSize(
   source: { width: number | null; height: number | null } | null | undefined,
   maxWidth: number,
 ): { width: number; height: number } {
   const srcW = source?.width && source.width > 0 ? source.width : 1920;
   const srcH = source?.height && source.height > 0 ? source.height : 1080;
-  const width = Math.min(srcW, maxWidth);
+  const width = maxWidth > 0 ? Math.min(srcW, maxWidth) : srcW;
   const scale = width / srcW;
   const height = Math.max(2, Math.round((srcH * scale) / 2) * 2);
   return { width: Math.round(width / 2) * 2, height };

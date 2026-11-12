@@ -6,7 +6,7 @@
  *
  * Tests drive it through the exported `mock` (reset(), emit(), calls, knobs).
  */
-import type { Capabilities, RecordingHistory } from "./types";
+import type { AutostartStatus, Capabilities, LogicalRect, RecordingHistory, ScrollShot, ShortcutName, ShortcutState } from "./types";
 import type {
   AppInfo,
   Device,
@@ -68,7 +68,7 @@ export function mockWindows(): WindowInfo[] {
 
 /** The mock is a Mac with the native helper: everything except per-app audio. */
 export function mockCapabilities(): Capabilities {
-  return { windowCapture: true, systemAudio: true, perAppAudio: false, camera: true, pictureInPicture: true, floatingBar: true, tray: true, globalShortcuts: true, pauseResume: true, livePreview: true, overlayTitleBar: true };
+  return { windowCapture: true, systemAudio: true, perAppAudio: false, camera: true, pictureInPicture: true, floatingBar: true, tray: true, globalShortcuts: true, pauseResume: true, livePreview: true, overlayTitleBar: true, scrollCapture: true, autostart: true };
 }
 
 export function mockAppInfo(): AppInfo {
@@ -104,6 +104,11 @@ export class MockBackend implements Transport {
   capabilities: Capabilities = mockCapabilities();
   disk = { freeBytes: 120_000_000_000, totalBytes: 1_000_000_000_000 };
   drive: DriveStatus = { configured: true, email: null };
+  autostart: AutostartStatus = "off";
+  /** Accelerators (lower case) another program holds: registering one of them reports "taken". */
+  takenShortcuts = new Set<string>();
+  /** A scrolling screenshot: null, choosing the area, or capturing. */
+  scroll: "selecting" | "capturing" | null = null;
   recoverable: RecoverableSession[] = [];
   state: RecorderState = idleRecorderState();
   lastResult: RecordingResult | null = null;
@@ -137,6 +142,9 @@ export class MockBackend implements Transport {
   reset(): void {
     this.clearTimers();
     this.settings = defaultSettings("macos");
+    this.autostart = "off";
+    this.takenShortcuts = new Set();
+    this.scroll = null;
     try {
       localStorage.removeItem(MOCK_STORAGE_KEY);
     } catch {
@@ -219,6 +227,35 @@ export class MockBackend implements Transport {
   private handlers: Handlers = {
     get_app_info: () => this.appInfo,
     get_capabilities: () => this.capabilities,
+    autostart_status: () => (this.capabilities.autostart ? this.autostart : "unsupported"),
+    autostart_set: ({ enabled }) => (this.autostart = enabled ? "on" : "off"),
+    open_login_items_settings: () => undefined,
+    shortcut_status: () => {
+      const out: Partial<Record<ShortcutName, ShortcutState>> = {};
+      for (const [name, accel] of Object.entries(this.settings.shortcuts) as [ShortcutName, string][]) {
+        out[name] = !accel.trim() ? "unset" : this.takenShortcuts.has(accel.trim().toLowerCase()) ? "taken" : "ok";
+      }
+      return out;
+    },
+    scroll_capture_begin: () => {
+      if (this.state.phase !== "idle") throw { code: "error.busy", detail: "a recording is in progress" };
+      this.scroll = "selecting";
+    },
+    scroll_capture_backdrop: () => ({ path: "/tmp/still.jpg" }),
+    scroll_capture_start: (_args: { rect: LogicalRect }) => {
+      this.scroll = "capturing";
+      this.emit("scroll://progress", { width: 800, height: 600, frames: 1, thumbnail: null, newestAt: 0 });
+    },
+    scroll_capture_finish: () => {
+      this.scroll = null;
+      const shot: ScrollShot = { path: `${this.settings.outputDir}/Screenshots/shot.png`, width: 800, height: 4200, copied: true };
+      this.emit("scroll://finished", shot);
+      return shot;
+    },
+    scroll_capture_cancel: () => {
+      this.scroll = null;
+      this.emit("scroll://cancelled", null);
+    },
     list_devices: () => this.devices,
     check_permissions: () => this.permissions,
     request_permission: ({ kind }) => {

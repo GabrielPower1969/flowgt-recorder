@@ -33,12 +33,13 @@ export function defaultSettings(platform: Platform = "macos"): Settings {
       offsetY: 0,
     },
     capture: { kind: "display", displayId: "" },
-    shortcuts: { toggle: "CmdOrCtrl+Shift+R", pause: "CmdOrCtrl+Shift+P" },
+    shortcuts: { toggle: "CmdOrCtrl+Shift+R", pause: "CmdOrCtrl+Shift+P", scrollCapture: "Alt+Shift+S", showWindow: "" },
     countdownSeconds: 3,
     lowDiskWarnGb: 5,
     onboardingDone: false,
     saveLocal: true,
     saveDrive: true,
+    startHiddenOnLogin: true,
   };
 }
 

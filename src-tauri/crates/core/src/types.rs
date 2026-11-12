@@ -29,7 +29,7 @@ impl Platform {
 
 // ───────────────────────────── settings ─────────────────────────────
 
-pub const SETTINGS_VERSION: u32 = 1;
+pub const SETTINGS_VERSION: u32 = 2;
 pub const DEFAULT_FILENAME_TEMPLATE: &str = "{date} {time} {name}";
 pub const DEFAULT_TARGET_MB_PER_HOUR: u32 = 400;
 
@@ -66,7 +66,8 @@ pub enum EncoderPreference {
 pub struct VideoSettings {
     /// Frames per second. 24 | 30 | 60.
     pub fps: u32,
-    /// Output width cap; Retina 2880 → 1920. Height follows aspect ratio, even.
+    /// Output width cap; Retina 2880 → 1920. Height follows aspect ratio, even. 0 = no cap: the
+    /// screen's own pixels. The UI offers 1280 (720p), 1920 (1080p), 2560 (1440p), 3840 (4K), 0.
     pub max_width: u32,
     /// Size budget, drives the bitrate (see budget.rs).
     pub target_mb_per_hour: u32,
@@ -176,6 +177,10 @@ pub struct ShortcutSettings {
     /// Tauri global-shortcut syntax, e.g. "CmdOrCtrl+Shift+R".
     pub toggle: String,
     pub pause: String,
+    /// Start a scrolling screenshot. Empty = no shortcut.
+    pub scroll_capture: String,
+    /// Show or hide the main window. Empty = no shortcut.
+    pub show_window: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -200,6 +205,9 @@ pub struct Settings {
     pub save_local: bool,
     /// Upload the finished recording to Google Drive (only takes effect when signed in).
     pub save_drive: bool,
+    /// When the system starts the app at login, stay in the menu bar / tray without a window.
+    /// Whether the app starts at login is the system's own record, not a setting here.
+    pub start_hidden_on_login: bool,
 }
 
 // ───────────────────────────── devices ─────────────────────────────
@@ -578,6 +586,12 @@ pub struct Capabilities {
     /// The system draws the window buttons over the top edge of the page and there is no title
     /// bar to drag: the page keeps a strip clear for them and moves the window from it.
     pub overlay_title_bar: bool,
+    /// A screen rectangle can be captured frame by frame for a scrolling screenshot. Set by the
+    /// shell when its capture path exists; `of` leaves it off.
+    pub scroll_capture: bool,
+    /// The app can add itself to, and remove itself from, the system's start-at-login list. Set
+    /// by the shell; `of` leaves it off.
+    pub autostart: bool,
 }
 
 impl Capabilities {
@@ -599,6 +613,8 @@ impl Capabilities {
             pause_resume: desktop,
             live_preview: desktop && native_engine,
             overlay_title_bar: matches!(platform, Platform::MacOs),
+            scroll_capture: false,
+            autostart: false,
         }
     }
 }

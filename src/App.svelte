@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { bindRouter, getRoute, navigate } from "./lib/router.svelte";
+  import { bindRouter, getRoute, navigate, TOOL_ROUTES } from "./lib/router.svelte";
   import { initPlatform } from "./lib/platform.svelte";
   import { loadCapabilities } from "./lib/stores/capabilities.svelte";
   import { loadSettings, getSettings, isLoaded } from "./lib/stores/settings.svelte";
@@ -14,18 +14,21 @@
   import Floating from "./routes/Floating.svelte";
   import Marker from "./routes/Marker.svelte";
   import History from "./routes/History.svelte";
+  import ScrollSelect from "./routes/ScrollSelect.svelte";
+  import ScrollFrame from "./routes/ScrollFrame.svelte";
+  import ScrollBar from "./routes/ScrollBar.svelte";
 
   const route = $derived(getRoute());
-  const isFloating = $derived(route === "/floating" || route === "/marker");
+  const isFloating = $derived(TOOL_ROUTES.includes(route));
 
   onMount(() => {
     const unbindRouter = bindRouter();
-    document.body.dataset.window = getRoute() === "/floating" || getRoute() === "/marker" ? "floating" : "main";
+    document.body.dataset.window = getRoute() === "/scroll-bar" || getRoute() === "/scroll-select" ? "tool" : TOOL_ROUTES.includes(getRoute()) ? "floating" : "main";
     void initPlatform();
     void loadCapabilities();
     const unbindEvents = bindRecorderEvents((r) => {
       // Only the main window shows the result: the floating bar and the screen outline are windows too.
-      if (getRoute() !== "/floating" && getRoute() !== "/marker" && r) navigate("/summary");
+      if (!TOOL_ROUTES.includes(getRoute()) && r) navigate("/summary");
     });
     const unbindDrive = bindDriveEvents();
     void refreshDrive();
@@ -44,6 +47,12 @@
 
 {#if route === "/marker"}
   <Marker />
+{:else if route === "/scroll-select"}
+  <ScrollSelect />
+{:else if route === "/scroll-frame"}
+  <ScrollFrame />
+{:else if route === "/scroll-bar"}
+  <ScrollBar />
 {:else if isFloating}
   <Floating />
 {:else if !isLoaded()}
