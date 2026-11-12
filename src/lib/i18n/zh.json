@@ -363,5 +363,6 @@
   "error.scrollTooSmall": "区域太小",
   "error.captureFailed": "截取屏幕失败",
   "error.sourceNotFound": "找不到这块屏幕",
-  "error.internal": "内部错误"
+  "error.internal": "内部错误",
+  "face.budgetRaised": "每小时预算已调到 {mb} MB，大画面才不会糊"
 }

@@ -212,8 +212,8 @@ Copy-Item (Join-Path $Bin 'ffmpeg-COPYING.LGPLv2.1.txt') (Join-Path $Layout 'lic
 Copy-Item (Join-Path $Root 'LICENSE') (Join-Path $Layout 'licenses/FlowGT-Recorder-LICENSE.txt')
 
 # Logos: the simple drawing for 50 px and smaller, the full one above (src-tauri/icons/README.md).
-$full = Join-Path $Root 'src-tauri/icons/icon-src.png'
-$small = Join-Path $Root 'src-tauri/icons/icon-src-small.png'
+$full = Join-Path $Root 'design/brand/icon-full-1024.png'
+$small = Join-Path $Root 'design/brand/icon-small-512.png'
 if (-not (Test-Path $small)) { $small = $full }
 $assets = Join-Path $Layout 'Assets'
 foreach ($scale in 100, 200, 400) {

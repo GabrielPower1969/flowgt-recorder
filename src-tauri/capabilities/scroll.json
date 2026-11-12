@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "scroll",
+  "description": "The scrolling-screenshot windows: they listen for progress and the bar can be dragged, nothing else",
+  "windows": ["scroll-select", "scroll-frame", "scroll-bar"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-start-dragging"
+  ]
+}

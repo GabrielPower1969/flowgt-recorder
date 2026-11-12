@@ -405,6 +405,11 @@ pub fn scroll_capture_backdrop() -> CmdResult<crate::scroll::ScrollBackdrop> {
 }
 
 #[tauri::command]
+pub fn scroll_capture_progress() -> Option<crate::scroll::ScrollProgress> {
+    crate::scroll::progress()
+}
+
+#[tauri::command]
 pub async fn scroll_capture_start(app: AppHandle, rect: crate::scroll::LogicalRect) -> CmdResult<()> {
     crate::scroll::start(&app, rect)
 }
@@ -1791,6 +1796,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         shortcut_status,
         scroll_capture_begin,
         scroll_capture_backdrop,
+        scroll_capture_progress,
         scroll_capture_start,
         scroll_capture_finish,
         scroll_capture_cancel,

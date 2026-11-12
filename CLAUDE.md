@@ -17,6 +17,8 @@ bash scripts/fetch-ffmpeg.sh                  # LGPL ffmpeg + ffprobe → src-ta
 bash scripts/build-mac.sh                     # helper + release .app (reads .env.google for sign-in)
 bash scripts/build-ffmpeg-mac.sh              # the ffmpeg/ffprobe a macOS release ships (LGPL, self-contained; ~10 min)
 bash scripts/build-mas.sh                     # Mac App Store variant: sandboxed, `--features mas` (needs the line above first)
+bash scripts/install-mac.sh                   # copy the app built last into /Applications (no sudo)
+bash scripts/make-icons.sh                    # every picture from design/brand/; `--check` fails on an unlisted or retired picture
 bash scripts/build-ffmpeg-win.sh              # the ffmpeg/ffprobe a Windows release ships (LGPL 2.1, self-contained; cross build on Linux/WSL/macOS)
 powershell -File scripts/build-store-win.ps1  # Microsoft Store variant: MSIX, `--features msix` (needs the line above first; docs/WINDOWS-STORE.md)
 

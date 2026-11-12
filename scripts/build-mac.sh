@@ -30,3 +30,6 @@ done
 codesign --force --keychain "$KC" -s "$ID" -i nz.co.flowgt.recorder "$APP"
 codesign --verify --strict "$APP" && echo "Signed: $(codesign -d -r- "$APP" 2>&1 | tail -1)"
 echo "Built: $APP"
+# Show it in Finder, so nobody has to look for it under target/. FLOWGT_NO_REVEAL=1 skips this.
+[ -n "${FLOWGT_NO_REVEAL:-}" ] || open -R "$APP" 2>/dev/null || true
+echo "To put it in /Applications: bash scripts/install-mac.sh mac"

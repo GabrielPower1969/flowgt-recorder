@@ -17,7 +17,7 @@
   import { openCamera, stopStream } from "../lib/media/camera";
   import { startLevelMeter } from "../lib/media/level";
   import { driveState, signInToGoogle } from "../lib/stores/drive.svelte";
-  import { formatBytes, formatDuration, formatHours, outputSize, QUALITY_STEPS, qualityAvailable, qualityOf, shortcutParts, type QualityKey } from "../lib/format";
+  import { formatBytes, formatDuration, formatHours, outputSize, QUALITY_STEPS, qualityAvailable, qualityOf, shortcutParts, suggestedMbPerHour, type QualityKey } from "../lib/format";
   import Reel from "../lib/components/Reel.svelte";
   import Lever from "../lib/components/Lever.svelte";
   import ScreenPicker from "../lib/components/ScreenPicker.svelte";
@@ -85,7 +85,18 @@
   /** The two quality steps on the plate; the others are in the settings. */
   const quality = $derived(qualityOf(settings.video.maxWidth));
   const outSize = $derived(outputSize(screens[screenIndex], settings.video.maxWidth));
-  const setQuality = (key: QualityKey) => void updateSettings((s) => { s.video.maxWidth = QUALITY_STEPS.find((q) => q.key === key)!.maxWidth; });
+  /** Choosing a larger picture on the plate also raises a budget that would leave it soft, and says so. */
+  async function setQuality(key: QualityKey) {
+    const maxWidth = QUALITY_STEPS.find((q) => q.key === key)!.maxWidth;
+    const size = outputSize(screens[screenIndex], maxWidth);
+    const want = Math.min(2000, suggestedMbPerHour(size.width, size.height));
+    const raise = settings.video.targetMbPerHour < want * 0.8;
+    await updateSettings((s) => {
+      s.video.maxWidth = maxWidth;
+      if (raise) s.video.targetMbPerHour = want;
+    });
+    if (raise) toast("ok", t("face.budgetRaised", { mb: want }));
+  }
 
   /** A key's tooltip: what it does and, when one is set, its global shortcut. */
   const hint = (label: string, accel: string) => (accel ? `${label}  ${shortcutParts(accel, getPlatform()).join(getPlatform() === "macos" ? "" : "+")}` : label);
@@ -343,8 +354,8 @@
         <button type="button" class="key" aria-label={st.phase === "countdown" ? t("common.cancel") : t("floating.stopLong")} disabled={!(live || st.phase === "countdown") || recorder.busy} onclick={stop}></button>
       </div>
       <div class="well keys-r"><button type="button" class="key" aria-label={t("common.settings")} aria-pressed={route === "/settings"} disabled={busy} onclick={() => toggleSheet("/settings")}></button></div>
-      {#if getCapabilities().scrollCapture}<span class="klabel" class:off={busy} aria-hidden="true" style:left="312px"><svg width="9" height="11" viewBox="0 0 9 11"><path d="M1 0h7v1H1zM4 2h1v5.3l2-2 .7.7L4.5 9.2 1.3 6l.7-.7 2 2zM1 10h7v1H1z" fill="currentColor" /></svg>{t("face.key.scroll")}</span>{/if}
-      <span class="klabel" class:off={busy} aria-hidden="true" style:left="374px"><svg width="13" height="9" viewBox="0 0 13 9"><path d="M6 0v9L0 4.5zM13 0v9L7 4.5z" fill="currentColor" /></svg>{t("face.key.history")}</span>
+      {#if getCapabilities().scrollCapture}<span class="klabel" class:off={busy} aria-hidden="true" style:left="322px" style:width="60px"><svg width="9" height="11" viewBox="0 0 9 11"><path d="M1 0h7v1H1zM4 2h1v5.3l2-2 .7.7L4.5 9.2 1.3 6l.7-.7 2 2zM1 10h7v1H1z" fill="currentColor" /></svg>{t("face.key.scroll")}</span>{/if}
+      <span class="klabel" class:off={busy} aria-hidden="true" style:left={getCapabilities().scrollCapture ? "384px" : "374px"} style:width={getCapabilities().scrollCapture ? "60px" : undefined}><svg width="13" height="9" viewBox="0 0 13 9"><path d="M6 0v9L0 4.5zM13 0v9L7 4.5z" fill="currentColor" /></svg>{t("face.key.history")}</span>
       <span class="klabel" class:off={!live} aria-hidden="true" style:left="474px"><svg width="8" height="9" viewBox="0 0 8 9">{#if paused}<path d="M0 0v9l8-4.5z" fill="currentColor" />{:else}<path d="M0 0h3v9H0zM5 0h3v9H5z" fill="currentColor" />{/if}</svg>{paused ? t("floating.resume") : t("floating.pause")}</span>
       <span class="klabel" aria-hidden="true" style:left="536px">{t("face.key.record")}</span>
       <span class="klabel" class:off={!(live || st.phase === "countdown")} aria-hidden="true" style:left="598px"><svg width="9" height="9" viewBox="0 0 9 9"><path d="M0 0h9v9H0z" fill="currentColor" /></svg>{st.phase === "countdown" ? t("common.cancel") : t("floating.stop")}</span>

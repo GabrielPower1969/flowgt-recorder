@@ -22,6 +22,8 @@
   const cancel = () => void invoke("scroll_capture_cancel");
 
   onMount(() => {
+    // The first frame arrives before this window has loaded; ask for it.
+    void invoke("scroll_capture_progress").then((p) => { if (p && !progress) progress = p; }).catch(() => {});
     const offs = [
       subscribe("scroll://progress", (p) => {
         progress = p;
@@ -48,7 +50,7 @@
   </div>
   <div class="side">
     <strong>{t("scroll.bar.title")}</strong>
-    <p class="count mono" data-testid="scroll-count">{progress && progress.frames > 0 ? t("scroll.bar.height", { h: progress.height, n: progress.frames }) : t("scroll.bar.waiting")}</p>
+    <p class="count mono" data-testid="scroll-count">{progress && progress.frames > 1 ? t("scroll.bar.height", { h: progress.height, n: progress.frames }) : t("scroll.bar.waiting")}</p>
     {#if warning}<p class="warn" role="alert" data-testid="scroll-warning">{t(`scroll.bar.${warning}`)}</p>{/if}
     <div class="actions">
       <button type="button" class="btn btn-primary" data-testid="scroll-done" disabled={saving} onclick={done}>{t("scroll.bar.done")}</button>
