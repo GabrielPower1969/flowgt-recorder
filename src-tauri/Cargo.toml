@@ -18,6 +18,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 # Mac App Store build: App Sandbox, no private macOS calls. See scripts/build-mas.sh.
 mas = []
+# Microsoft Store build (MSIX, package identity): no build-machine paths in the binary. See scripts/build-store-win.ps1.
+msix = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

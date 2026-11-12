@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Package manifest of the Microsoft Store variant. scripts/build-store-win.ps1 fills the fields in double braces
+  and packs the result. See docs/WINDOWS-STORE.md.
+
+  Capabilities, and why each is here:
+    runFullTrust  required for a packaged desktop (medium integrity) app. The recorder is a Win32
+                  program that starts ffmpeg.exe from its own package and reads the screen through
+                  DXGI desktop duplication. Restricted: the Store asks for a justification.
+    webcam        the camera picture-in-picture and the self-view.
+    microphone    the narration track.
+  Nothing else is declared: a medium-integrity app needs no capability for the network (the
+  optional Google Drive upload) or for the Videos folder, and screen capture through desktop
+  duplication has none.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 rescap">
+  <Identity Name="{{IDENTITY_NAME}}" Version="{{VERSION}}" Publisher="{{PUBLISHER}}" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>{{DISPLAY_NAME}}</DisplayName>
+    <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
+    <Description>Records the screen with camera, microphone and computer sound into one small MP4.</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us" />
+    <Resource Language="zh-cn" />
+  </Resources>
+  <Dependencies>
+    <!-- Windows 11 and later: the WebView2 Runtime the window needs is part of the system there. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="webcam" />
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+  <Applications>
+    <Application Id="FlowGTRecorder" Executable="flowgt-recorder.exe"
+      uap10:RuntimeBehavior="packagedClassicApp"
+      uap10:TrustLevel="mediumIL">
+      <uap:VisualElements DisplayName="{{DISPLAY_NAME}}"
+        Description="Screen, camera and sound recorder"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        BackgroundColor="transparent" />
+    </Application>
+  </Applications>
+</Package>
