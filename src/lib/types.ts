@@ -214,6 +214,7 @@ export interface Capabilities {
   globalShortcuts: boolean;
   pauseResume: boolean;
   livePreview: boolean;
+  overlayTitleBar: boolean;
 }
 
 export interface AppInfo {

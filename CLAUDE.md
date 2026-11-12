@@ -15,6 +15,8 @@ platforms: `docs/PLATFORM-ARCHITECTURE.md`. Two-person rules: `docs/COLLABORATIO
 npm install                                   # once; also installs the Tauri CLI
 bash scripts/fetch-ffmpeg.sh                  # LGPL ffmpeg + ffprobe → src-tauri/binaries/ (sidecars)
 bash scripts/build-mac.sh                     # helper + release .app (reads .env.google for sign-in)
+bash scripts/build-ffmpeg-mac.sh              # the ffmpeg/ffprobe a macOS release ships (LGPL, self-contained; ~10 min)
+bash scripts/build-mas.sh                     # Mac App Store variant: sandboxed, `--features mas` (needs the line above first)
 
 npm run tauri dev                             # app with hot reload (Vite :1420 + cargo run)   ⚠ TCC prompts
 npm run dev                                   # frontend alone in a browser, against the ipc mock

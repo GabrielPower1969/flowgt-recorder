@@ -93,11 +93,37 @@ impl EventSink for TauriSink {
 
 // ───────────────────────────── settings ─────────────────────────────
 
+/// True inside the macOS App Sandbox (the system sets this variable for every sandboxed process).
+pub fn is_sandboxed() -> bool {
+    std::env::var_os("APP_SANDBOX_CONTAINER_ID").is_some()
+}
+
+/// Inside the App Sandbox the home folder is the app's container, so `~/Movies` reads as
+/// `~/Library/Containers/<id>/Data/Movies`. Give back the folder the user knows by that name.
+pub fn outside_container(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    let Some(start) = text.find("/Library/Containers/") else {
+        return path.to_path_buf();
+    };
+    let inside = &text[start + "/Library/Containers/".len()..];
+    match inside.find("/Data") {
+        Some(data) => {
+            let rest = &inside[data + "/Data".len()..];
+            if rest.is_empty() || rest.starts_with('/') {
+                PathBuf::from(format!("{}{}", &text[..start], rest))
+            } else {
+                path.to_path_buf()
+            }
+        }
+        None => path.to_path_buf(),
+    }
+}
+
 pub fn default_output_dir() -> PathBuf {
-    dirs::video_dir()
+    let base = dirs::video_dir()
         .or_else(dirs::home_dir)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("FlowGT Recorder")
+        .unwrap_or_else(|| PathBuf::from("."));
+    outside_container(&base).join("FlowGT Recorder")
 }
 
 pub fn effective_output_dir(s: &Settings) -> PathBuf {
@@ -332,12 +358,15 @@ pub async fn open_privacy_settings(kind: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn pick_output_dir(app: AppHandle) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
+    let data_dir = app.path().app_data_dir();
     let picked = tokio::task::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
         .await
         .map_err(|e| CommandError::new("error.unknown", e.to_string()))?;
-    Ok(picked
-        .and_then(|p| p.into_path().ok())
-        .map(|p| p.to_string_lossy().into_owned()))
+    let folder = picked.and_then(|p| p.into_path().ok());
+    if let (Some(folder), Ok(dir)) = (&folder, data_dir.as_ref()) {
+        crate::bookmark::remember(dir, folder);
+    }
+    Ok(folder.map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -462,12 +491,13 @@ fn find_tool(name: &str) -> Option<PathBuf> {
             candidates.push(d.join(name));
         }
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    candidates.push(
-        root.join("binaries")
-            .join(format!("{name}-{}", sidecar::host_triple())),
-    );
-    candidates.push(root.join(format!("../helpers/{name}/.build/release/{name}")));
+    if let Some(root) = sidecar::source_dir() {
+        candidates.push(
+            root.join("binaries")
+                .join(format!("{name}-{}", sidecar::host_triple())),
+        );
+        candidates.push(root.join(format!("../helpers/{name}/.build/release/{name}")));
+    }
     candidates.into_iter().find(|p| p.is_file())
 }
 
@@ -1635,6 +1665,17 @@ mod tests {
     fn default_dir_is_under_videos_or_home() {
         let d = default_output_dir();
         assert!(d.ends_with("FlowGT Recorder"));
+    }
+
+    #[test]
+    fn container_paths_map_to_the_real_home() {
+        let c = Path::new("/Users/g/Library/Containers/nz.co.flowgt.recorder/Data/Movies");
+        assert_eq!(outside_container(c), PathBuf::from("/Users/g/Movies"));
+        let home = Path::new("/Users/g/Library/Containers/nz.co.flowgt.recorder/Data");
+        assert_eq!(outside_container(home), PathBuf::from("/Users/g"));
+        for same in ["/Users/g/Movies", "/Users/g/Library/Containers/x/Database/a"] {
+            assert_eq!(outside_container(Path::new(same)), PathBuf::from(same));
+        }
     }
 
     #[test]

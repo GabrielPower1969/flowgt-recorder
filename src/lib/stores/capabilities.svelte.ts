@@ -3,7 +3,7 @@ import type { Capabilities } from "../types";
 import { invoke, isTauri } from "../ipc";
 import { mockCapabilities } from "../ipc-mock";
 
-const NONE: Capabilities = { windowCapture: false, systemAudio: false, perAppAudio: false, camera: false, pictureInPicture: false, floatingBar: false, tray: false, globalShortcuts: false, pauseResume: false, livePreview: false };
+const NONE: Capabilities = { windowCapture: false, systemAudio: false, perAppAudio: false, camera: false, pictureInPicture: false, floatingBar: false, tray: false, globalShortcuts: false, pauseResume: false, livePreview: false, overlayTitleBar: false };
 
 // Inside the app nothing optional is offered until the backend has answered; the browser preview
 // and the tests start from what the mock reports.

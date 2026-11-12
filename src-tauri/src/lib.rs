@@ -1,6 +1,7 @@
 //! FlowGT Recorder — Tauri app crate. Owns all I/O: process supervision, OS queries, IPC.
 //! Module map is in docs/ARCHITECTURE.md.
 
+pub mod bookmark;
 pub mod commands;
 pub mod disk;
 pub mod drive;
@@ -54,6 +55,11 @@ pub fn run() {
             let handle = app.handle().clone();
             let sink = Arc::new(commands::TauriSink::new(handle.clone()));
             app.manage(state::AppState::new(recorder::Recorder::new(sink)));
+            if let Ok(dir) = app.path().app_data_dir() {
+                if let Some(folder) = bookmark::restore(&dir) {
+                    log::info!("save folder access restored: {}", folder.display());
+                }
+            }
             windows::create_floating(&handle)?;
             #[cfg(windows)]
             if let Some(main) = app.get_webview_window("main") {

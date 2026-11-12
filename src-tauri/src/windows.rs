@@ -17,6 +17,24 @@ static CHOSEN_SCREEN: Mutex<Option<usize>> = Mutex::new(None);
 /// process: collapsing it once keeps it collapsed for the next recording too.
 static EXPANDED: Mutex<bool> = Mutex::new(true);
 
+/// Whether windows can be see-through. A Mac App Store build cannot: on macOS Tauri makes a
+/// window transparent through a private system call, which the store does not accept.
+pub const SEE_THROUGH: bool = cfg!(not(feature = "mas"));
+
+#[cfg(not(feature = "mas"))]
+fn see_through<'a, R: tauri::Runtime, M: Manager<R>>(
+    b: WebviewWindowBuilder<'a, R, M>,
+) -> WebviewWindowBuilder<'a, R, M> {
+    b.transparent(true)
+}
+
+#[cfg(feature = "mas")]
+fn see_through<'a, R: tauri::Runtime, M: Manager<R>>(
+    b: WebviewWindowBuilder<'a, R, M>,
+) -> WebviewWindowBuilder<'a, R, M> {
+    b
+}
+
 pub fn floating_expanded() -> bool {
     *EXPANDED.lock().expect("expanded lock")
 }
@@ -117,8 +135,8 @@ pub fn show_marker(app: &AppHandle, index: usize) -> tauri::Result<()> {
         None => {
             let win = WebviewWindowBuilder::new(app, MARKER, WebviewUrl::App("index.html".into()))
                 .title("FlowGT Recorder")
-                .decorations(false)
-                .transparent(true)
+                .decorations(false);
+            let win = see_through(win)
                 .always_on_top(true)
                 .resizable(false)
                 .skip_taskbar(true)
@@ -130,6 +148,9 @@ pub fn show_marker(app: &AppHandle, index: usize) -> tauri::Result<()> {
                 ))
                 .build()?;
             let _ = win.set_ignore_cursor_events(true);
+            if !SEE_THROUGH {
+                native_outline(&win);
+            }
             win
         }
     };
@@ -157,6 +178,86 @@ fn raise_above_menu_bar(win: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 fn raise_above_menu_bar(_win: &tauri::WebviewWindow) {}
 
+/// Round the window itself, for a window that cannot be see-through: the page fills the whole
+/// rectangle and the window's own layer cuts the corners. Public AppKit calls only.
+#[cfg(target_os = "macos")]
+fn round_corners(win: &tauri::WebviewWindow, radius: f64) {
+    use objc2::{class, msg_send, runtime::AnyObject};
+    if let Ok(ns) = win.ns_window() {
+        // SAFETY: a live NSWindow pointer from Tauri, used on the main thread (window setup);
+        // every selector is a documented NSWindow / NSView / CALayer method.
+        unsafe {
+            let w = ns.cast::<AnyObject>();
+            let clear: *mut AnyObject = msg_send![class!(NSColor), clearColor];
+            let _: () = msg_send![&*w, setOpaque: false];
+            let _: () = msg_send![&*w, setBackgroundColor: clear];
+            let view: *mut AnyObject = msg_send![&*w, contentView];
+            if view.is_null() {
+                return;
+            }
+            let _: () = msg_send![&*view, setWantsLayer: true];
+            let layer: *mut AnyObject = msg_send![&*view, layer];
+            if layer.is_null() {
+                return;
+            }
+            let _: () = msg_send![&*layer, setCornerRadius: radius];
+            let _: () = msg_send![&*layer, setMasksToBounds: true];
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn round_corners(_win: &tauri::WebviewWindow, _radius: f64) {}
+
+/// Turn a window into a plain frame around the screen, for a window that cannot be see-through:
+/// the page is taken out and an empty view with a border takes its place. The screen number the
+/// page would show is lost; the frame is what tells the user which screen is chosen.
+/// Public AppKit calls only.
+#[cfg(target_os = "macos")]
+fn native_outline(win: &tauri::WebviewWindow) {
+    use objc2::encode::{Encoding, RefEncode};
+    use objc2::{class, msg_send, runtime::AnyObject};
+    #[repr(C)]
+    struct CGColor {
+        _private: [u8; 0],
+    }
+    // SAFETY: an opaque Core Graphics type, only ever handled behind a pointer.
+    unsafe impl RefEncode for CGColor {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Encoding::Struct("CGColor", &[]));
+    }
+    const BORDER: f64 = 6.0;
+    if let Ok(ns) = win.ns_window() {
+        // SAFETY: a live NSWindow pointer from Tauri, used on the main thread; every selector is
+        // a documented NSWindow / NSView / NSColor / CALayer method and nil results are checked.
+        unsafe {
+            let w = ns.cast::<AnyObject>();
+            let clear: *mut AnyObject = msg_send![class!(NSColor), clearColor];
+            let _: () = msg_send![&*w, setOpaque: false];
+            let _: () = msg_send![&*w, setBackgroundColor: clear];
+            let view: *mut AnyObject = msg_send![class!(NSView), new];
+            if view.is_null() {
+                return;
+            }
+            // The view gets its layer once it is in the window, so the border is set after that.
+            let _: () = msg_send![&*w, setContentView: view];
+            let _: () = msg_send![&*view, release];
+            let _: () = msg_send![&*view, setWantsLayer: true];
+            let layer: *mut AnyObject = msg_send![&*view, layer];
+            if layer.is_null() {
+                log::warn!("the screen outline has no layer to draw on");
+                return;
+            }
+            let blue: *mut AnyObject = msg_send![class!(NSColor), systemBlueColor];
+            let color: *mut CGColor = msg_send![&*blue, CGColor];
+            let _: () = msg_send![&*layer, setBorderWidth: BORDER];
+            let _: () = msg_send![&*layer, setBorderColor: color];
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_outline(_win: &tauri::WebviewWindow) {}
+
 pub fn hide_marker(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(MARKER) {
         let _ = win.hide();
@@ -170,22 +271,27 @@ pub fn create_floating(app: &AppHandle) -> tauri::Result<()> {
     let win = WebviewWindowBuilder::new(app, FLOATING, WebviewUrl::App("index.html".into()))
         .title("FlowGT Recorder")
         .inner_size(BAR_SIZE.0, BAR_SIZE.1)
-        .decorations(false)
-        .transparent(true)
+        .decorations(false);
+    let win = see_through(win)
         .always_on_top(true)
         .resizable(false)
         .skip_taskbar(true)
         .shadow(false)
         .visible(false)
         .focused(false)
-        .initialization_script(
-            "if (!location.hash || location.hash === '#/') location.hash = '#/floating';",
-        )
+        .initialization_script(if SEE_THROUGH {
+            "if (!location.hash || location.hash === '#/') location.hash = '#/floating';"
+        } else {
+            "document.documentElement.dataset.opaque = '1'; if (!location.hash || location.hash === '#/') location.hash = '#/floating';"
+        })
         .build()?;
     // Desktop duplication (ddagrab) records every window on the screen. Excluding this one from
     // capture keeps the recording bar out of the video, as the native helper does on macOS.
     #[cfg(windows)]
     let _ = win.set_content_protected(true);
+    if !SEE_THROUGH {
+        round_corners(&win, 14.0);
+    }
     place_top_center(&win, BAR_SIZE.0);
     Ok(())
 }
