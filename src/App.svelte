@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { bindRouter, getRoute, navigate } from "./lib/router.svelte";
   import { initPlatform } from "./lib/platform.svelte";
+  import { loadCapabilities } from "./lib/stores/capabilities.svelte";
   import { loadSettings, getSettings, isLoaded } from "./lib/stores/settings.svelte";
   import { bindRecorderEvents } from "./lib/stores/recorder.svelte";
   import { bindDriveEvents, refreshDrive } from "./lib/stores/drive.svelte";
@@ -21,8 +22,10 @@
     const unbindRouter = bindRouter();
     document.body.dataset.window = getRoute() === "/floating" || getRoute() === "/marker" ? "floating" : "main";
     void initPlatform();
+    void loadCapabilities();
     const unbindEvents = bindRecorderEvents((r) => {
-      if (getRoute() !== "/floating" && r) navigate("/summary");
+      // Only the main window shows the result: the floating bar and the screen outline are windows too.
+      if (getRoute() !== "/floating" && getRoute() !== "/marker" && r) navigate("/summary");
     });
     const unbindDrive = bindDriveEvents();
     void refreshDrive();
@@ -35,19 +38,18 @@
   });
 </script>
 
+{#snippet settingsSheet()}<Settings />{/snippet}
+{#snippet summarySheet()}<Summary />{/snippet}
+{#snippet historySheet()}<History />{/snippet}
+
 {#if route === "/marker"}
   <Marker />
 {:else if isFloating}
   <Floating />
 {:else if !isLoaded()}
   <div class="page muted">{t("common.loading")}</div>
-{:else if route === "/settings"}
-  <Settings />
-{:else if route === "/summary"}
-  <Summary />
-{:else if route === "/history"}
-  <History />
 {:else}
-  <Main settings={getSettings()} />
+  <!-- One front panel for the whole main window; the other screens are cards laid on it. -->
+  <Main settings={getSettings()} sheet={route === "/settings" ? settingsSheet : route === "/summary" ? summarySheet : route === "/history" ? historySheet : undefined} />
 {/if}
 {#if !isFloating}<Toast />{/if}

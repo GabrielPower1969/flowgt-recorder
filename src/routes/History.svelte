@@ -3,7 +3,8 @@
   import { onMount } from "svelte";
   import type { RecordingEntry } from "../lib/types";
   import { errorMessage, invoke, mediaUrl } from "../lib/ipc";
-  import { t } from "../lib/stores/i18n.svelte";
+  import { getLocale, t } from "../lib/stores/i18n.svelte";
+  import { getPlatform } from "../lib/platform.svelte";
   import { navigate } from "../lib/router.svelte";
   import { formatBytes } from "../lib/format";
 
@@ -14,8 +15,11 @@
   const when = (e: RecordingEntry) => e.modifiedMs ?? (e.driveCreated ? Date.parse(e.driveCreated) : 0);
   const label = (e: RecordingEntry) => {
     const ms = when(e);
-    return ms ? new Date(ms).toLocaleString() : "";
+    // In the language of the interface, not of the operating system.
+    return ms ? new Date(ms).toLocaleString(getLocale() === "zh" ? "zh-CN" : "en-GB", { dateStyle: "medium", timeStyle: "short" }) : "";
   };
+  /** The file manager is called by its own name on each system, as on the Summary screen. */
+  const revealLabel = $derived(getPlatform() === "windows" ? t("summary.revealWin") : getPlatform() === "macos" ? t("summary.revealMac") : t("summary.revealLinux"));
 
   async function play(e: RecordingEntry) {
     if (!e.path) return;
@@ -36,7 +40,7 @@
   });
 </script>
 
-<main class="page wrap">
+<main class="wrap">
   <div class="head">
     <h1>{t("history.title")}</h1>
     <button type="button" class="btn" onclick={() => navigate("/")}>{t("common.back")}</button>
@@ -65,7 +69,7 @@
           <div class="acts">
             {#if e.path}
               <button type="button" class="btn btn-sm" onclick={() => play(e)}>{t("history.play")}</button>
-              <button type="button" class="btn btn-sm" onclick={() => e.path && invoke("reveal_in_file_manager", { path: e.path })}>{t("history.reveal")}</button>
+              <button type="button" class="btn btn-sm" onclick={() => e.path && invoke("reveal_in_file_manager", { path: e.path })}>{revealLabel}</button>
             {/if}
             {#if e.driveUrl}
               <button type="button" class="btn btn-sm" onclick={() => e.driveUrl && invoke("open_drive_link", { url: e.driveUrl })}>{t("summary.openDrive")}</button>
@@ -78,13 +82,13 @@
 </main>
 
 <style>
-  .wrap { display: flex; flex-direction: column; gap: var(--space-4); max-width: 880px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .wrap { display: flex; flex-direction: column; gap: var(--space-4); }
   .head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
   .head h1 { margin: 0; }
-  .player { width: 100%; max-height: 50vh; border-radius: var(--radius-l); background: var(--color-surface-3); }
-  .err { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn-soft); color: var(--color-warn); }
-  .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-  .row-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3); border-radius: var(--radius-m); background: var(--color-surface-2); }
+  .player { width: 100%; max-height: 220px; border-radius: var(--radius-m); background: var(--color-glass); }
+  .err { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn-soft); color: var(--color-text); }
+  .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .row-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--color-border); }
   .info { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
   .name { word-break: break-all; }
   .tags, .acts { display: flex; flex-wrap: wrap; gap: var(--space-2); }

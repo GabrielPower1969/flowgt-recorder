@@ -19,9 +19,21 @@ pub fn lavfi_params(dir: &Path, camera: bool) -> Option<StartParams> {
         .output()
         .ok()?;
     let names = encoders::parse_encoder_names(&String::from_utf8_lossy(&listing.stdout));
-    let encoder = encoders::choose(&names, Platform::current(), EncoderPreference::Auto).ok()?;
+    // Like `commands::resolve_encoder`: the first encoder of the chain that encodes a test frame.
+    let encoder = encoders::choose_working(&names, Platform::current(), EncoderPreference::Auto, |e| {
+        let test = encoders::self_test_command(&tools.ffmpeg_str(), e);
+        std::process::Command::new(&test.program).args(&test.args).output().is_ok_and(|o| o.status.success())
+    })
+    .ok()?;
     let mut settings = settings::default_settings(Platform::current());
     settings.camera.enabled = camera;
+    // dshow has no "default" device, so on Windows the plan wants device names. The synthetic
+    // sources below replace both inputs; without names this function returned None there and
+    // every test built on it reported "skipped: no ffmpeg" while counting as passed.
+    if Platform::current() == Platform::Windows {
+        settings.camera.device_id = Some("selftest".into());
+        settings.audio.mic_device_id = Some("selftest".into());
+    }
     let mut plan = command::make_plan(
         &settings,
         Platform::current(),

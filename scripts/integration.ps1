@@ -1,10 +1,18 @@
-# UNTESTED: written on macOS 2026-11-04, never executed on Windows
 # Integration test: synthetic lavfi inputs -> app-style argv -> MP4 -> ffprobe assertions.
 # Run from the repo root: pwsh scripts/integration.ps1 [-Seconds 6]
+# Uses the sidecars from scripts/fetch-ffmpeg.ps1 when they are there (the binaries the app runs),
+# otherwise ffmpeg / ffprobe on PATH. First run on Windows: 2026-11-11 (docs/tasks/W-2.md).
 param([int]$Seconds = 6)
 $ErrorActionPreference = 'Stop'
-$ff = if (Get-Command ffmpeg -ErrorAction SilentlyContinue) { 'ffmpeg' } else { 'src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe' }
-$fp = if (Get-Command ffprobe -ErrorAction SilentlyContinue) { 'ffprobe' } else { 'src-tauri/binaries/ffprobe-x86_64-pc-windows-msvc.exe' }
+function Find-Tool([string]$name) {
+  $sidecar = "src-tauri/binaries/$name-x86_64-pc-windows-msvc.exe"
+  if (Test-Path $sidecar) { return $sidecar }
+  if (Get-Command $name -ErrorAction SilentlyContinue) { return $name }
+  Write-Host "FAIL: $name not found; run scripts/fetch-ffmpeg.ps1 first"; exit 1
+}
+$ff = Find-Tool 'ffmpeg'
+$fp = Find-Tool 'ffprobe'
+Write-Host "ffmpeg=$ff ffprobe=$fp"
 New-Item -ItemType Directory -Force -Path tests/out | Out-Null
 $out = 'tests/out/integration-win.mp4'
 $have = (& $ff -hide_banner -encoders) -join "`n"

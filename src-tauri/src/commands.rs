@@ -93,11 +93,66 @@ impl EventSink for TauriSink {
 
 // ───────────────────────────── settings ─────────────────────────────
 
+/// True inside the macOS App Sandbox (the system sets this variable for every sandboxed process).
+pub fn is_sandboxed() -> bool {
+    std::env::var_os("APP_SANDBOX_CONTAINER_ID").is_some()
+}
+
+/// The package full name when the process has Windows package identity (an MSIX install), for
+/// example `FlowGT.Recorder_0.1.0.0_x64__abcd1234`. None for an ordinary install, a development
+/// run, and on other systems.
+pub fn package_identity() -> Option<String> {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentPackageFullName(length: *mut u32, name: *mut u16) -> i32;
+        }
+        const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+        let mut len = 0u32;
+        // SAFETY: a null buffer with length 0 is the documented way to ask for the length.
+        if unsafe { GetCurrentPackageFullName(&mut len, std::ptr::null_mut()) } != ERROR_INSUFFICIENT_BUFFER {
+            return None; // APPMODEL_ERROR_NO_PACKAGE: the process has no package identity
+        }
+        let mut buf = vec![0u16; len as usize];
+        // SAFETY: `buf` holds `len` UTF-16 units, as the first call asked for.
+        if unsafe { GetCurrentPackageFullName(&mut len, buf.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        Some(String::from_utf16_lossy(&buf).trim_end_matches('\0').to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Inside the App Sandbox the home folder is the app's container, so `~/Movies` reads as
+/// `~/Library/Containers/<id>/Data/Movies`. Give back the folder the user knows by that name.
+pub fn outside_container(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    let Some(start) = text.find("/Library/Containers/") else {
+        return path.to_path_buf();
+    };
+    let inside = &text[start + "/Library/Containers/".len()..];
+    match inside.find("/Data") {
+        Some(data) => {
+            let rest = &inside[data + "/Data".len()..];
+            if rest.is_empty() || rest.starts_with('/') {
+                PathBuf::from(format!("{}{}", &text[..start], rest))
+            } else {
+                path.to_path_buf()
+            }
+        }
+        None => path.to_path_buf(),
+    }
+}
+
 pub fn default_output_dir() -> PathBuf {
-    dirs::video_dir()
+    let base = dirs::video_dir()
         .or_else(dirs::home_dir)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("FlowGT Recorder")
+        .unwrap_or_else(|| PathBuf::from("."));
+    outside_container(&base).join("FlowGT Recorder")
 }
 
 pub fn effective_output_dir(s: &Settings) -> PathBuf {
@@ -163,30 +218,28 @@ pub async fn resolve_encoder(
     pref: EncoderPreference,
 ) -> CmdResult<EncoderChoice> {
     let mut cache = state.encoder.lock().await;
-    if let Some(e) = cache.as_ref() {
-        let wanted_codec = match pref {
-            EncoderPreference::Auto => true,
-            EncoderPreference::Hevc => e.codec == VideoCodec::Hevc,
-            EncoderPreference::H264 => e.codec == VideoCodec::H264,
-        };
-        if wanted_codec {
+    // The cache answers only the preference it was filled for. It used to answer "auto" with
+    // whatever was there, so after one H.264 recording "auto" kept using H.264 until a restart.
+    if let Some((cached_pref, e)) = cache.as_ref() {
+        if *cached_pref == pref {
             return Ok(e.clone());
         }
     }
     let listing = sidecar::run(&command::list_encoders_command(&tools.ffmpeg_str())).await?;
     let mut names = encoders::parse_encoder_names(&listing.stdout);
-    for _ in 0..8 {
+    for _ in 0..12 {
         let choice = encoders::choose(&names, Platform::current(), pref)?;
         let test = sidecar::run(&encoders::self_test_command(&tools.ffmpeg_str(), &choice)).await?;
         if test.success {
-            *cache = Some(choice.clone());
+            *cache = Some((pref, choice.clone()));
             return Ok(choice);
         }
         log::warn!(
             "encoder {} failed its test frame, trying the next one",
             choice.name
         );
-        names.retain(|n| n != &choice.name);
+        let failed = encoders::chain_entry(&choice).to_string();
+        names.retain(|n| n != &failed);
     }
     Err(CommandError::new(
         "error.noEncoder",
@@ -294,6 +347,12 @@ pub async fn get_app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
     })
 }
 
+/// What this platform can do right now (S-2). Cheap: no ffmpeg is started.
+#[tauri::command]
+pub fn get_capabilities() -> Capabilities {
+    Capabilities::of(Platform::current(), find_record_helper().is_some(), find_helper().is_some())
+}
+
 // ───────────────────────────── permissions ─────────────────────────────
 
 fn kind_of(s: &str) -> CmdResult<Kind> {
@@ -329,12 +388,15 @@ pub async fn open_privacy_settings(kind: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn pick_output_dir(app: AppHandle) -> CmdResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
+    let data_dir = app.path().app_data_dir();
     let picked = tokio::task::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
         .await
         .map_err(|e| CommandError::new("error.unknown", e.to_string()))?;
-    Ok(picked
-        .and_then(|p| p.into_path().ok())
-        .map(|p| p.to_string_lossy().into_owned()))
+    let folder = picked.and_then(|p| p.into_path().ok());
+    if let (Some(folder), Ok(dir)) = (&folder, data_dir.as_ref()) {
+        crate::bookmark::remember(dir, folder);
+    }
+    Ok(folder.map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -459,12 +521,13 @@ fn find_tool(name: &str) -> Option<PathBuf> {
             candidates.push(d.join(name));
         }
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    candidates.push(
-        root.join("binaries")
-            .join(format!("{name}-{}", sidecar::host_triple())),
-    );
-    candidates.push(root.join(format!("../helpers/{name}/.build/release/{name}")));
+    if let Some(root) = sidecar::source_dir() {
+        candidates.push(
+            root.join("binaries")
+                .join(format!("{name}-{}", sidecar::host_triple())),
+        );
+        candidates.push(root.join(format!("../helpers/{name}/.build/release/{name}")));
+    }
     candidates.into_iter().find(|p| p.is_file())
 }
 
@@ -980,35 +1043,39 @@ pub async fn window_thumbnail(state: State<'_, AppState>, id: u32) -> CmdResult<
     }))
 }
 
-/// A small JPEG of one screen as a data URL, for the screen picker. `None` when the
-/// screen-recording permission is missing (asking ffmpeg would only fail) or on other platforms.
+/// A small JPEG of one screen as a data URL, for the screen picker and the monitor on the front
+/// panel. `None` when the screen-recording permission is missing on macOS (asking ffmpeg would
+/// only fail) or on a platform without a screen input here. Windows has no such permission.
 #[tauri::command]
 pub async fn screen_thumbnail(state: State<'_, AppState>, id: String) -> CmdResult<Option<String>> {
     use base64::Engine;
-    if Platform::current() != Platform::MacOs
-        || permissions::check().screen != PermissionState::Granted
-    {
+    let platform = Platform::current();
+    let allowed = match platform {
+        Platform::MacOs => permissions::check().screen == PermissionState::Granted,
+        Platform::Windows => true,
+        Platform::Linux => false,
+    };
+    if !allowed {
         return Ok(None);
     }
     let t = tools(&state).await?;
     let mut c = tokio::process::Command::new(&t.ffmpeg);
+    c.args(["-hide_banner", "-loglevel", "error"]);
+    if platform == Platform::Windows {
+        // The same Desktop Duplication input the recording uses; the id is the output index.
+        let output_idx: u32 = id.parse().unwrap_or(0);
+        c.args(["-init_hw_device", "d3d11va", "-f", "lavfi", "-i"])
+            .arg(format!("ddagrab=output_idx={output_idx}:framerate=30:draw_mouse=0"))
+            .args(["-vf", "hwdownload,format=bgra,scale=480:-2"]);
+        #[cfg(windows)]
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    } else {
+        c.args(["-f", "avfoundation", "-framerate", "30", "-capture_cursor", "0", "-i"])
+            .arg(format!("{id}:none"))
+            // The first frames from a screen input can be black; take a later one.
+            .args(["-vf", "select=gte(n\\,5),scale=480:-2"]);
+    }
     c.args([
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-f",
-        "avfoundation",
-        "-framerate",
-        "30",
-        "-capture_cursor",
-        "0",
-        "-i",
-    ])
-    .arg(format!("{id}:none"))
-    // The first frames from a screen input can be black; take a later one.
-    .args([
-        "-vf",
-        "select=gte(n\\,5),scale=480:-2",
         "-frames:v",
         "1",
         "-c:v",
@@ -1103,8 +1170,10 @@ fn merge_recordings(entries: &mut Vec<RecordingEntry>, remote: Vec<RecordingEntr
     }
 }
 
+/// `async` on purpose: the first call creates the marker window, and on Windows a synchronous
+/// command runs on the main thread, where building a webview window deadlocks the whole app.
 #[tauri::command]
-pub fn show_screen_marker(app: AppHandle, index: usize) -> CmdResult<()> {
+pub async fn show_screen_marker(app: AppHandle, index: usize) -> CmdResult<()> {
     crate::windows::show_marker(&app, index).map_err(|e| CommandError::io(e.to_string()))
 }
 
@@ -1575,6 +1644,7 @@ pub async fn discard_session(
 pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         get_app_info,
+        get_capabilities,
         list_devices,
         check_permissions,
         request_permission,
@@ -1625,6 +1695,23 @@ mod tests {
     fn default_dir_is_under_videos_or_home() {
         let d = default_output_dir();
         assert!(d.ends_with("FlowGT Recorder"));
+    }
+
+    #[test]
+    fn a_test_run_has_no_package_identity() {
+        // cargo test is never started from an installed MSIX package.
+        assert_eq!(package_identity(), None);
+    }
+
+    #[test]
+    fn container_paths_map_to_the_real_home() {
+        let c = Path::new("/Users/g/Library/Containers/nz.co.flowgt.recorder/Data/Movies");
+        assert_eq!(outside_container(c), PathBuf::from("/Users/g/Movies"));
+        let home = Path::new("/Users/g/Library/Containers/nz.co.flowgt.recorder/Data");
+        assert_eq!(outside_container(home), PathBuf::from("/Users/g"));
+        for same in ["/Users/g/Movies", "/Users/g/Library/Containers/x/Database/a"] {
+            assert_eq!(outside_container(Path::new(same)), PathBuf::from(same));
+        }
     }
 
     #[test]

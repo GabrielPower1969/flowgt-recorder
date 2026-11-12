@@ -202,6 +202,21 @@ export type PermissionState = "granted" | "denied" | "notDetermined" | "notAppli
 export interface PermissionStatus { screen: PermissionState; camera: PermissionState; microphone: PermissionState }
 export type PermissionKind = "screen" | "camera" | "microphone";
 
+/** What the running platform can do; mirrors `Capabilities` in types.rs. Controls are shown from this alone. */
+export interface Capabilities {
+  windowCapture: boolean;
+  systemAudio: boolean;
+  perAppAudio: boolean;
+  camera: boolean;
+  pictureInPicture: boolean;
+  floatingBar: boolean;
+  tray: boolean;
+  globalShortcuts: boolean;
+  pauseResume: boolean;
+  livePreview: boolean;
+  overlayTitleBar: boolean;
+}
+
 export interface AppInfo {
   version: string;
   platform: Platform;
@@ -220,6 +235,7 @@ export interface DriveProgress { path: string; percent: number; done: boolean; u
 /** Tauri command names (snake_case) and their signatures. Implemented in src-tauri/src/commands.rs. */
 export interface Commands {
   get_app_info: () => AppInfo;
+  get_capabilities: () => Capabilities;
   list_devices: () => DeviceList;
   check_permissions: () => PermissionStatus;
   request_permission: (args: { kind: PermissionKind }) => PermissionState;

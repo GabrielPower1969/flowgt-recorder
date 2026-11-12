@@ -100,8 +100,8 @@
 </main>
 
 <style>
-  .wrap { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-5) var(--space-4); text-align: center; }
-  .preview { width: min(720px, 100%); max-height: 60vh; border-radius: var(--radius-l); background: var(--color-surface-3); }
+  .wrap { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); text-align: center; }
+  .preview { max-width: 100%; max-height: 200px; border-radius: var(--radius-m); background: var(--color-glass); }
   .name { word-break: break-all; }
-  .over { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn-soft); color: var(--color-warn); flex-wrap: wrap; }
+  .over { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn-soft); color: var(--color-text); flex-wrap: wrap; }
 </style>

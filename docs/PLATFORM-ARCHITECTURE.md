@@ -117,7 +117,8 @@ The shell reports what the running platform can do; the UI shows or hides contro
 
 ```
 capabilities = { windowCapture, systemAudio, perAppAudio, camera, pictureInPicture,
-                 floatingBar, tray, globalShortcuts, pauseResume, livePreview }
+                 floatingBar, tray, globalShortcuts, pauseResume, livePreview,
+                 overlayTitleBar }
 ```
 
 No `if (platform === ...)` in components. A platform gains a feature by turning a flag on in its engine.

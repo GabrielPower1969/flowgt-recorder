@@ -1,9 +1,12 @@
-# UNTESTED: written on macOS 2026-11-04, never executed on Windows
 # Bench: encoder speed, CPU and working set on synthetic input, plus MB/h.
 # Run from the repo root: pwsh scripts/bench.ps1 [-Seconds 20]
 param([int]$Seconds = 20)
 $ErrorActionPreference = 'Stop'
-$ff = if (Get-Command ffmpeg -ErrorAction SilentlyContinue) { 'ffmpeg' } else { 'src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe' }
+# Uses the sidecar from scripts/fetch-ffmpeg.ps1 when it is there (the binary the app runs), otherwise ffmpeg on PATH.
+# First run on Windows: 2026-11-11 (docs/BENCH.md -> Windows).
+$sidecar = 'src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe'
+$ff = if (Test-Path $sidecar) { $sidecar } elseif (Get-Command ffmpeg -ErrorAction SilentlyContinue) { 'ffmpeg' } else { Write-Host 'FAIL: ffmpeg not found; run scripts/fetch-ffmpeg.ps1 first'; exit 1 }
+Write-Host "ffmpeg=$ff"
 New-Item -ItemType Directory -Force -Path bench-out | Out-Null
 $have = (& $ff -hide_banner -encoders) -join "`n"
 $extra = @{

@@ -173,6 +173,40 @@ async fn write_manifest(m: &SessionManifest) -> CmdResult<()> {
     Ok(())
 }
 
+/// A leading dot hides nothing on Windows. The session folders live in `.flowgt-recorder` next to the
+/// recordings; mark that folder hidden so it does not show up in Explorer among the videos.
+#[cfg(windows)]
+fn hide_dot_folder(work_dir: &std::path::Path) {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetFileAttributesW(path: *const u16) -> u32;
+        fn SetFileAttributesW(path: *const u16, attributes: u32) -> i32;
+    }
+    const INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    let Some(root) = work_dir.parent() else {
+        return;
+    };
+    if !root.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+        return;
+    }
+    // Asked of Windows directly rather than by starting attrib.exe: a store package should not start
+    // system utilities. Failure only leaves the folder visible.
+    let wide: Vec<u16> = root
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives both calls.
+    unsafe {
+        let now = GetFileAttributesW(wide.as_ptr());
+        if now != INVALID_FILE_ATTRIBUTES && now & FILE_ATTRIBUTE_HIDDEN == 0 {
+            SetFileAttributesW(wide.as_ptr(), now | FILE_ATTRIBUTE_HIDDEN);
+        }
+    }
+}
+
 impl Recorder {
     pub fn new(sink: Arc<dyn EventSink>) -> Self {
         Recorder {
@@ -258,6 +292,8 @@ impl Recorder {
 
     async fn start_inner(&self, params: StartParams) -> CmdResult<RecorderState> {
         tokio::fs::create_dir_all(&params.work_dir).await?;
+        #[cfg(windows)]
+        hide_dot_folder(&params.work_dir);
         let camera = params.plan.camera.is_some()
             || params.native.as_ref().is_some_and(|n| n.camera.is_some());
         let mut manifest = recovery::new_manifest(
@@ -1242,6 +1278,26 @@ mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
 
+    #[cfg(windows)]
+    #[test]
+    fn the_dot_folder_is_hidden_without_starting_a_program() {
+        use std::os::windows::fs::MetadataExt;
+        let base = std::env::temp_dir().join(format!("flowgt-hide-test-{}", std::process::id()));
+        let dot = base.join(".flowgt-recorder");
+        let plain = base.join("plain");
+        std::fs::create_dir_all(dot.join("session")).unwrap();
+        std::fs::create_dir_all(plain.join("session")).unwrap();
+        hide_dot_folder(&dot.join("session"));
+        hide_dot_folder(&plain.join("session"));
+        let hidden = |p: &std::path::Path| {
+            let attributes = std::fs::metadata(p).unwrap().file_attributes();
+            attributes & 0x2 != 0
+        };
+        assert!(hidden(&dot));
+        assert!(!hidden(&plain));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[derive(Default)]
     struct Collect {
         warnings: StdMutex<Vec<String>>,
@@ -1337,6 +1393,8 @@ mod tests {
         );
     }
 
+    // Finds and kills the encoder with pgrep / kill; a Windows version of this test is not written.
+    #[cfg(unix)]
     #[tokio::test]
     async fn killed_ffmpeg_with_camera_continues_without_it() {
         let dir = tempfile::tempdir().unwrap();

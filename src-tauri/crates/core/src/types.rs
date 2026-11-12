@@ -556,6 +556,79 @@ pub struct PermissionStatus {
     pub microphone: PermissionState,
 }
 
+/// What the running platform can do. The shell reports it and the UI shows or hides controls from
+/// this alone, never from the platform's name (docs/PLATFORM-ARCHITECTURE.md section 6, task S-2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Capabilities {
+    /// One application window can be recorded on its own.
+    pub window_capture: bool,
+    /// Computer audio can be recorded without a loopback device installed by the user.
+    pub system_audio: bool,
+    /// The audio of one application can be recorded on its own.
+    pub per_app_audio: bool,
+    pub camera: bool,
+    pub picture_in_picture: bool,
+    pub floating_bar: bool,
+    pub tray: bool,
+    pub global_shortcuts: bool,
+    pub pause_resume: bool,
+    /// The recording window can show the frame that is going into the file.
+    pub live_preview: bool,
+    /// The system draws the window buttons over the top edge of the page and there is no title
+    /// bar to drag: the page keeps a strip clear for them and moves the window from it.
+    pub overlay_title_bar: bool,
+}
+
+impl Capabilities {
+    /// `native_engine`: a capture engine that owns capture, clock and file is present (today the
+    /// macOS helper). `system_audio`: a system-audio source that needs no user-installed device.
+    /// Window capture and the live preview exist only with a native engine; the ffmpeg path has
+    /// neither. Linux records nothing yet.
+    pub fn of(platform: Platform, native_engine: bool, system_audio: bool) -> Capabilities {
+        let desktop = matches!(platform, Platform::MacOs | Platform::Windows);
+        Capabilities {
+            window_capture: desktop && native_engine,
+            system_audio: desktop && system_audio,
+            per_app_audio: false,
+            camera: desktop,
+            picture_in_picture: desktop,
+            floating_bar: desktop,
+            tray: desktop,
+            global_shortcuts: desktop,
+            pause_resume: desktop,
+            live_preview: desktop && native_engine,
+            overlay_title_bar: matches!(platform, Platform::MacOs),
+        }
+    }
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    #[test]
+    fn a_native_engine_brings_window_capture_and_the_live_preview() {
+        let mac = Capabilities::of(Platform::MacOs, true, true);
+        assert!(mac.window_capture && mac.live_preview && mac.system_audio && mac.camera && mac.pause_resume);
+        assert!(!mac.per_app_audio);
+        // The ffmpeg path on Windows today: no engine, no loopback-free system audio.
+        let win = Capabilities::of(Platform::Windows, false, false);
+        assert!(!win.window_capture && !win.live_preview && !win.system_audio);
+        assert!(win.camera && win.picture_in_picture && win.floating_bar && win.tray && win.global_shortcuts && win.pause_resume);
+        // macOS without the helper falls back to the same set; only its window frame differs.
+        assert_eq!(Capabilities::of(Platform::MacOs, false, false), Capabilities { overlay_title_bar: true, ..win });
+        assert!(mac.overlay_title_bar && !win.overlay_title_bar);
+        assert_eq!(Capabilities::of(Platform::Linux, true, true), Capabilities::default());
+    }
+
+    #[test]
+    fn the_wire_format_is_camel_case() {
+        let json = serde_json::to_string(&Capabilities::of(Platform::MacOs, true, false)).unwrap();
+        assert!(json.contains("\"windowCapture\":true") && json.contains("\"livePreview\":true") && json.contains("\"systemAudio\":false") && json.contains("\"overlayTitleBar\":true"), "{json}");
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {

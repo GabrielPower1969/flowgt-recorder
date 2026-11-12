@@ -31,6 +31,17 @@ If the files are missing, the app falls back to `ffmpeg` on `PATH` and reports
 FlowGT Recorder is MIT-licensed. Shipping a GPL ffmpeg would make the whole
 distribution GPL, so release builds MUST bundle an **LGPL** ffmpeg:
 
+**macOS: run `bash scripts/build-ffmpeg-mac.sh`.** It builds ffmpeg 7.1.1 from the ffmpeg.org source
+(SHA-256 pinned in the script) as an LGPL build that links system libraries only, checks both points,
+and writes `ffmpeg-NOTICE.txt` and `ffmpeg-COPYING.LGPLv2.1.txt` here for the bundle. The steps below
+are for the other platforms.
+
+**Windows: run `bash scripts/build-ffmpeg-win.sh`** (a mingw-w64 cross build, on Linux, WSL or macOS). It
+builds ffmpeg 9.0.2 from the ffmpeg.org source as an LGPL 2.1 build that imports Windows system DLLs only
+and has no network protocols, checks those points, and writes the two `.exe` files, `ffmpeg-NOTICE.txt` and
+`ffmpeg-COPYING.LGPLv2.1.txt` here (or into `$FFMPEG_OUT_DIR`). `scripts/build-store-win.ps1` refuses any
+other build. `scripts/fetch-ffmpeg.ps1` still fetches the larger third-party LGPL 3 build for development.
+
 1. Download an LGPL (not GPL) static build for each target, for example from
    a provider that publishes `--enable-shared`-free LGPL builds, such as the
    "lgpl" variants of BtbN's FFmpeg-Builds (`ffmpeg-n7.1-latest-<os>-lgpl-7.1`)

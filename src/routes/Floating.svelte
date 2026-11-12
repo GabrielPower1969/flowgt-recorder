@@ -1,17 +1,20 @@
 <script lang="ts">
   /**
-   * The recording window: the bar (status, time, pause, stop) and, under it, the live preview
-   * of what is going into the file, labelled with the screen or window being recorded. The
-   * preview is the helper's own output frame, so it shows exactly what is recorded, camera
-   * square included. A recorded window that leaves the screen (minimised, other Space) is
-   * reported by the helper as `warn.windowHidden`; the panel dims and says so until it is back.
+   * The recording window: the bar, a small copy of the front panel (two reels, pause, the
+   * read-out, stop), and, under it, the live preview of what is going into the file, labelled
+   * with the screen or window being recorded. The preview is the helper's own output frame, so it
+   * shows exactly what is recorded, camera square included. A recorded window that leaves the
+   * screen (minimised, other Space) is reported by the helper as `warn.windowHidden`; the panel
+   * dims and says so until it is back.
    */
   import { onMount } from "svelte";
   import { recorder, cancelRecording, togglePause, stopRecording } from "../lib/stores/recorder.svelte";
   import { getSettings, loadSettings } from "../lib/stores/settings.svelte";
   import { t } from "../lib/stores/i18n.svelte";
-  import { formatDuration } from "../lib/format";
+  import { formatBytes, formatDuration } from "../lib/format";
   import { invoke } from "../lib/ipc";
+  import { getCapabilities } from "../lib/stores/capabilities.svelte";
+  import Reel from "../lib/components/Reel.svelte";
 
   const POLL_MS = 150;
 
@@ -19,8 +22,14 @@
   const paused = $derived(st.phase === "paused");
   const canAct = $derived(!recorder.busy && (st.phase === "recording" || st.phase === "paused"));
   const live = $derived(st.phase === "recording" || st.phase === "paused");
+  const spin = $derived(paused ? "paused" : "on");
+  // Until the first segment is closed the count of bytes written is only a few bytes, so the
+  // budget's estimate stands in for it, marked as an estimate.
+  const sizeText = $derived(st.bytesWritten >= 100_000 ? formatBytes(st.bytesWritten) : t("floating.estimate", { size: formatBytes(st.estimatedTotalBytes) }));
 
   let expanded = $state(true);
+  // Only a native capture engine writes preview frames; without one the panel would stay empty.
+  const previewOffered = $derived(getCapabilities().livePreview);
   let frame = $state<string | null>(null);
   let frameMtime = $state<number | null>(null);
   const stale = $derived(st.warnings.some((w) => w.code === "warn.windowHidden"));
@@ -54,7 +63,7 @@
   }
 
   $effect(() => {
-    if (!live || !expanded) return;
+    if (!live || !expanded || !previewOffered) return;
     const timer = setInterval(() => void poll(), POLL_MS);
     void poll();
     return () => clearInterval(timer);
@@ -78,33 +87,55 @@
 
 {#if st.phase === "countdown"}
   <div class="countdown" data-tauri-drag-region role="status" aria-live="assertive">
-    <span class="mono num" data-testid="countdown" data-tauri-drag-region>{recorder.countdown ?? getSettings().countdownSeconds}</span>
+    <div class="reels" data-tauri-drag-region>
+      <Reel size={64} tape={1} />
+      <div class="glass digit" data-tauri-drag-region>
+        <span class="mono num" data-testid="countdown" data-tauri-drag-region>{recorder.countdown ?? getSettings().countdownSeconds}</span>
+      </div>
+      <Reel size={64} />
+    </div>
     <button type="button" class="btn btn-sm" onclick={() => cancelRecording()}>{t("common.cancel")}</button>
   </div>
 {:else}
   <div class="wrap" data-tauri-drag-region>
     <div class="bar" data-tauri-drag-region>
-      <span class="status" class:paused data-tauri-drag-region><span class="dot" class:pulse={!paused}></span>{paused ? t("floating.paused") : t("floating.recording")}</span>
-      <span class="mono time" data-testid="timer" data-tauri-drag-region>{formatDuration(st.elapsedMs)}</span>
-      <button type="button" class="btn btn-sm" onclick={() => togglePause()} disabled={!canAct}>{paused ? t("floating.resume") : t("floating.pause")}</button>
-      <button type="button" class="btn btn-sm stop" onclick={() => stopRecording()} disabled={!canAct}>{t("floating.stopLong")}</button>
-      <button type="button" class="chev" aria-label={expanded ? t("floating.collapse") : t("floating.expand")} title={expanded ? t("floating.collapse") : t("floating.expand")} aria-expanded={expanded} onclick={toggleExpanded}>
+      <Reel size={40} tape={1} {spin} />
+      <div class="well">
+        <button type="button" class="key sm" aria-label={paused ? t("floating.resume") : t("floating.pause")} title={paused ? t("floating.resume") : t("floating.pause")} aria-pressed={paused} onclick={() => togglePause()} disabled={!canAct}>
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">{#if paused}<path d="M3 1v12l10-6z" fill="currentColor" />{:else}<path d="M2 1h3.5v12H2zM8.5 1H12v12H8.5z" fill="currentColor" />{/if}</svg>
+        </button>
+      </div>
+      <div class="glass readout" data-tauri-drag-region>
+        <span class="lamp" class:on={!paused} class:blink={paused}></span>
+        <span class="read" data-tauri-drag-region>
+          <span class="state" data-tauri-drag-region>{paused ? t("floating.paused") : t("floating.recording")}</span>
+          <span class="mono time" data-testid="timer" data-tauri-drag-region>{formatDuration(st.elapsedMs)}</span>
+        </span>
+        <span class="mono size" data-testid="size" data-tauri-drag-region>{sizeText}</span>
+      </div>
+      <div class="well">
+        <button type="button" class="key sm" aria-label={t("floating.stopLong")} title={t("floating.stopLong")} onclick={() => stopRecording()} disabled={!canAct}>
+          <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true"><path d="M1 1h11v11H1z" fill="currentColor" /></svg>
+        </button>
+      </div>
+      {#if previewOffered}<button type="button" class="chev" aria-label={expanded ? t("floating.collapse") : t("floating.expand")} title={expanded ? t("floating.collapse") : t("floating.expand")} aria-expanded={expanded} onclick={toggleExpanded}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{#if expanded}<path d="M6 15l6-6 6 6" />{:else}<path d="M6 9l6 6 6-6" />{/if}</svg>
-      </button>
+      </button>{/if}
+      <Reel size={40} tape={st.elapsedMs / 3_600_000} {spin} />
     </div>
-    {#if expanded}
+    {#if expanded && previewOffered}
       <div class="panel" data-tauri-drag-region>
         <div class="target" data-tauri-drag-region>
           {#if st.target?.icon}<img class="icon" src={`data:image/png;base64,${st.target.icon}`} alt="" />{/if}
           <span class="tname" data-testid="target" title={targetLabel} data-tauri-drag-region>{targetLabel}</span>
           {#if st.cameraConnected}<span class="chip">{t("floating.withCamera")}</span>{/if}
-          <span class="chip live" class:off={stale}><span class="dot small"></span>{t("floating.live")}</span>
+          <span class="chip live"><span class="lamp" class:on={!stale}></span>{t("floating.live")}</span>
         </div>
         <div class="view" class:stale data-tauri-drag-region>
           {#if frame}
             <img class="frame" src={frame} alt={t("floating.live")} />
           {:else}
-            <span class="muted waiting">{t("floating.waiting")}</span>
+            <span class="waiting">{t("floating.waiting")}</span>
           {/if}
           {#if stale}
             <div class="notice" role="status">{t("floating.stale")}</div>
@@ -116,32 +147,30 @@
 {/if}
 
 <style>
-  .wrap { height: 100vh; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding-top: 8px; box-sizing: border-box; }
-  .bar { display: flex; align-items: center; gap: var(--space-3); height: 56px; padding: 0 var(--space-2) 0 var(--space-4); background: var(--color-floating-bg); border: 1px solid var(--color-border); border-radius: var(--radius-pill); color: var(--color-text); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); white-space: nowrap; }
-  .status { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 600; }
-  .status.paused { color: var(--color-warn); }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-record); }
-  .dot.small { width: 7px; height: 7px; }
-  .paused .dot { background: currentColor; }
-  .pulse { animation: pulse 1.2s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: 0.25; } }
-  .time { min-width: 72px; }
-  .stop { background: var(--color-record); border-color: var(--color-record); color: #fff; }
-  .stop:hover:not(:disabled) { background: var(--color-record-hover); }
-  .chev { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent; color: var(--color-text-muted); cursor: pointer; }
-  .chev:hover { background: var(--color-surface-3); color: var(--color-text); }
-  .panel { width: 404px; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2); background: var(--color-floating-bg); border: 1px solid var(--color-border); border-radius: var(--radius-l); color: var(--color-text); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-sizing: border-box; }
+  .wrap { height: 100vh; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding-top: 6px; box-sizing: border-box; }
+  .bar { display: flex; align-items: center; gap: 6px; width: 408px; height: 60px; padding: 0 var(--space-2); border-radius: var(--radius-l); background: var(--color-plate); color: var(--color-plate-ink); box-shadow: inset 0 1px 0 var(--color-plate-hi), inset 0 0 0 1px var(--color-plate-lo); white-space: nowrap; }
+  .well { flex: none; }
+  .key.sm { width: 44px; height: 44px; }
+  .readout { flex: 1; min-width: 0; height: 48px; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); }
+  .read { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
+  .state { font-size: var(--text-xs); color: var(--color-glass-muted); }
+  .time { font-size: 15px; font-weight: 600; }
+  .size { font-size: var(--text-xs); color: var(--color-glass-muted); }
+  .chev { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-m); background: transparent; color: var(--color-plate-muted); cursor: pointer; }
+  .chev:hover { background: var(--color-plate-hi); color: var(--color-plate-ink); }
+  .panel { width: 408px; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2); border-radius: var(--radius-l); background: var(--color-plate); color: var(--color-plate-ink); box-shadow: inset 0 1px 0 var(--color-plate-hi), inset 0 0 0 1px var(--color-plate-lo); box-sizing: border-box; }
   .target { display: flex; align-items: center; gap: var(--space-2); height: 24px; font-size: var(--text-sm); }
-  .icon { width: 18px; height: 18px; border-radius: 4px; }
+  .icon { width: 18px; height: 18px; border-radius: var(--radius-s); }
   .tname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-  .chip.live { color: var(--color-record); display: inline-flex; align-items: center; gap: 4px; }
-  .chip.live.off { color: var(--color-warn); }
-  .chip.live.off .dot { background: currentColor; }
-  .view { position: relative; width: 388px; height: 218px; display: flex; align-items: center; justify-content: center; background: #000; border-radius: var(--radius-m); overflow: hidden; }
+  .chip { background: var(--color-plate-hi); color: var(--color-plate-ink); }
+  .chip.live { display: inline-flex; align-items: center; gap: var(--space-1); }
+  .view { position: relative; width: 392px; height: 220px; display: flex; align-items: center; justify-content: center; background: var(--color-glass); border-radius: var(--radius-m); overflow: hidden; }
   .frame { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
   .view.stale .frame { opacity: 0.35; }
-  .waiting { font-size: var(--text-sm); }
-  .notice { position: absolute; left: var(--space-3); right: var(--space-3); bottom: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn); color: #000; font-size: var(--text-sm); font-weight: 600; text-align: center; }
-  .countdown { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); background: var(--color-floating-bg); border-radius: var(--radius-l); color: var(--color-text); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+  .waiting { font-size: var(--text-sm); color: var(--color-glass-muted); }
+  .notice { position: absolute; left: var(--space-3); right: var(--space-3); bottom: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); background: var(--color-warn); color: var(--color-warn-fg); font-size: var(--text-sm); font-weight: 600; text-align: center; }
+  .countdown { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); border-radius: var(--radius-l); background: var(--color-plate); color: var(--color-plate-ink); box-shadow: inset 0 1px 0 var(--color-plate-hi), inset 0 0 0 1px var(--color-plate-lo); }
+  .reels { display: flex; align-items: center; gap: var(--space-5); }
+  .digit { width: 120px; height: 96px; display: flex; align-items: center; justify-content: center; }
   .num { font-size: var(--text-3xl); font-weight: 600; line-height: 1; }
 </style>

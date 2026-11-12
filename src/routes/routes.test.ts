@@ -5,6 +5,8 @@ import { mock } from "../lib/ipc-mock";
 import { __setLastResult, __setRecorderState, bindRecorderEvents, unbindRecorderEvents } from "../lib/stores/recorder.svelte";
 import { __setSettings } from "../lib/stores/settings.svelte";
 import { setPlatform } from "../lib/platform.svelte";
+import { setCapabilities } from "../lib/stores/capabilities.svelte";
+import { mockCapabilities } from "../lib/ipc-mock";
 import { defaultSettings, idleRecorderState } from "../lib/defaults";
 import { __resetDrive, bindDriveEvents, refreshDrive, signInToGoogle } from "../lib/stores/drive.svelte";
 import { getToasts, clearToasts } from "../lib/stores/toasts.svelte";
@@ -19,6 +21,7 @@ beforeEach(() => {
   unbindRecorderEvents();
   const settings = defaultSettings("macos");
   setPlatform("macos");
+  setCapabilities(mockCapabilities());
   __setSettings(settings);
   __setRecorderState(idleRecorderState());
   __setLastResult(null);
@@ -34,14 +37,49 @@ const openPicker = async () => {
 };
 
 describe("home", () => {
-  it("offers exactly one way forward: record, plus mic, camera, history and settings", async () => {
+  it("the front panel: five keys, four selectors and the sign-in, nothing else to press", async () => {
     render(Main, { settings: defaultSettings("macos") });
     expect(record()).toBeEnabled();
-    expect(screen.getAllByRole("button")).toHaveLength(6);
-    expect(screen.getByRole("button", { name: "登录 Google" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "关闭麦克风" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "关闭摄像头" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "设置" })).toBeInTheDocument();
+    // The computer audio lever reads "on" once the app knows the machine can record it.
+    await screen.findByRole("button", { name: "关闭电脑声音" });
+    const names = screen.getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent?.trim());
+    expect(names.sort()).toEqual(["停止录制", "关闭摄像头", "关闭电脑声音", "关闭麦克风", "录制历史", "录制屏幕", "暂停", "登录 Google", "设置", "选择要录的屏幕"].sort());
+    // Pause and stop are there, but there is nothing to pause or stop yet.
+    expect(screen.getByRole("button", { name: "暂停" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "停止录制" })).toBeDisabled();
+  });
+
+  it("the monitor does not ask the system for a picture before screen recording is allowed", async () => {
+    render(Main, { settings: defaultSettings("macos") });
+    await waitFor(() => expect(mock.callsTo("request_permission").length).toBe(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mock.callsTo("screen_thumbnail")).toHaveLength(0);
+  });
+
+  it("once it is allowed the monitor shows the screen that will be recorded", async () => {
+    mock.permissions.screen = "granted";
+    render(Main, { settings: defaultSettings("macos") });
+    await waitFor(() => expect(mock.callsTo("screen_thumbnail")).toEqual([{ id: "1" }]));
+  });
+
+  it("the left reel is the disk: it says how much is free, and warns when that is little", async () => {
+    render(Main, { settings: defaultSettings("macos") });
+    expect(await screen.findByRole("img", { name: /左盘：磁盘还剩 .*GB/ })).toBeInTheDocument();
+    expect(screen.queryByTestId("low-disk")).toBeNull();
+  });
+
+  it("with little room left on the disk it says how long that will last", async () => {
+    mock.disk = { freeBytes: 1_600_000_000, totalBytes: 1_000_000_000_000 };
+    render(Main, { settings: defaultSettings("macos") });
+    expect(await screen.findByTestId("low-disk")).toHaveTextContent(/大约还能录 .* 小时/);
+  });
+
+  it("the computer audio lever switches it off and on again", async () => {
+    render(Main, { settings: defaultSettings("macos") });
+    const lever = await screen.findByRole("button", { name: "关闭电脑声音" });
+    await waitFor(() => expect(lever).toBeEnabled());
+    await fireEvent.click(lever);
+    await waitFor(() => expect(mock.settings.audio.systemAudio).toEqual({ kind: "off" }));
   });
 
   it("asks for camera and microphone on load, the way a meeting page does", async () => {
@@ -59,6 +97,26 @@ describe("home", () => {
     render(Main, { settings: defaultSettings("macos") });
     await fireEvent.click(screen.getByRole("button", { name: "关闭麦克风" }));
     await waitFor(() => expect(mock.settings.audio.micEnabled).toBe(false));
+  });
+});
+
+describe("a window whose buttons the system draws over the page", () => {
+  it("keeps a strip clear for them and moves the window from it", () => {
+    render(Main, { settings: defaultSettings("macos") });
+    expect(screen.getByTestId("titlebar")).toHaveAttribute("data-tauri-drag-region");
+  });
+
+  it("a window with its own title bar has no strip", () => {
+    setCapabilities({ overlayTitleBar: false });
+    render(Main, { settings: defaultSettings("macos") });
+    expect(screen.queryByTestId("titlebar")).toBeNull();
+  });
+
+  it("the panel numbers a screen the system only names by its device, as the picker does", async () => {
+    mock.devices.screens = [{ ...mock.devices.screens[0], name: "Capture screen 0" }];
+    render(Main, { settings: defaultSettings("macos") });
+    await waitFor(() => expect(screen.getByTitle("屏幕 1")).toBeInTheDocument());
+    expect(screen.queryByText(/Capture screen/)).toBeNull();
   });
 });
 
@@ -245,7 +303,8 @@ describe("screen picker", () => {
     expect(radios).toHaveLength(2);
     expect(radios.filter((r) => r.getAttribute("aria-checked") === "true")).toHaveLength(1);
     expect(screen.getByText("屏幕 1")).toBeInTheDocument();
-    expect(mock.callsTo("screen_thumbnail")).toHaveLength(2);
+    // One still per screen in the picker (the monitor on the panel asks for its own).
+    expect(new Set(mock.callsTo("screen_thumbnail").map((c) => c.id))).toEqual(new Set(["1", "2"]));
   });
 
   it("start records the chosen screen and closes", async () => {
@@ -298,24 +357,76 @@ describe("screen picker", () => {
     expect(screen.getByRole("button", { name: "开始录制" })).toBeDisabled();
   });
 
-  it("on Windows there is no window tab", async () => {
+  it("without window capture there is no window tab, whatever the platform is called", async () => {
+    mock.permissions.screen = "granted";
+    setCapabilities({ windowCapture: false });
+    await openPicker();
+    await screen.findAllByRole("radio");
+    expect(screen.queryByRole("button", { name: "单个 App 窗口" })).toBeNull();
+  });
+
+  it("the window tab follows the capability, not the platform name", async () => {
     mock.permissions.screen = "granted";
     setPlatform("windows");
     await openPicker();
     await screen.findAllByRole("radio");
-    expect(screen.queryByRole("button", { name: "单个 App 窗口" })).toBeNull();
-    setPlatform("macos");
+    expect(screen.getByRole("button", { name: "单个 App 窗口" })).toBeInTheDocument();
+  });
+});
+
+describe("one screen, nothing to choose", () => {
+  it("the red key starts at once, with the name typed on the panel, and no dialog", async () => {
+    mock.permissions.screen = "granted";
+    mock.devices.screens = mock.devices.screens.slice(0, 1);
+    setCapabilities({ windowCapture: false });
+    render(Main, { settings: defaultSettings("macos") });
+    await waitFor(() => expect(mock.callsTo("screen_thumbnail")).toHaveLength(1));
+    await fireEvent.input(screen.getByTestId("home-name"), { target: { value: "周会" } });
+    await fireEvent.click(record());
+    await waitFor(() => expect(mock.callsTo("start_recording")).toEqual([{ meetingName: "周会" }]));
+    expect(mock.settings.capture).toEqual({ kind: "display", displayId: "1" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("without the screen permission the dialog still opens, because it explains what to do", async () => {
+    mock.devices.screens = mock.devices.screens.slice(0, 1);
+    setCapabilities({ windowCapture: false });
+    render(Main, { settings: defaultSettings("macos") });
+    await waitFor(() => expect(mock.callsTo("list_devices").length).toBeGreaterThan(0));
+    await fireEvent.click(record());
+    expect(await screen.findByTestId("perm")).toBeInTheDocument();
+    expect(mock.callsTo("start_recording")).toHaveLength(0);
+  });
+
+  it("the name typed on the panel is already in the dialog when there is a choice to make", async () => {
+    mock.permissions.screen = "granted";
+    render(Main, { settings: defaultSettings("macos") });
+    await fireEvent.input(screen.getByTestId("home-name"), { target: { value: "面试" } });
+    await fireEvent.click(record());
+    expect(((await screen.findByTestId("name")) as HTMLInputElement).value).toBe("面试");
   });
 });
 
 describe("recording bar", () => {
   const recording = { ...idleRecorderState(), phase: "recording" as const, elapsedMs: 83_000, segments: 1 };
 
+  it("without a live preview there is only the bar: no empty panel, nothing to expand", async () => {
+    setCapabilities({ livePreview: false });
+    __setRecorderState(recording);
+    render(Floating);
+    expect(screen.getByTestId("timer")).toBeInTheDocument();
+    expect(screen.queryByTestId("target")).toBeNull();
+    expect(screen.queryByRole("button", { name: "收起画面" })).toBeNull();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(mock.callsTo("preview_frame")).toHaveLength(0);
+  });
+
   it("shows status, time, pause, stop and the preview toggle, nothing else", () => {
     __setRecorderState(recording);
     render(Floating);
     expect(screen.getByText("正在录制")).toBeInTheDocument();
     expect(screen.getByTestId("timer")).toHaveTextContent("00:01:23");
+    expect(screen.getByTestId("size")).toHaveTextContent(/\d/);
     expect(screen.getAllByRole("button").map((b) => b.textContent?.trim() || b.getAttribute("aria-label"))).toEqual(["暂停", "停止录制", "收起画面"]);
   });
 
