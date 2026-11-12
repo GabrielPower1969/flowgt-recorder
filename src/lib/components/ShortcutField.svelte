@@ -3,7 +3,7 @@
   import { getPlatform } from "../platform.svelte";
   import { shortcutParts } from "../format";
 
-  let { value, label, onchange }: { value: string; label: string; onchange: (v: string) => void } = $props();
+  let { value, label, onchange, optional = false, problem = "" }: { value: string; label: string; onchange: (v: string) => void; /** May be left without a shortcut. */ optional?: boolean; /** Why the shortcut does not work right now. */ problem?: string } = $props();
   let editing = $state(false);
   let error = $state("");
 
@@ -34,16 +34,19 @@
 
 <div class="field">
   <span class="label" id="sc-{label}">{label}</span>
-  <button type="button" class="btn sc" aria-labelledby="sc-{label}" aria-describedby={error ? `sc-err-${label}` : undefined} onclick={() => (editing = !editing)} onkeydown={onKey} onblur={() => (editing = false)}>
-    {#if editing}
-      <span class="muted">{t("shortcut.press")}</span>
-    {:else}
-      {#each shortcutParts(value, getPlatform()) as part, i (i)}<span class="kbd">{part}</span>{/each}
-      <span class="sr-only">{t("shortcut.edit")}</span>
-    {/if}
-  </button>
+  <div class="row">
+    <button type="button" class="btn sc" aria-labelledby="sc-{label}" aria-describedby={error ? `sc-err-${label}` : undefined} onclick={() => (editing = !editing)} onkeydown={onKey} onblur={() => (editing = false)}>
+      {#if editing}
+        <span class="muted">{t("shortcut.press")}</span>
+      {:else}
+        {#each shortcutParts(value, getPlatform()) as part, i (i)}<span class="kbd">{part}</span>{:else}<span class="muted">{t("shortcut.none")}</span>{/each}
+        <span class="sr-only">{t("shortcut.edit")}</span>
+      {/if}
+    </button>
+    {#if optional && value}<button type="button" class="btn btn-sm" onclick={() => onchange("")}>{t("shortcut.clear")}</button>{/if}
+  </div>
   {#if error}<span id="sc-err-{label}" class="err">{error}</span>{/if}
-  <span class="faint">{t("settings.shortcuts.hint")}</span>
+  {#if problem && !editing}<span class="err" role="alert" data-testid="sc-problem">{problem}</span>{/if}
 </div>
 
 <style>

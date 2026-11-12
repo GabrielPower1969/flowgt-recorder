@@ -57,6 +57,9 @@ case .list:
 case .snapshot(let options):
     Snapshot.run(options)
     dispatchMain()
+case .scroll(let options):
+    ScrollFrames.run(options)
+    dispatchMain()
 case .record(let options):
     let recorder = Recorder(options: options)
     recorder.run()

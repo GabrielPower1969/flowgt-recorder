@@ -1,27 +1,38 @@
 #!/usr/bin/env bash
-# make-icons.sh — rebuild src-tauri/icons/ from the two rendered sources.
+# make-icons.sh — rebuild every picture the app ships from the sources in design/brand/.
 #
-#   src-tauri/icons/icon-src.png         the full drawing, 1024 px  -> every picture of 64 px and larger
-#   src-tauri/icons/icon-src-small.png   the simple drawing, 512 px -> every picture of 50 px and smaller
+#   design/brand/icon-full-1024.png   the full drawing   -> every picture of 64 px and larger
+#   design/brand/icon-small-512.png   the simple drawing -> every picture of 50 px and smaller
+#   design/brand/tray.py              draws the menu-bar / tray glyphs
 #
-# The sources are rendered with Blender from scripts/icons/icon_blender.py (see src-tauri/icons/README.md).
-# This script needs Node (for the Tauri CLI) and an ffmpeg: the sidecar in src-tauri/binaries/, or $FFMPEG,
-# or one on PATH. The tray icons (tray*.png) are separate drawings and are left alone.
+#   bash scripts/make-icons.sh           rebuild src-tauri/icons/, src/assets/brand/ and design/brand/ASSETS.md
+#   bash scripts/make-icons.sh --check   change nothing: fail when a picture is not listed in ASSETS.md or a
+#                                        retired picture is back; further arguments are bundles to look into
+#
+# The two icon sources are rendered with Blender from design/brand/icon_blender.py (see design/brand/README.md).
+# Rebuilding needs Node (for the Tauri CLI), Python 3 and an ffmpeg: the sidecar in src-tauri/binaries/, or
+# $FFMPEG, or one on PATH. The check needs Python 3 only.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 ICONS="src-tauri/icons"
+BRAND="design/brand"
 
-FFMPEG="${FFMPEG:-$(ls src-tauri/binaries/ffmpeg-* 2>/dev/null | head -1)}"
+if [ "${1:-}" = "--check" ]; then
+  shift
+  exec python3 "$BRAND/assets.py" check "$@"
+fi
+
+FFMPEG="${FFMPEG:-$(ls src-tauri/binaries/ffmpeg-* 2>/dev/null | grep -v "NOTICE\|COPYING" | head -1)}"
 [ -n "$FFMPEG" ] || FFMPEG="$(command -v ffmpeg || true)"
 [ -n "$FFMPEG" ] || { echo "FAIL: no ffmpeg (run scripts/fetch-ffmpeg.sh or set FFMPEG)" >&2; exit 1; }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-cp "$ICONS/icon-src.png" "$TMP/full.png"
-cp "$ICONS/icon-src-small.png" "$TMP/small.png"
+cp "$BRAND/icon-full-1024.png" "$TMP/full.png"
+cp "$BRAND/icon-small-512.png" "$TMP/small.png"
 
 # macOS draws icons on a grid where the plate is 824 of 1024 px wide; the render has it at 957 of 1024.
 # So the .icns is made from copies scaled to 86 % and centred on a transparent canvas.
@@ -46,4 +57,15 @@ done
 node scripts/icons/merge.cjs ico "$TMP/out-full/icon.ico" "$TMP/out-small/icon.ico" "$ICONS/icon.ico"
 node scripts/icons/merge.cjs icns "$TMP/out-full-mac/icon.icns" "$TMP/out-small-mac/icon.icns" "$ICONS/icon.icns"
 
-echo "PASS: $ICONS rebuilt"
+# The tray glyphs are drawn, not scaled from the icon.
+python3 "$BRAND/tray.py" "$ICONS"
+
+# Inside the app (the About page).
+mkdir -p src/assets/brand
+for size in 128 256; do
+  "$FFMPEG" -y -loglevel error -i "$TMP/full.png" -vf "scale=$size:$size:flags=lanczos" "src/assets/brand/logo-$size.png"
+done
+
+python3 "$BRAND/assets.py" write
+python3 "$BRAND/assets.py" check
+echo "PASS: $ICONS, src/assets/brand and $BRAND/ASSETS.md rebuilt"

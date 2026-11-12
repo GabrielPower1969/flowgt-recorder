@@ -115,8 +115,13 @@ done
 if strings "$APP/Contents/MacOS/flowgt-recorder" "$APP"/Contents/Helpers/ffmpeg "$APP"/Contents/Helpers/ffprobe | grep -q "$HOME"; then
   echo "FAIL: the bundle contains this machine's home folder path" >&2; exit 1
 fi
+# No retired picture (the first icon, the first tray glyph) may be in the bundle.
+bash scripts/make-icons.sh --check "$APP"
 echo "Signed: $(codesign -d -r- "$APP" 2>&1 | tail -1)"
 echo "Built: $APP"
+# Show it in Finder, so nobody has to look for it under target/. FLOWGT_NO_REVEAL=1 skips this.
+[ -n "${FLOWGT_NO_REVEAL:-}" ] || open -R "$APP" 2>/dev/null || true
+echo "To put it in /Applications: bash scripts/install-mac.sh"
 
 if [ -n "${MAS_INSTALLER_IDENTITY:-}" ]; then
   PKG="$OUT/FlowGT Recorder.pkg"

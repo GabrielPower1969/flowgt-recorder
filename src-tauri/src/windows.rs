@@ -42,6 +42,11 @@ pub fn floating_expanded() -> bool {
 /// Logical rectangle (x, y, w, h) of the nth screen, in the order the capture tool lists them.
 #[cfg(target_os = "macos")]
 fn screen_rect(_app: &AppHandle, index: usize) -> Option<(f64, f64, f64, f64)> {
+    screen_rect_points(index)
+}
+
+#[cfg(target_os = "macos")]
+fn screen_rect_points(index: usize) -> Option<(f64, f64, f64, f64)> {
     #[repr(C)]
     struct Rect {
         x: f64,
@@ -372,6 +377,157 @@ pub fn hide_floating(app: &AppHandle) {
     }
 }
 
+// ───────────────────────────── scrolling screenshot ─────────────────────────────
+
+pub const SCROLL_SELECT: &str = "scroll-select";
+pub const SCROLL_FRAME: &str = "scroll-frame";
+pub const SCROLL_BAR: &str = "scroll-bar";
+/// The control bar: the thumbnail on the left, the height and two buttons on the right.
+pub const SCROLL_BAR_SIZE: (f64, f64) = (300.0, 220.0);
+/// Thickness of the outline `native_outline` draws, in points.
+const OUTLINE: f64 = 6.0;
+
+/// Size of the nth screen in logical points.
+pub fn screen_size_points(index: usize) -> Option<(f64, f64)> {
+    #[cfg(target_os = "macos")]
+    {
+        // CGDisplayBounds is in points; the app handle is not needed for it.
+        screen_rect_points(index).map(|(_, _, w, h)| (w, h))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = index;
+        None
+    }
+}
+
+/// The screen the main window is on, as its position in the screen list; the first screen when
+/// that cannot be told.
+pub fn screen_of_main(app: &AppHandle) -> usize {
+    let Some(win) = app.get_webview_window("main") else {
+        return 0;
+    };
+    let (Ok(pos), Ok(size), Ok(scale)) =
+        (win.outer_position(), win.outer_size(), win.scale_factor())
+    else {
+        return 0;
+    };
+    let cx = (f64::from(pos.x) + f64::from(size.width) / 2.0) / scale;
+    let cy = (f64::from(pos.y) + f64::from(size.height) / 2.0) / scale;
+    (0..16)
+        .find(|&i| {
+            screen_rect(app, i)
+                .is_some_and(|(x, y, w, h)| cx >= x && cx < x + w && cy >= y && cy < y + h)
+        })
+        .unwrap_or(0)
+}
+
+/// A window over the whole screen showing a still of it, on which the user drags a rectangle.
+/// Opaque on purpose: it works the same in a build that cannot have see-through windows.
+pub fn open_scroll_select(app: &AppHandle, screen: usize) -> tauri::Result<()> {
+    close_scroll_select(app);
+    let (x, y, w, h) = screen_rect(app, screen).unwrap_or((0.0, 0.0, 1440.0, 900.0));
+    let win = WebviewWindowBuilder::new(app, SCROLL_SELECT, WebviewUrl::App("index.html".into()))
+        .title("FlowGT Recorder")
+        .decorations(false)
+        .always_on_top(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .shadow(false)
+        .visible(false)
+        .initialization_script("location.hash = '#/scroll-select';")
+        .build()?;
+    let _ = win.set_size(LogicalSize::new(w, h));
+    let _ = win.set_position(LogicalPosition::new(x, y));
+    raise_above_menu_bar(&win);
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+pub fn close_scroll_select(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(SCROLL_SELECT) {
+        let _ = win.close();
+    }
+}
+
+/// The outline around the chosen rectangle and the control bar beside it. Both belong to this
+/// app, and the frame source leaves this app's windows out of the picture.
+pub fn open_scroll_frame(
+    app: &AppHandle,
+    screen: usize,
+    rect: crate::scroll::LogicalRect,
+) -> tauri::Result<()> {
+    close_scroll_frame(app);
+    let (sx, sy, sw, sh) = screen_rect(app, screen).unwrap_or((0.0, 0.0, 1440.0, 900.0));
+    let frame = WebviewWindowBuilder::new(app, SCROLL_FRAME, WebviewUrl::App("index.html".into()))
+        .title("FlowGT Recorder")
+        .decorations(false);
+    let frame = see_through(frame)
+        .always_on_top(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .shadow(false)
+        .focused(false)
+        .visible(false)
+        .initialization_script("location.hash = '#/scroll-frame';")
+        .build()?;
+    let _ = frame.set_ignore_cursor_events(true);
+    // macOS draws the outline natively (no see-through page needed); elsewhere the page does.
+    native_outline(&frame);
+    #[cfg(windows)]
+    let _ = frame.set_content_protected(true);
+    let _ = frame.set_size(LogicalSize::new(
+        rect.w + 2.0 * OUTLINE,
+        rect.h + 2.0 * OUTLINE,
+    ));
+    let _ = frame.set_position(LogicalPosition::new(
+        sx + rect.x - OUTLINE,
+        sy + rect.y - OUTLINE,
+    ));
+    raise_above_menu_bar(&frame);
+    let _ = frame.show();
+
+    let (bw, bh) = SCROLL_BAR_SIZE;
+    let gap = 14.0;
+    // Right of the rectangle when there is room, else left of it, else inside its corner.
+    let bx = if rect.x + rect.w + OUTLINE + gap + bw <= sw {
+        rect.x + rect.w + OUTLINE + gap
+    } else if rect.x - OUTLINE - gap - bw >= 0.0 {
+        rect.x - OUTLINE - gap - bw
+    } else {
+        (rect.x + rect.w - bw - gap).max(0.0)
+    };
+    let by = (rect.y + rect.h - bh).clamp(0.0, (sh - bh).max(0.0));
+    let bar = WebviewWindowBuilder::new(app, SCROLL_BAR, WebviewUrl::App("index.html".into()))
+        .title("FlowGT Recorder")
+        .inner_size(bw, bh)
+        .decorations(false)
+        .always_on_top(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .shadow(true)
+        .focused(false)
+        .visible(false)
+        .initialization_script("location.hash = '#/scroll-bar';")
+        .build()?;
+    #[cfg(windows)]
+    let _ = bar.set_content_protected(true);
+    round_corners(&bar, 14.0);
+    let _ = bar.set_position(LogicalPosition::new(sx + bx, sy + by));
+    raise_above_menu_bar(&bar);
+    let _ = bar.show();
+    Ok(())
+}
+
+pub fn close_scroll_frame(app: &AppHandle) {
+    for label in [SCROLL_FRAME, SCROLL_BAR] {
+        if let Some(win) = app.get_webview_window(label) {
+            let _ = win.close();
+        }
+    }
+}
+
 pub fn hide_main(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.hide();
@@ -383,6 +539,19 @@ pub fn show_main(app: &AppHandle) {
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();
+    }
+}
+
+/// The show-window shortcut: bring the main window forward, or put it away when it is in front.
+pub fn toggle_main(app: &AppHandle) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let in_front = win.is_visible().unwrap_or(false) && win.is_focused().unwrap_or(false);
+    if in_front {
+        let _ = win.hide();
+    } else {
+        show_main(app);
     }
 }
 

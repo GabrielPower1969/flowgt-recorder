@@ -15,12 +15,12 @@ fn even_round(v: f64) -> u32 {
 }
 
 /// Output size for a captured screen: scale to max_width, keep aspect, force even dimensions.
-/// Never scales up.
+/// Never scales up. `max_width` 0 means no cap.
 pub fn output_size(screen_w: u32, screen_h: u32, max_width: u32) -> (u32, u32) {
     if screen_w == 0 || screen_h == 0 {
         return (2, 2);
     }
-    let w = screen_w.min(max_width.max(2));
+    let w = if max_width == 0 { screen_w } else { screen_w.min(max_width.max(2)) };
     if w == screen_w {
         return ((screen_w & !1).max(2), (screen_h & !1).max(2));
     }
@@ -459,6 +459,11 @@ mod tests {
         assert_eq!(output_size(1367, 769, 1920), (1366, 768), "odd sizes are made even");
         assert_eq!(output_size(3840, 2160, 1280), (1280, 720));
         assert_eq!(output_size(0, 0, 1920), (2, 2));
+        assert_eq!(output_size(3840, 2160, 3840), (3840, 2160), "4K");
+        assert_eq!(output_size(3024, 1964, 3840), (3024, 1964), "4K on a smaller screen is the screen");
+        assert_eq!(output_size(5120, 2880, 3840), (3840, 2160));
+        assert_eq!(output_size(3024, 1964, 0), (3024, 1964), "0 = no cap");
+        assert_eq!(output_size(5121, 2881, 0), (5120, 2880));
     }
 
     #[test]

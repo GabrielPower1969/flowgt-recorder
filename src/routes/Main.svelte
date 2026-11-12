@@ -5,8 +5,10 @@
    * inputs and five keys. Saved, history and settings are paper cards laid over the reels (`sheet`).
    */
   import { onMount, type Snippet } from "svelte";
-  import type { AppInfo, Device, DeviceList, DiskStatus, PermissionKind, PermissionStatus, Settings } from "../lib/types";
-  import { invoke } from "../lib/ipc";
+  import type { AppInfo, Device, DeviceList, DiskStatus, PermissionKind, PermissionStatus, ScrollShot, Settings } from "../lib/types";
+  import { errorMessage, invoke, mediaUrl, subscribe } from "../lib/ipc";
+  import { toast } from "../lib/stores/toasts.svelte";
+  import { getPlatform } from "../lib/platform.svelte";
   import { t } from "../lib/stores/i18n.svelte";
   import { getRoute, navigate } from "../lib/router.svelte";
   import { updateSettings } from "../lib/stores/settings.svelte";
@@ -15,7 +17,7 @@
   import { openCamera, stopStream } from "../lib/media/camera";
   import { startLevelMeter } from "../lib/media/level";
   import { driveState, signInToGoogle } from "../lib/stores/drive.svelte";
-  import { formatBytes, formatDuration, formatHours } from "../lib/format";
+  import { formatBytes, formatDuration, formatHours, outputSize, QUALITY_STEPS, qualityAvailable, qualityOf, shortcutParts, suggestedMbPerHour, type QualityKey } from "../lib/format";
   import Reel from "../lib/components/Reel.svelte";
   import Lever from "../lib/components/Lever.svelte";
   import ScreenPicker from "../lib/components/ScreenPicker.svelte";
@@ -79,6 +81,38 @@
   /** A screen named by its device (\\.\DISPLAY1, "Capture screen 0") says nothing to a person: number it, as the picker does. */
   const friendly = (d: Device | undefined, i: number) => (d && !/^(\\\\\.\\|Capture screen \d+$)/.test(d.name) ? d.name : t("picker.screen", { n: i + 1 }));
   const screenName = $derived(settings.capture.kind === "window" && windowsOffered ? t("picker.tab.window") : friendly(screens[screenIndex], screenIndex));
+
+  /** The two quality steps on the plate; the others are in the settings. */
+  const quality = $derived(qualityOf(settings.video.maxWidth));
+  const outSize = $derived(outputSize(screens[screenIndex], settings.video.maxWidth));
+  /** Choosing a larger picture on the plate also raises a budget that would leave it soft, and says so. */
+  async function setQuality(key: QualityKey) {
+    const maxWidth = QUALITY_STEPS.find((q) => q.key === key)!.maxWidth;
+    const size = outputSize(screens[screenIndex], maxWidth);
+    const want = Math.min(2000, suggestedMbPerHour(size.width, size.height));
+    const raise = settings.video.targetMbPerHour < want * 0.8;
+    await updateSettings((s) => {
+      s.video.maxWidth = maxWidth;
+      if (raise) s.video.targetMbPerHour = want;
+    });
+    if (raise) toast("ok", t("face.budgetRaised", { mb: want }));
+  }
+
+  /** A key's tooltip: what it does and, when one is set, its global shortcut. */
+  const hint = (label: string, accel: string) => (accel ? `${label}  ${shortcutParts(accel, getPlatform()).join(getPlatform() === "macos" ? "" : "+")}` : label);
+
+  // Scrolling screenshot: the key starts it; the result comes back as a card on the plate.
+  let shot = $state<(ScrollShot & { url: string | null }) | null>(null);
+  async function scrollShot() {
+    if (busy) return;
+    shot = null;
+    if (route !== "/") navigate("/");
+    try {
+      await invoke("scroll_capture_begin");
+    } catch (e) {
+      toast("error", errorMessage(e));
+    }
+  }
 
   /** Drive counts only when signed in; otherwise the local file is the only copy. */
   const driveOn = $derived(settings.saveDrive && !!driveState.status.email);
@@ -214,6 +248,10 @@
   });
 
   onMount(() => {
+    const offShot = subscribe("scroll://finished", (s) => {
+      shot = { ...s, url: null };
+      void mediaUrl(s.path).then((url) => { if (shot?.path === s.path) shot = { ...shot, url }; });
+    });
     const fit = () => (view = { w: window.innerWidth, h: window.innerHeight });
     fit();
     window.addEventListener("resize", fit);
@@ -223,7 +261,10 @@
       if (settings.camera.enabled) await ensure("camera");
       if (settings.audio.micEnabled) await ensure("microphone");
     })();
-    return () => window.removeEventListener("resize", fit);
+    return () => {
+      offShot();
+      window.removeEventListener("resize", fit);
+    };
   });
 </script>
 
@@ -303,18 +344,29 @@
         </label>
       </div>
 
-      <div class="well keys-l"><button type="button" class="key" aria-label={t("history.title")} aria-pressed={route === "/history"} data-testid="open-history" disabled={busy} onclick={() => toggleSheet("/history")}></button></div>
+      <div class="well keys-l" class:two={getCapabilities().scrollCapture}>
+        {#if getCapabilities().scrollCapture}<button type="button" class="key" aria-label={t("scroll.key")} title={hint(t("scroll.key"), settings.shortcuts.scrollCapture)} data-testid="scroll-shot" disabled={busy} onclick={scrollShot}></button>{/if}
+        <button type="button" class="key" aria-label={t("history.title")} aria-pressed={route === "/history"} data-testid="open-history" disabled={busy} onclick={() => toggleSheet("/history")}></button>
+      </div>
       <div class="well keys-m">
-        <button type="button" class="key" aria-label={paused ? t("floating.resume") : t("floating.pause")} aria-pressed={paused} disabled={!live || recorder.busy} onclick={() => togglePause()}></button>
-        <button type="button" class="key" aria-label={t("home.record")} aria-pressed={busy} data-testid="rec" disabled={busy} onclick={record}><span class="key-dot"></span></button>
+        <button type="button" class="key" aria-label={paused ? t("floating.resume") : t("floating.pause")} title={hint(paused ? t("floating.resume") : t("floating.pause"), settings.shortcuts.pause)} aria-pressed={paused} disabled={!live || recorder.busy} onclick={() => togglePause()}></button>
+        <button type="button" class="key" aria-label={t("home.record")} title={hint(t("home.record"), settings.shortcuts.toggle)} aria-pressed={busy} data-testid="rec" disabled={busy} onclick={record}><span class="key-dot"></span></button>
         <button type="button" class="key" aria-label={st.phase === "countdown" ? t("common.cancel") : t("floating.stopLong")} disabled={!(live || st.phase === "countdown") || recorder.busy} onclick={stop}></button>
       </div>
       <div class="well keys-r"><button type="button" class="key" aria-label={t("common.settings")} aria-pressed={route === "/settings"} disabled={busy} onclick={() => toggleSheet("/settings")}></button></div>
-      <span class="klabel" class:off={busy} aria-hidden="true" style:left="374px"><svg width="13" height="9" viewBox="0 0 13 9"><path d="M6 0v9L0 4.5zM13 0v9L7 4.5z" fill="currentColor" /></svg>{t("face.key.history")}</span>
+      {#if getCapabilities().scrollCapture}<span class="klabel" class:off={busy} aria-hidden="true" style:left="322px" style:width="60px"><svg width="9" height="11" viewBox="0 0 9 11"><path d="M1 0h7v1H1zM4 2h1v5.3l2-2 .7.7L4.5 9.2 1.3 6l.7-.7 2 2zM1 10h7v1H1z" fill="currentColor" /></svg>{t("face.key.scroll")}</span>{/if}
+      <span class="klabel" class:off={busy} aria-hidden="true" style:left={getCapabilities().scrollCapture ? "384px" : "374px"} style:width={getCapabilities().scrollCapture ? "60px" : undefined}><svg width="13" height="9" viewBox="0 0 13 9"><path d="M6 0v9L0 4.5zM13 0v9L7 4.5z" fill="currentColor" /></svg>{t("face.key.history")}</span>
       <span class="klabel" class:off={!live} aria-hidden="true" style:left="474px"><svg width="8" height="9" viewBox="0 0 8 9">{#if paused}<path d="M0 0v9l8-4.5z" fill="currentColor" />{:else}<path d="M0 0h3v9H0zM5 0h3v9H5z" fill="currentColor" />{/if}</svg>{paused ? t("floating.resume") : t("floating.pause")}</span>
       <span class="klabel" aria-hidden="true" style:left="536px">{t("face.key.record")}</span>
       <span class="klabel" class:off={!(live || st.phase === "countdown")} aria-hidden="true" style:left="598px"><svg width="9" height="9" viewBox="0 0 9 9"><path d="M0 0h9v9H0z" fill="currentColor" /></svg>{st.phase === "countdown" ? t("common.cancel") : t("floating.stop")}</span>
       <span class="klabel" class:off={busy} aria-hidden="true" style:left="698px">{t("common.settings")}</span>
+
+      <div class="quality glass" role="group" aria-label={t("face.quality")} data-testid="quality">
+        {#each ["1080p", "4k"] as const as key (key)}
+          <button type="button" aria-pressed={quality === key} disabled={busy || !qualityAvailable(key, screens[screenIndex]?.width)} onclick={() => setQuality(key)}>{t(`quality.${key}`)}</button>
+        {/each}
+      </div>
+      <p class="cap quality-cap" data-testid="quality-cap">{t("face.quality")} · {quality === "1080p" || quality === "4k" ? "" : `${t(`quality.${quality}`)} · `}{outSize.width} × {outSize.height}</p>
 
       <div class="ctl" style:left="836px">
         <Lever round marks={[{ label: t("common.off") }, { label: t("common.on") }]} index={settings.audio.micEnabled ? 1 : 0} label={settings.audio.micEnabled ? t("home.micOn") : t("home.micOff")} pressed={settings.audio.micEnabled} disabled={busy} onclick={toggleMic} />
@@ -360,7 +412,24 @@
         </div>
       </div>
 
-      {#if sheet}<section class="sheet">{@render sheet()}</section>{/if}
+      {#if sheet}
+        <section class="sheet">{@render sheet()}</section>
+      {:else if shot}
+        <section class="sheet shot-card" data-testid="scroll-result">
+          <header class="shot-head">
+            <div>
+              <h1>{t("scroll.result.title")}</h1>
+              <p class="muted">{t("scroll.result.meta", { w: shot.width, h: shot.height })}{#if shot.copied} · {t("scroll.result.copied")}{/if}</p>
+              <p class="faint mono shot-path">{shot.path}</p>
+            </div>
+            <div class="shot-actions">
+              <button type="button" class="btn" onclick={() => shot && invoke("reveal_in_file_manager", { path: shot.path })}>{t("scroll.result.reveal")}</button>
+              <button type="button" class="btn btn-primary" onclick={() => (shot = null)}>{t("common.back")}</button>
+            </div>
+          </header>
+          <div class="shot-view">{#if shot.url}<img src={shot.url} alt="" />{/if}</div>
+        </section>
+      {/if}
     </div>
   </main>
 </div>
@@ -427,7 +496,20 @@
   .eng select option { background: var(--color-surface); color: var(--color-text); }
 
   .well { top: 556px; }
-  .keys-l { left: 382px; } .keys-m { left: 482px; } .keys-r { left: 706px; }
+  .keys-l { left: 382px; } .keys-l.two { left: 320px; } .keys-m { left: 482px; } .keys-r { left: 706px; }
+  .quality { left: 744px; top: 420px; width: 168px; height: 46px; padding: 5px; display: flex; gap: 4px; }
+  .quality button { flex: 1; border: 0; border-radius: var(--radius-s); background: var(--color-glass-dim); color: var(--color-glass-muted); font-size: var(--text-md); font-weight: 600; cursor: pointer; }
+  .quality button[aria-pressed="true"] { background: var(--color-glass-fg); color: var(--color-glass); }
+  .quality button:disabled { opacity: 0.4; cursor: default; }
+  .quality-cap { left: 728px; top: 472px; width: 200px; text-align: center; }
+  .shot-card { display: flex; flex-direction: column; gap: var(--space-3); }
+  .shot-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
+  .shot-head h1 { margin: 0 0 var(--space-1); font-size: var(--text-lg); }
+  .shot-head p { margin: 0; }
+  .shot-path { word-break: break-all; font-size: var(--text-sm); }
+  .shot-actions { flex: none; display: flex; gap: var(--space-2); }
+  .shot-view { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-s); background: var(--color-desk); }
+  .shot-view img { display: block; width: 100%; }
   .klabel { top: 628px; width: 80px; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: var(--text-sm); white-space: nowrap; }
   .klabel.off { color: var(--color-plate-off); }
 

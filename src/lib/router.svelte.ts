@@ -1,7 +1,10 @@
-/** Hash router: #/ (home), #/settings, #/summary, #/history, #/floating, #/marker. */
-export type Route = "/" | "/settings" | "/summary" | "/history" | "/floating" | "/marker";
+/** Hash router: #/ (home), #/settings, #/summary, #/history, and the tool windows #/floating, #/marker, #/scroll-*. */
+export type Route = "/" | "/settings" | "/summary" | "/history" | "/floating" | "/marker" | "/scroll-select" | "/scroll-frame" | "/scroll-bar";
 
-const KNOWN: Route[] = ["/", "/settings", "/summary", "/history", "/floating", "/marker"];
+const KNOWN: Route[] = ["/", "/settings", "/summary", "/history", "/floating", "/marker", "/scroll-select", "/scroll-frame", "/scroll-bar"];
+
+/** Routes that are small tool windows of their own, not pages of the main window. */
+export const TOOL_ROUTES: Route[] = ["/floating", "/marker", "/scroll-select", "/scroll-frame", "/scroll-bar"];
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, "").split("?")[0] || "/";

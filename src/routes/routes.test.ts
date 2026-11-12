@@ -14,6 +14,9 @@ import Main from "./Main.svelte";
 import History from "./History.svelte";
 import Floating from "./Floating.svelte";
 import Summary from "./Summary.svelte";
+import Settings from "./Settings.svelte";
+import ScrollBar from "./ScrollBar.svelte";
+import ScrollSelect from "./ScrollSelect.svelte";
 
 beforeEach(() => {
   mock.reset();
@@ -37,13 +40,13 @@ const openPicker = async () => {
 };
 
 describe("home", () => {
-  it("the front panel: five keys, four selectors and the sign-in, nothing else to press", async () => {
+  it("the front panel: six keys, the quality switch, four selectors and the sign-in, nothing else to press", async () => {
     render(Main, { settings: defaultSettings("macos") });
     expect(record()).toBeEnabled();
     // The computer audio lever reads "on" once the app knows the machine can record it.
     await screen.findByRole("button", { name: "关闭电脑声音" });
     const names = screen.getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent?.trim());
-    expect(names.sort()).toEqual(["停止录制", "关闭摄像头", "关闭电脑声音", "关闭麦克风", "录制历史", "录制屏幕", "暂停", "登录 Google", "设置", "选择要录的屏幕"].sort());
+    expect(names.sort()).toEqual(["1080p", "4K", "停止录制", "关闭摄像头", "关闭电脑声音", "关闭麦克风", "录制历史", "录制屏幕", "暂停", "滚动截图", "登录 Google", "设置", "选择要录的屏幕"].sort());
     // Pause and stop are there, but there is nothing to pause or stop yet.
     expect(screen.getByRole("button", { name: "暂停" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "停止录制" })).toBeDisabled();
@@ -506,5 +509,138 @@ describe("summary", () => {
     await new Promise((r) => setTimeout(r, 0));
     mock.emit("recorder://finished", result(0));
     expect(finished).toBe(true);
+  });
+});
+
+describe("quality", () => {
+  it("the switch on the plate stores 4K and says what the file will be", async () => {
+    render(Main, { settings: defaultSettings("macos") });
+    const cap = await screen.findByTestId("quality-cap");
+    await waitFor(() => expect(cap.textContent).toContain("1920 × 1080"));
+    expect(screen.getByRole("button", { name: "1080p" })).toHaveAttribute("aria-pressed", "true");
+    await fireEvent.click(screen.getByRole("button", { name: "4K" }));
+    await waitFor(() => expect(mock.settings.video.maxWidth).toBe(3840));
+    // The budget that was fine for 1080p would leave 3840 × 2160 soft: it is raised, and said.
+    expect(mock.settings.video.targetMbPerHour).toBe(1150);
+    expect(getToasts().some((x) => x.text.includes("1150"))).toBe(true);
+  });
+
+  it("4K is not offered for a screen that has no more pixels than 1440p", async () => {
+    mock.devices.screens = [{ ...mock.devices.screens[0], width: 2560, height: 1440 }];
+    render(Main, { settings: defaultSettings("macos") });
+    await waitFor(() => expect(screen.getByRole("button", { name: "4K" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "1080p" })).toBeEnabled();
+  });
+
+  it("the settings offer five steps and warn when the budget is too small for the picture", async () => {
+    const s = defaultSettings("macos");
+    s.video.maxWidth = 3840;
+    __setSettings(s);
+    mock.settings = s;
+    render(Settings);
+    await fireEvent.click(screen.getByRole("button", { name: "视频" }));
+    const group = screen.getByRole("group", { name: "清晰度" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["720p", "1080p", "1440p", "4K", "原始"]);
+    await waitFor(() => expect(screen.getByTestId("quality-out").textContent).toContain("3840 × 2160"));
+    expect(screen.getByTestId("budget-low")).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: /调到/ }));
+    await waitFor(() => expect(mock.settings.video.targetMbPerHour).toBeGreaterThanOrEqual(1000));
+  });
+});
+
+describe("start at login", () => {
+  it("the switch asks the system and shows what it answered", async () => {
+    render(Settings);
+    const box = await screen.findByTestId("autostart");
+    expect(box).not.toBeChecked();
+    await fireEvent.click(box);
+    await waitFor(() => expect(mock.autostart).toBe("on"));
+    expect(mock.callsTo("autostart_set")[0]).toEqual({ enabled: true });
+  });
+
+  it("says so when the system still wants the user's approval", async () => {
+    mock.autostart = "needsApproval";
+    render(Settings);
+    expect(await screen.findByTestId("autostart-approval")).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "打开登录项设置" }));
+    expect(mock.callsTo("open_login_items_settings")).toHaveLength(1);
+  });
+
+  it("is not shown where the platform cannot do it", async () => {
+    setCapabilities({ autostart: false });
+    render(Settings);
+    await screen.findByText("保存位置");
+    expect(screen.queryByTestId("autostart")).toBeNull();
+  });
+});
+
+describe("shortcuts", () => {
+  it("lists four, and says which one another program already holds", async () => {
+    mock.takenShortcuts.add("cmdorctrl+shift+r");
+    render(Settings);
+    await fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+    for (const name of ["开始 / 停止", "暂停 / 继续", "滚动截图", "显示／隐藏主窗口"]) expect(screen.getByText(name)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByTestId("sc-problem")).toHaveLength(1));
+    expect(screen.getByTestId("sc-problem").textContent).toContain("占用");
+  });
+
+  it("an optional one can be cleared, and reset brings the defaults back", async () => {
+    render(Settings);
+    await fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+    await fireEvent.click(screen.getByRole("button", { name: "清除" }));
+    await waitFor(() => expect(mock.settings.shortcuts.scrollCapture).toBe(""));
+    await fireEvent.click(screen.getByTestId("shortcuts-reset"));
+    await waitFor(() => expect(mock.settings.shortcuts.scrollCapture).toBe("Alt+Shift+S"));
+  });
+});
+
+describe("scrolling screenshot", () => {
+  it("the key starts choosing the area; the saved picture comes back as a card", async () => {
+    render(Main, { settings: defaultSettings("macos") });
+    await fireEvent.click(screen.getByRole("button", { name: "滚动截图" }));
+    await waitFor(() => expect(mock.scroll).toBe("selecting"));
+    await mock.invoke("scroll_capture_start", { rect: { x: 0, y: 0, w: 400, h: 300 } });
+    await mock.invoke("scroll_capture_finish");
+    const card = await screen.findByTestId("scroll-result");
+    expect(card.textContent).toContain("800 × 4200");
+    expect(card.textContent).toContain("已放进剪贴板");
+  });
+
+  it("the key is not there where the platform cannot do it", () => {
+    setCapabilities({ scrollCapture: false });
+    render(Main, { settings: defaultSettings("macos") });
+    expect(screen.queryByRole("button", { name: "滚动截图" })).toBeNull();
+  });
+
+  it("the bar shows the height so far, a warning when frames do not join, and saves on Done", async () => {
+    render(ScrollBar);
+    expect(screen.getByTestId("scroll-count").textContent).toContain("现在滚动页面");
+    await new Promise((r) => setTimeout(r, 0));
+    mock.emit("scroll://progress", { width: 800, height: 2400, frames: 7, thumbnail: null, newestAt: 0.8 });
+    await waitFor(() => expect(screen.getByTestId("scroll-count").textContent).toContain("2400"));
+    mock.emit("scroll://warning", "noOverlap");
+    expect((await screen.findByTestId("scroll-warning")).textContent).toContain("往回滚");
+    mock.emit("scroll://warning", null);
+    await waitFor(() => expect(screen.queryByTestId("scroll-warning")).toBeNull());
+    await fireEvent.click(screen.getByTestId("scroll-done"));
+    await waitFor(() => expect(mock.callsTo("scroll_capture_finish")).toHaveLength(1));
+  });
+
+  it("choosing: a drag gives the rectangle, a tiny one is refused, Esc backs out", async () => {
+    render(ScrollSelect);
+    const veil = screen.getByTestId("scroll-select");
+    veil.setPointerCapture = () => {};
+    const drag = async (x1: number, y1: number, x2: number, y2: number) => {
+      await fireEvent.pointerDown(veil, { button: 0, clientX: x1, clientY: y1, pointerId: 1 });
+      await fireEvent.pointerMove(veil, { clientX: x2, clientY: y2, pointerId: 1 });
+      await fireEvent.pointerUp(veil, { pointerId: 1 });
+    };
+    await drag(10, 10, 30, 30);
+    expect(mock.callsTo("scroll_capture_start")).toHaveLength(0);
+    await drag(100, 120, 500, 420);
+    await waitFor(() => expect(mock.callsTo("scroll_capture_start")).toHaveLength(1));
+    expect(mock.callsTo("scroll_capture_start")[0]).toEqual({ rect: { x: 100, y: 120, w: 400, h: 300 } });
+    await fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(mock.callsTo("scroll_capture_cancel")).toHaveLength(1));
   });
 });

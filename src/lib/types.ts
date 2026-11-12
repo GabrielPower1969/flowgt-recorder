@@ -11,7 +11,7 @@ export type AudioTracks = "mixed" | "separate";
 export type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 export type PipShape = "square" | "rounded" | "circle";
 
-export const SETTINGS_VERSION = 1;
+export const SETTINGS_VERSION = 2;
 export const DEFAULT_FILENAME_TEMPLATE = "{date} {time} {name}";
 export const DEFAULT_TARGET_MB_PER_HOUR = 400;
 
@@ -56,7 +56,22 @@ export type CaptureTarget =
   | { kind: "region"; displayId: string; region: Region }
   | { kind: "window"; windowId: string };
 
-export interface ShortcutSettings { toggle: string; pause: string }
+export interface ShortcutSettings {
+  toggle: string;
+  pause: string;
+  /** Start a scrolling screenshot; "" = no shortcut. */
+  scrollCapture: string;
+  /** Show or hide the main window; "" = no shortcut. */
+  showWindow: string;
+}
+export type ShortcutName = keyof ShortcutSettings;
+/** What happened to a shortcut at the last registration. */
+export type ShortcutState = "ok" | "taken" | "invalid" | "unset";
+export type AutostartStatus = "on" | "off" | "needsApproval" | "unsupported";
+export interface LogicalRect { x: number; y: number; w: number; h: number }
+export interface ScrollProgress { width: number; height: number; frames: number; thumbnail: string | null; newestAt: number }
+export interface ScrollShot { path: string; width: number; height: number; copied: boolean }
+export type ScrollWarning = "noOverlap" | "full" | "sourceEnded" | null;
 
 export interface Settings {
   version: number;
@@ -74,6 +89,8 @@ export interface Settings {
   onboardingDone: boolean;
   saveLocal: boolean;
   saveDrive: boolean;
+  /** Started by the system at login: stay in the menu bar / tray without a window. */
+  startHiddenOnLogin: boolean;
 }
 
 export type DeviceKind = "screen" | "camera" | "microphone";
@@ -215,6 +232,10 @@ export interface Capabilities {
   pauseResume: boolean;
   livePreview: boolean;
   overlayTitleBar: boolean;
+  /** A scrolling screenshot can be taken. */
+  scrollCapture: boolean;
+  /** The app can add itself to the system's start-at-login list. */
+  autostart: boolean;
 }
 
 export interface AppInfo {
@@ -272,6 +293,16 @@ export interface Commands {
   drive_sign_out: () => DriveStatus;
   drive_upload: (args: { path: string }) => void;
   open_drive_link: (args: { url: string }) => void;
+  autostart_status: () => AutostartStatus;
+  autostart_set: (args: { enabled: boolean }) => AutostartStatus;
+  open_login_items_settings: () => void;
+  shortcut_status: () => Partial<Record<ShortcutName, ShortcutState>>;
+  scroll_capture_begin: () => void; // hides the main window and opens the selection
+  scroll_capture_backdrop: () => { path: string };
+  scroll_capture_progress: () => ScrollProgress | null; // null before the first frame
+  scroll_capture_start: (args: { rect: LogicalRect }) => void;
+  scroll_capture_finish: () => ScrollShot;
+  scroll_capture_cancel: () => void;
 }
 
 /** Events emitted by the Rust side (payload types). */
@@ -283,6 +314,12 @@ export interface Events {
   "recorder://error": { code: string; detail: string };
   "shortcut://toggle": null;
   "shortcut://pause": null;
+  "shortcut://scrollCapture": null;
+  "shortcut://showWindow": null;
+  "scroll://progress": ScrollProgress;
+  "scroll://warning": ScrollWarning;
+  "scroll://finished": ScrollShot;
+  "scroll://cancelled": null;
   "compress://progress": { jobId: string; percent: number; done: boolean; output: string | null; error: string | null };
   "countdown://tick": { remaining: number };
   "drive://progress": DriveProgress;
