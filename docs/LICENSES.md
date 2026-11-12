@@ -20,6 +20,12 @@ The app runs ffmpeg and ffprobe as **separate sidecar processes** (D2); it never
   written offer; do not forbid replacing the ffmpeg binary (the sidecar layout already allows it).
 - The decoder/encoder set we rely on is LGPL-clean: `hevc_videotoolbox`, `h264_videotoolbox`, native `aac`
   (Windows adds hardware encoders through their vendor runtimes, not through GPL code).
+- **macOS (2026-11-12):** `scripts/build-ffmpeg-mac.sh` builds ffmpeg 7.1.1 from
+  `https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz` (SHA-256
+  `733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1`; the release signature was checked by
+  hand against the FFmpeg release key `FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8`). No external
+  libraries, no network protocols. `scripts/build-mas.sh` puts the notice (source URL, hash, configure line)
+  and the LGPL 2.1 text in `Contents/Resources/licenses/`. Not done: showing them in the About screen.
 - Legal reference: https://ffmpeg.org/legal.html (level B until read in full and quoted; not yet done).
 
 ## Patents
