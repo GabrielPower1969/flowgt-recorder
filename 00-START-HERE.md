@@ -1,3 +1,4 @@
+> **2026-11-12 Mac 上架版**：新增 `scripts/build-mas.sh`，打出符合 Mac App Store 要求的包（全部进沙箱、独立 LGPL ffmpeg、不用私有接口）。本机测试签名下真录通过；上传还差 Apple 证书。分支 `mac/app-store-sandbox`（草稿 PR），结果和留给 Gabriel 的事见 `docs/reports/06-Mac-上架版重构-2026-11-12.md`，英文说明见 `docs/MAC-APP-STORE.md`。
 > **2026-11-11 Mac 验收（Faceplate ＋ 新图标）**：PR #15、#16 在 Mac 上合并、打包、真录通过；修了标题栏按钮压面板、窗口不能拖、屏幕名三处（分支 `mac/faceplate-fixes`，草稿 PR）。没修的和要人工看的见 `docs/reports/03-Mac验收-Faceplate-2026-11-11.md`。
 > **2026-11-11 合并（D31）**：桌面版和 Chrome 插件合进同一个公开仓库 `github.com/GabrielPower1969/flowgt-recorder`，插件在 `chrome-extension/`。Windows 负责人今晚在 winserver 上按 `AGENTS.md` 开工。
 > **2026-11-10 提案（已提交）**：双人分工 `docs/COLLABORATION.md`；全平台目标架构 `docs/PLATFORM-ARCHITECTURE.md`（不换 Qt，留在 Tauri，每个平台一个采集引擎）；agent 入口 `AGENTS.md` ＋ 任务卡 `docs/tasks/`。许可证：陈广宇 2026-11-10 定为 MIT，不收费，`LICENSE` 不变。
@@ -49,6 +50,7 @@ shows a notice until it is back. Collapsible to the bar with the chevron; dragga
 |---|---|---|
 | 01 | `docs/reports/01-首版验收报告-2026-11-04.html` | **待写**：首版验收，测试、自检、基准、本机真录 |
 | 03 | `docs/reports/03-Mac验收-Faceplate-2026-11-11.md` | Faceplate 界面与新图标在 Mac 上的逐项验收：命令输出、真录、修了什么、没修什么、要人工看的 |
+| 06 | `docs/reports/06-Mac-上架版重构-2026-11-12.md` | Mac 上架版：沙箱、独立 LGPL ffmpeg、去掉私有接口；沙箱里的实测结果、没验证的、留给 Gabriel 的事（04、05 两份还在本机，未提交） |
 
 规则：报告按两位数编号，最大编号＝最新；每次新报告在这里加一行。
 
