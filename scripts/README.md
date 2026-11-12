@@ -6,7 +6,9 @@ Pass criteria for scripts written by other workers are summarised from the task 
 
 | Script | Purpose | How to run | Pass criteria | Verified on |
 |---|---|---|---|---|
-| `fetch-ffmpeg.sh` | Download LGPL ffmpeg + ffprobe into `src-tauri/binaries/` (sidecars) | `bash scripts/fetch-ffmpeg.sh` | Binaries present and runnable | macOS 2026-11-04 |
+| `fetch-ffmpeg.sh` | Copy the Homebrew ffmpeg + ffprobe into `src-tauri/binaries/` (development only: a GPL build tied to this machine) | `bash scripts/fetch-ffmpeg.sh` | Binaries present and runnable | macOS 2026-11-04 |
+| `build-ffmpeg-mac.sh` | Build the ffmpeg + ffprobe a macOS release ships: LGPL, system libraries only, no network protocols. Source 7.1.1 from ffmpeg.org, SHA-256 pinned | `bash scripts/build-ffmpeg-mac.sh` (about ten minutes) | Script refuses a GPL build or a non-system library; prints both SHA-256 | macOS 2026-11-12 |
+| `build-mas.sh` | Mac App Store variant: App Sandbox for the app and every helper, Hardened Runtime, no private macOS calls. Local test identity by default; real identities through `MAS_*` variables (script header) | `bash scripts/build-mas.sh` | Signature verifies; every executable carries the sandbox entitlement | macOS 2026-11-12 (local identity only; no store upload) |
 | `integration.sh` | Real ffmpeg, synthetic inputs, app argv -> MP4 -> ffprobe + pixel check | `bash scripts/integration.sh` | Final line PASS | macOS 2026-11-04 |
 | `crash-test.sh` | Kill the encoder mid-segment and check the fragmented MP4 is still playable | `bash scripts/crash-test.sh` | Final line PASS | macOS 2026-11-04 |
 | `size-check.sh` | Output size against the 400 MB/h (889 kbps) budget | `bash scripts/size-check.sh` | Final line PASS (within budget) | macOS 2026-11-04 |
