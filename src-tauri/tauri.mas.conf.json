@@ -1,0 +1,11 @@
+{
+  "app": {
+    "macOSPrivateApi": false
+  },
+  "bundle": {
+    "category": "Video",
+    "macOS": {
+      "entitlements": "entitlements/mas.plist"
+    }
+  }
+}
