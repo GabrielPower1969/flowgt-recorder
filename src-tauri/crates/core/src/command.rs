@@ -148,7 +148,11 @@ fn input_args(src: &InputSource, fps: u32, is_camera: bool) -> Vec<String> {
             if let Some(v) = video {
                 push(&mut a, &["-rtbufsize", "256M"]);
                 if is_camera {
-                    push(&mut a, &["-framerate", &fps.min(30).to_string()]);
+                    // A webcam asked for 30 fps may deliver fewer (25 in low light on the test
+                    // machine) while stamping its frames 1/30 s apart. The overlay follows those
+                    // stamps, so the whole recording ran at 0.83x and lost a tenth of its sound.
+                    // Stamping frames as they arrive keeps the camera on the same clock as the rest.
+                    push(&mut a, &["-framerate", &fps.min(30).to_string(), "-use_wallclock_as_timestamps", "1"]);
                 }
                 target.push(format!("video={v}"));
             }
@@ -262,7 +266,7 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
             "-maxrate", &format!("{maxrate}k"),
             "-bufsize", &format!("{bufsize}k"),
             "-g", &(plan.fps * 2).to_string(),
-            "-pix_fmt", "yuv420p",
+            "-pix_fmt", crate::encoders::input_pix_fmt(&plan.encoder.name),
             "-r", &plan.fps.to_string(),
             "-fps_mode", "cfr",
         ],
@@ -280,7 +284,7 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
 
     // ---- container, progress, limits
     if plan.fragmented {
-        push(&mut args, &["-movflags", "+frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "2000000"]);
+        push(&mut args, &["-movflags", crate::encoders::segment_movflags(&plan.encoder.name), "-frag_duration", "2000000"]);
     } else {
         push(&mut args, &["-movflags", "+faststart"]);
     }
@@ -347,7 +351,7 @@ pub fn compress_command(ffmpeg: &str, input: &Path, output: &Path, duration_ms: 
             "-b:v", &format!("{video_kbps}k"),
             "-maxrate", &format!("{}k", video_kbps.saturating_mul(3).div_ceil(2)),
             "-bufsize", &format!("{}k", video_kbps.saturating_mul(2)),
-            "-pix_fmt", "yuv420p",
+            "-pix_fmt", crate::encoders::input_pix_fmt(&encoder.name),
             "-c:a", "aac", "-b:a", &format!("{audio_kbps}k"),
             "-movflags", "+faststart",
             "-progress", "pipe:1", "-nostats", "-y",
@@ -618,6 +622,11 @@ mod tests {
         assert!(has_pair(&a, "-init_hw_device", "d3d11va"));
         assert!(a.contains(&"video=Integrated Camera".to_string()));
         assert!(a.contains(&"audio=Microphone Array".to_string()));
+        // The camera is stamped by arrival time; the option belongs to the camera input only.
+        let cam = a.iter().position(|x| x == "video=Integrated Camera").unwrap();
+        let wall = a.iter().position(|x| x == "-use_wallclock_as_timestamps").unwrap();
+        assert!(wall < cam && a[wall + 1] == "1" && a[wall..cam].iter().filter(|x| *x == "-i").count() == 1);
+        assert_eq!(a.iter().filter(|x| *x == "-use_wallclock_as_timestamps").count(), 1);
         assert!(value_of(&a, "-filter_complex").starts_with("[0:v]hwdownload,format=bgra,scale=1920:1200"));
         assert_eq!(value_of(&a, "-c:v"), "hevc_nvenc");
     }
@@ -704,7 +713,12 @@ mod tests {
         }
         let listing = std::process::Command::new("ffmpeg").args(["-hide_banner", "-encoders"]).output().unwrap();
         let names = crate::encoders::parse_encoder_names(&String::from_utf8_lossy(&listing.stdout));
-        let encoder = crate::encoders::choose(&names, Platform::current(), EncoderPreference::Auto).unwrap();
+        // Like the app: take the first encoder of the chain that really encodes a test frame.
+        let encoder = crate::encoders::choose_working(&names, Platform::current(), EncoderPreference::Auto, |e| {
+            let test = crate::encoders::self_test_command("ffmpeg", e);
+            std::process::Command::new(&test.program).args(&test.args).output().is_ok_and(|o| o.status.success())
+        })
+        .unwrap();
 
         let dir = tempfile::tempdir().unwrap();
         let out: PathBuf = dir.path().join("smoke.mp4");

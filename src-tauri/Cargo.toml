@@ -15,6 +15,12 @@ members = ["crates/core"]
 name = "flowgt_recorder_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Mac App Store build: App Sandbox, no private macOS calls. See scripts/build-mas.sh.
+mas = []
+# Microsoft Store build (MSIX, package identity): no build-machine paths in the binary. See scripts/build-store-win.ps1.
+msix = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -49,6 +55,11 @@ objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString"] }
 objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat", "block2"] }
 block2 = "0.6"
+
+# The same versions Tauri already brings in on Windows; used to answer WebView2 permission requests.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
 
 [profile.release]
 opt-level = 3

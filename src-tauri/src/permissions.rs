@@ -5,8 +5,10 @@
 //! false, then `denied`.
 
 use recorder_core::{PermissionState, PermissionStatus};
+#[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(target_os = "macos")]
 static SCREEN_ASKED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,16 +173,21 @@ pub fn settings_url(kind: Kind) -> &'static str {
 
 pub fn open_settings(kind: Kind) -> std::io::Result<()> {
     let url = settings_url(kind);
-    #[cfg(target_os = "macos")]
-    let mut c = std::process::Command::new("open");
+    // Windows: hand the ms-settings: address to the shell in-process. Starting explorer.exe for it
+    // is the kind of utility launch a store package is told to avoid.
     #[cfg(target_os = "windows")]
-    let mut c = {
-        let mut c = std::process::Command::new("explorer");
-        c
-    };
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let mut c = std::process::Command::new("xdg-open");
-    c.arg(url).spawn().map(|_| ())
+    {
+        tauri_plugin_opener::open_url(url, None::<&str>)
+            .map_err(|e| std::io::Error::other(e.to_string()))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        #[cfg(target_os = "macos")]
+        let mut c = std::process::Command::new("open");
+        #[cfg(not(target_os = "macos"))]
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url).spawn().map(|_| ())
+    }
 }
 
 #[cfg(test)]

@@ -12,6 +12,6 @@
 <style>
   .meter { height: 8px; width: 100%; background: var(--color-surface-3); border-radius: var(--radius-pill); overflow: hidden; }
   .compact { height: 6px; width: 48px; }
-  .fill { height: 100%; background: var(--color-ok); transition: width 60ms linear; }
-  .fill.hot { background: var(--color-warn); }
+  .fill { height: 100%; background: var(--color-text); transition: width 60ms linear; }
+  .fill.hot { background: var(--color-record); }
 </style>

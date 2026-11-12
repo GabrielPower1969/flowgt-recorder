@@ -32,6 +32,20 @@ pub fn host_triple() -> &'static str {
     }
 }
 
+/// The `src-tauri` folder this binary was built from, for finding development copies of the
+/// tools. A store build has none: it runs only from its bundle, and the path of the build
+/// machine must not ship inside it.
+pub fn source_dir() -> Option<&'static Path> {
+    #[cfg(any(feature = "mas", feature = "msix"))]
+    {
+        None
+    }
+    #[cfg(not(any(feature = "mas", feature = "msix")))]
+    {
+        Some(Path::new(env!("CARGO_MANIFEST_DIR")))
+    }
+}
+
 fn exe_name(tool: &str) -> String {
     if cfg!(windows) {
         format!("{tool}.exe")
@@ -52,9 +66,11 @@ impl Tools {
                     }
                 }
             }
-            let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join(format!("{tool}-{}{}", host_triple(), if cfg!(windows) { ".exe" } else { "" }));
-            if dev.is_file() {
-                return Some((dev, false));
+            if let Some(root) = source_dir() {
+                let dev = root.join("binaries").join(format!("{tool}-{}{}", host_triple(), if cfg!(windows) { ".exe" } else { "" }));
+                if dev.is_file() {
+                    return Some((dev, false));
+                }
             }
             which::which(tool).ok().map(|p| (p, false))
         };
