@@ -30,11 +30,20 @@
   let picking = $state(false);
   let level = $state(0);
   let name = $state("");
-  let scale = $state(1);
+  let view = $state({ w: 1180, h: 760 });
 
   /** The panel is drawn at the size of the default window and scaled as one piece. */
   const STAGE_W = 1180;
   const STAGE_H = 760;
+  /** The housing that shows around the plate, in drawing pixels. */
+  const PLATE_INSET = 14;
+  /** Height the system's window buttons need when they are drawn over the page. */
+  const TITLE_BAR = 28;
+  // Where the window buttons sit on the page, the plate starts below them: the housing above the
+  // plate becomes that strip, and the window is moved by dragging it.
+  const titleBar = $derived(getCapabilities().overlayTitleBar ? TITLE_BAR : 0);
+  const scale = $derived(titleBar ? Math.min(view.w / STAGE_W, (view.h - titleBar) / (STAGE_H - PLATE_INSET)) : Math.min(view.w / STAGE_W, view.h / STAGE_H));
+  const drop = $derived(titleBar ? titleBar / 2 - (PLATE_INSET / 2) * scale : 0);
 
   const st = $derived(recorder.state);
   const live = $derived(st.phase === "recording" || st.phase === "paused");
@@ -67,8 +76,8 @@
     ...(windowsOffered ? [{ label: t("face.window") }] : []),
   ]);
   const screenMark = $derived(settings.capture.kind === "window" && windowsOffered ? screenMarks.length - 1 : Math.min(screenIndex, 2));
-  /** Windows names a screen by its device path (\\.\DISPLAY1), which says nothing to a person. */
-  const friendly = (d: Device | undefined, i: number) => (d && !/^\\\\\.\\/.test(d.name) ? d.name : t("picker.screen", { n: i + 1 }));
+  /** A screen named by its device (\\.\DISPLAY1, "Capture screen 0") says nothing to a person: number it, as the picker does. */
+  const friendly = (d: Device | undefined, i: number) => (d && !/^(\\\\\.\\|Capture screen \d+$)/.test(d.name) ? d.name : t("picker.screen", { n: i + 1 }));
   const screenName = $derived(settings.capture.kind === "window" && windowsOffered ? t("picker.tab.window") : friendly(screens[screenIndex], screenIndex));
 
   /** Drive counts only when signed in; otherwise the local file is the only copy. */
@@ -205,7 +214,7 @@
   });
 
   onMount(() => {
-    const fit = () => (scale = Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H));
+    const fit = () => (view = { w: window.innerWidth, h: window.innerHeight });
     fit();
     window.addEventListener("resize", fit);
     void (async () => {
@@ -218,8 +227,9 @@
   });
 </script>
 
-<div class="room">
-  <main class="stage" style:transform="scale({scale})">
+<div class="room" data-tauri-drag-region={titleBar ? "" : undefined}>
+  {#if titleBar}<div class="titlebar" data-testid="titlebar" data-tauri-drag-region style:height="{titleBar}px"></div>{/if}
+  <main class="stage" style:transform="translateY({drop}px) scale({scale})">
     <div class="plate">
       {#each [[14, 14], [570, 9], [1126, 14], [14, 360], [1126, 360], [14, 706], [570, 711], [1126, 706]] as [x, y], i (i)}
         <span class="screw" aria-hidden="true" style:left="{x}px" style:top="{y}px" style:transform="rotate({i * 25}deg)"></span>
@@ -363,6 +373,7 @@
   .room { position: fixed; inset: 0; overflow: hidden; background: var(--color-bg); }
   /* Centred by its own middle, so it stays centred when the window is smaller than the drawing. */
   .stage { position: absolute; left: 50%; top: 50%; width: 1180px; height: 760px; margin: -380px 0 0 -590px; color: var(--color-plate-ink); font-size: 13px; line-height: 1.4; }
+  .titlebar { position: absolute; z-index: 1; left: 0; right: 0; top: 0; }
   .plate { position: absolute; left: 14px; top: 14px; width: 1152px; height: 732px; border-radius: var(--radius-l); background: var(--color-plate); box-shadow: inset 0 1px 0 var(--color-plate-hi), inset 0 0 0 1px var(--color-plate-lo), var(--shadow-1); }
   .plate > * { position: absolute; }
   .screw { width: 12px; height: 12px; border-radius: 50%; background: var(--color-plate-hi); box-shadow: inset 0 0 0 1px var(--color-plate-lo); }

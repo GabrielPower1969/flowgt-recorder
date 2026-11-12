@@ -575,6 +575,9 @@ pub struct Capabilities {
     pub pause_resume: bool,
     /// The recording window can show the frame that is going into the file.
     pub live_preview: bool,
+    /// The system draws the window buttons over the top edge of the page and there is no title
+    /// bar to drag: the page keeps a strip clear for them and moves the window from it.
+    pub overlay_title_bar: bool,
 }
 
 impl Capabilities {
@@ -595,6 +598,7 @@ impl Capabilities {
             global_shortcuts: desktop,
             pause_resume: desktop,
             live_preview: desktop && native_engine,
+            overlay_title_bar: matches!(platform, Platform::MacOs),
         }
     }
 }
@@ -612,15 +616,16 @@ mod capability_tests {
         let win = Capabilities::of(Platform::Windows, false, false);
         assert!(!win.window_capture && !win.live_preview && !win.system_audio);
         assert!(win.camera && win.picture_in_picture && win.floating_bar && win.tray && win.global_shortcuts && win.pause_resume);
-        // macOS without the helper falls back to the same set.
-        assert_eq!(Capabilities::of(Platform::MacOs, false, false), win);
+        // macOS without the helper falls back to the same set; only its window frame differs.
+        assert_eq!(Capabilities::of(Platform::MacOs, false, false), Capabilities { overlay_title_bar: true, ..win });
+        assert!(mac.overlay_title_bar && !win.overlay_title_bar);
         assert_eq!(Capabilities::of(Platform::Linux, true, true), Capabilities::default());
     }
 
     #[test]
     fn the_wire_format_is_camel_case() {
         let json = serde_json::to_string(&Capabilities::of(Platform::MacOs, true, false)).unwrap();
-        assert!(json.contains("\"windowCapture\":true") && json.contains("\"livePreview\":true") && json.contains("\"systemAudio\":false"), "{json}");
+        assert!(json.contains("\"windowCapture\":true") && json.contains("\"livePreview\":true") && json.contains("\"systemAudio\":false") && json.contains("\"overlayTitleBar\":true"), "{json}");
     }
 }
 

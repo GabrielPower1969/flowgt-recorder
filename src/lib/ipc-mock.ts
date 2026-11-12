@@ -68,7 +68,7 @@ export function mockWindows(): WindowInfo[] {
 
 /** The mock is a Mac with the native helper: everything except per-app audio. */
 export function mockCapabilities(): Capabilities {
-  return { windowCapture: true, systemAudio: true, perAppAudio: false, camera: true, pictureInPicture: true, floatingBar: true, tray: true, globalShortcuts: true, pauseResume: true, livePreview: true };
+  return { windowCapture: true, systemAudio: true, perAppAudio: false, camera: true, pictureInPicture: true, floatingBar: true, tray: true, globalShortcuts: true, pauseResume: true, livePreview: true, overlayTitleBar: true };
 }
 
 export function mockAppInfo(): AppInfo {

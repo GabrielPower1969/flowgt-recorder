@@ -7,7 +7,7 @@
   <key>NSMicrophoneUsageDescription</key>
   <string>FlowGT Recorder records your voice together with the screen.</string>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>FlowGT Recorder records your screen locally. Nothing is uploaded.</string>
+  <string>FlowGT Recorder records your screen to a file on this Mac.</string>
   <key>NSAudioCaptureUsageDescription</key>
   <string>FlowGT Recorder records the meeting's system audio locally.</string>
 </dict>

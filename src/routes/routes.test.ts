@@ -100,6 +100,26 @@ describe("home", () => {
   });
 });
 
+describe("a window whose buttons the system draws over the page", () => {
+  it("keeps a strip clear for them and moves the window from it", () => {
+    render(Main, { settings: defaultSettings("macos") });
+    expect(screen.getByTestId("titlebar")).toHaveAttribute("data-tauri-drag-region");
+  });
+
+  it("a window with its own title bar has no strip", () => {
+    setCapabilities({ overlayTitleBar: false });
+    render(Main, { settings: defaultSettings("macos") });
+    expect(screen.queryByTestId("titlebar")).toBeNull();
+  });
+
+  it("the panel numbers a screen the system only names by its device, as the picker does", async () => {
+    mock.devices.screens = [{ ...mock.devices.screens[0], name: "Capture screen 0" }];
+    render(Main, { settings: defaultSettings("macos") });
+    await waitFor(() => expect(screen.getByTitle("屏幕 1")).toBeInTheDocument());
+    expect(screen.queryByText(/Capture screen/)).toBeNull();
+  });
+});
+
 describe("which screen will be recorded", () => {
   it("the picker outlines the chosen screen and removes the outline on cancel", async () => {
     mock.permissions.screen = "granted";
