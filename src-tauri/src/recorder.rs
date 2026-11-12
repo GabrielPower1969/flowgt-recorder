@@ -177,15 +177,34 @@ async fn write_manifest(m: &SessionManifest) -> CmdResult<()> {
 /// recordings; mark that folder hidden so it does not show up in Explorer among the videos.
 #[cfg(windows)]
 fn hide_dot_folder(work_dir: &std::path::Path) {
-    use std::os::windows::process::CommandExt;
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetFileAttributesW(path: *const u16) -> u32;
+        fn SetFileAttributesW(path: *const u16, attributes: u32) -> i32;
+    }
+    const INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
     let Some(root) = work_dir.parent() else {
         return;
     };
     if !root.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
         return;
     }
-    // attrib ships with Windows; 0x0800_0000 = CREATE_NO_WINDOW. Failure only leaves the folder visible.
-    let _ = std::process::Command::new("attrib").arg("+h").arg(root).creation_flags(0x0800_0000).spawn();
+    // Asked of Windows directly rather than by starting attrib.exe: a store package should not start
+    // system utilities. Failure only leaves the folder visible.
+    let wide: Vec<u16> = root
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives both calls.
+    unsafe {
+        let now = GetFileAttributesW(wide.as_ptr());
+        if now != INVALID_FILE_ATTRIBUTES && now & FILE_ATTRIBUTE_HIDDEN == 0 {
+            SetFileAttributesW(wide.as_ptr(), now | FILE_ATTRIBUTE_HIDDEN);
+        }
+    }
 }
 
 impl Recorder {
@@ -1258,6 +1277,26 @@ pub async fn assemble(
 mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
+
+    #[cfg(windows)]
+    #[test]
+    fn the_dot_folder_is_hidden_without_starting_a_program() {
+        use std::os::windows::fs::MetadataExt;
+        let base = std::env::temp_dir().join(format!("flowgt-hide-test-{}", std::process::id()));
+        let dot = base.join(".flowgt-recorder");
+        let plain = base.join("plain");
+        std::fs::create_dir_all(dot.join("session")).unwrap();
+        std::fs::create_dir_all(plain.join("session")).unwrap();
+        hide_dot_folder(&dot.join("session"));
+        hide_dot_folder(&plain.join("session"));
+        let hidden = |p: &std::path::Path| {
+            let attributes = std::fs::metadata(p).unwrap().file_attributes();
+            attributes & 0x2 != 0
+        };
+        assert!(hidden(&dot));
+        assert!(!hidden(&plain));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[derive(Default)]
     struct Collect {

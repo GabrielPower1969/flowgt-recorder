@@ -36,11 +36,11 @@ pub fn host_triple() -> &'static str {
 /// tools. A store build has none: it runs only from its bundle, and the path of the build
 /// machine must not ship inside it.
 pub fn source_dir() -> Option<&'static Path> {
-    #[cfg(feature = "mas")]
+    #[cfg(any(feature = "mas", feature = "msix"))]
     {
         None
     }
-    #[cfg(not(feature = "mas"))]
+    #[cfg(not(any(feature = "mas", feature = "msix")))]
     {
         Some(Path::new(env!("CARGO_MANIFEST_DIR")))
     }

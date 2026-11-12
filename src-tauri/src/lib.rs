@@ -55,6 +55,9 @@ pub fn run() {
             let handle = app.handle().clone();
             let sink = Arc::new(commands::TauriSink::new(handle.clone()));
             app.manage(state::AppState::new(recorder::Recorder::new(sink)));
+            if let Some(name) = commands::package_identity() {
+                log::info!("package identity: {name}");
+            }
             if let Ok(dir) = app.path().app_data_dir() {
                 if let Some(folder) = bookmark::restore(&dir) {
                     log::info!("save folder access restored: {}", folder.display());

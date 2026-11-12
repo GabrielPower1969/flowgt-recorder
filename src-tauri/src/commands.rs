@@ -98,6 +98,35 @@ pub fn is_sandboxed() -> bool {
     std::env::var_os("APP_SANDBOX_CONTAINER_ID").is_some()
 }
 
+/// The package full name when the process has Windows package identity (an MSIX install), for
+/// example `FlowGT.Recorder_0.1.0.0_x64__abcd1234`. None for an ordinary install, a development
+/// run, and on other systems.
+pub fn package_identity() -> Option<String> {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentPackageFullName(length: *mut u32, name: *mut u16) -> i32;
+        }
+        const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+        let mut len = 0u32;
+        // SAFETY: a null buffer with length 0 is the documented way to ask for the length.
+        if unsafe { GetCurrentPackageFullName(&mut len, std::ptr::null_mut()) } != ERROR_INSUFFICIENT_BUFFER {
+            return None; // APPMODEL_ERROR_NO_PACKAGE: the process has no package identity
+        }
+        let mut buf = vec![0u16; len as usize];
+        // SAFETY: `buf` holds `len` UTF-16 units, as the first call asked for.
+        if unsafe { GetCurrentPackageFullName(&mut len, buf.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        Some(String::from_utf16_lossy(&buf).trim_end_matches('\0').to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 /// Inside the App Sandbox the home folder is the app's container, so `~/Movies` reads as
 /// `~/Library/Containers/<id>/Data/Movies`. Give back the folder the user knows by that name.
 pub fn outside_container(path: &Path) -> PathBuf {
@@ -198,7 +227,7 @@ pub async fn resolve_encoder(
     }
     let listing = sidecar::run(&command::list_encoders_command(&tools.ffmpeg_str())).await?;
     let mut names = encoders::parse_encoder_names(&listing.stdout);
-    for _ in 0..8 {
+    for _ in 0..12 {
         let choice = encoders::choose(&names, Platform::current(), pref)?;
         let test = sidecar::run(&encoders::self_test_command(&tools.ffmpeg_str(), &choice)).await?;
         if test.success {
@@ -209,7 +238,8 @@ pub async fn resolve_encoder(
             "encoder {} failed its test frame, trying the next one",
             choice.name
         );
-        names.retain(|n| n != &choice.name);
+        let failed = encoders::chain_entry(&choice).to_string();
+        names.retain(|n| n != &failed);
     }
     Err(CommandError::new(
         "error.noEncoder",
@@ -1665,6 +1695,12 @@ mod tests {
     fn default_dir_is_under_videos_or_home() {
         let d = default_output_dir();
         assert!(d.ends_with("FlowGT Recorder"));
+    }
+
+    #[test]
+    fn a_test_run_has_no_package_identity() {
+        // cargo test is never started from an installed MSIX package.
+        assert_eq!(package_identity(), None);
     }
 
     #[test]
