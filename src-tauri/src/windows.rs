@@ -162,17 +162,34 @@ pub fn show_marker(app: &AppHandle, index: usize) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Run AppKit calls on a window from the main thread. Commands that build windows may run on a
+/// worker thread (show_screen_marker is async so Windows does not deadlock), and AppKit, WebKit
+/// in particular, kills the app when a window's views change off the main thread.
+#[cfg(target_os = "macos")]
+fn on_main_thread(
+    win: &tauri::WebviewWindow,
+    f: impl FnOnce(&objc2::runtime::AnyObject) + Send + 'static,
+) {
+    let target = win.clone();
+    let _ = win.run_on_main_thread(move || {
+        if let Ok(ns) = target.ns_window() {
+            // SAFETY: a live NSWindow pointer from Tauri, used on the main thread.
+            let w = unsafe { &*ns.cast::<objc2::runtime::AnyObject>() };
+            f(w);
+        }
+    });
+}
+
 #[cfg(target_os = "macos")]
 fn raise_above_menu_bar(win: &tauri::WebviewWindow) {
-    use objc2::{msg_send, runtime::AnyObject};
+    use objc2::msg_send;
     const SCREEN_SAVER_LEVEL: isize = 1000;
-    if let Ok(ns) = win.ns_window() {
-        // SAFETY: a live NSWindow pointer from Tauri; setLevel: takes an NSInteger.
+    on_main_thread(win, |w| {
+        // SAFETY: setLevel: is a documented NSWindow method taking an NSInteger.
         unsafe {
-            let w = ns.cast::<AnyObject>();
-            let _: () = msg_send![&*w, setLevel: SCREEN_SAVER_LEVEL];
+            let _: () = msg_send![w, setLevel: SCREEN_SAVER_LEVEL];
         }
-    }
+    });
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -183,15 +200,14 @@ fn raise_above_menu_bar(_win: &tauri::WebviewWindow) {}
 #[cfg(target_os = "macos")]
 fn round_corners(win: &tauri::WebviewWindow, radius: f64) {
     use objc2::{class, msg_send, runtime::AnyObject};
-    if let Ok(ns) = win.ns_window() {
-        // SAFETY: a live NSWindow pointer from Tauri, used on the main thread (window setup);
-        // every selector is a documented NSWindow / NSView / CALayer method.
+    on_main_thread(win, move |w| {
+        // SAFETY: every selector is a documented NSWindow / NSView / CALayer method and nil
+        // results are checked.
         unsafe {
-            let w = ns.cast::<AnyObject>();
             let clear: *mut AnyObject = msg_send![class!(NSColor), clearColor];
-            let _: () = msg_send![&*w, setOpaque: false];
-            let _: () = msg_send![&*w, setBackgroundColor: clear];
-            let view: *mut AnyObject = msg_send![&*w, contentView];
+            let _: () = msg_send![w, setOpaque: false];
+            let _: () = msg_send![w, setBackgroundColor: clear];
+            let view: *mut AnyObject = msg_send![w, contentView];
             if view.is_null() {
                 return;
             }
@@ -203,7 +219,7 @@ fn round_corners(win: &tauri::WebviewWindow, radius: f64) {
             let _: () = msg_send![&*layer, setCornerRadius: radius];
             let _: () = msg_send![&*layer, setMasksToBounds: true];
         }
-    }
+    });
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -226,20 +242,19 @@ fn native_outline(win: &tauri::WebviewWindow) {
         const ENCODING_REF: Encoding = Encoding::Pointer(&Encoding::Struct("CGColor", &[]));
     }
     const BORDER: f64 = 6.0;
-    if let Ok(ns) = win.ns_window() {
-        // SAFETY: a live NSWindow pointer from Tauri, used on the main thread; every selector is
-        // a documented NSWindow / NSView / NSColor / CALayer method and nil results are checked.
+    on_main_thread(win, |w| {
+        // SAFETY: every selector is a documented NSWindow / NSView / NSColor / CALayer method and
+        // nil results are checked.
         unsafe {
-            let w = ns.cast::<AnyObject>();
             let clear: *mut AnyObject = msg_send![class!(NSColor), clearColor];
-            let _: () = msg_send![&*w, setOpaque: false];
-            let _: () = msg_send![&*w, setBackgroundColor: clear];
+            let _: () = msg_send![w, setOpaque: false];
+            let _: () = msg_send![w, setBackgroundColor: clear];
             let view: *mut AnyObject = msg_send![class!(NSView), new];
             if view.is_null() {
                 return;
             }
             // The view gets its layer once it is in the window, so the border is set after that.
-            let _: () = msg_send![&*w, setContentView: view];
+            let _: () = msg_send![w, setContentView: view];
             let _: () = msg_send![&*view, release];
             let _: () = msg_send![&*view, setWantsLayer: true];
             let layer: *mut AnyObject = msg_send![&*view, layer];
@@ -252,7 +267,7 @@ fn native_outline(win: &tauri::WebviewWindow) {
             let _: () = msg_send![&*layer, setBorderWidth: BORDER];
             let _: () = msg_send![&*layer, setBorderColor: color];
         }
-    }
+    });
 }
 
 #[cfg(not(target_os = "macos"))]
