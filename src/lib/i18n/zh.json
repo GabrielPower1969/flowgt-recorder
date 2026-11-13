@@ -199,6 +199,7 @@
   "error.unknown": "发生错误",
   "error.windowGone": "要录制的窗口已关闭或不在屏幕上。录到的部分会照常保存。",
   "error.start": "无法开始录制",
+  "error.consentPending": "Windows 正在询问是否允许 FlowGT Recorder 使用麦克风或摄像头。请先回答屏幕上的提问，再按一次录制。",
   "toast.pathCopied": "路径已复制",
   "toast.recovered": "已恢复",
   "toast.discarded": "已丢弃",
