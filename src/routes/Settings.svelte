@@ -7,6 +7,7 @@
   import { invoke } from "../lib/ipc";
   import { t } from "../lib/stores/i18n.svelte";
   import { navigate } from "../lib/router.svelte";
+  import { getPlatform } from "../lib/platform.svelte";
   import { getSettings, updateSettings } from "../lib/stores/settings.svelte";
   import { toast } from "../lib/stores/toasts.svelte";
   import { budgetFromMbPerHour, formatBytes, formatMbps, outputSize, previewFilename, QUALITY_STEPS, qualityAvailable, qualityOf, suggestedMbPerHour, type QualityKey } from "../lib/format";
@@ -69,7 +70,7 @@
     await refreshShortcuts();
   }
   async function resetShortcuts() {
-    await updateSettings((x) => (x.shortcuts = defaultSettings().shortcuts));
+    await updateSettings((x) => (x.shortcuts = defaultSettings(getPlatform()).shortcuts));
     await refreshShortcuts();
   }
   const shortcutProblem = (name: ShortcutName) => (shortcutState[name] === "taken" ? t("settings.shortcuts.taken") : shortcutState[name] === "invalid" ? t("settings.shortcuts.invalid") : "");
@@ -157,9 +158,9 @@
         <div class="field">
           <label class="row"><input type="checkbox" data-testid="autostart" checked={autostart === "on" || autostart === "needsApproval"} onchange={(e) => setAutostart((e.target as HTMLInputElement).checked)} /> {t("settings.general.autostart")}</label>
           {#if autostart === "needsApproval"}
-            <div class="row"><span class="err" data-testid="autostart-approval">{t("settings.general.autostartApproval")}</span><button type="button" class="btn btn-sm" onclick={() => invoke("open_login_items_settings")}>{t("settings.general.autostartOpen")}</button></div>
+            <div class="row"><span class="err" data-testid="autostart-approval">{t(getPlatform() === "windows" ? "settings.general.autostartApprovalWin" : "settings.general.autostartApproval")}</span><button type="button" class="btn btn-sm" onclick={() => invoke("open_login_items_settings")}>{t(getPlatform() === "windows" ? "settings.general.autostartOpenWin" : "settings.general.autostartOpen")}</button></div>
           {/if}
-          <label class="row faint"><input type="checkbox" checked={s.startHiddenOnLogin} disabled={autostart === "off"} onchange={(e) => save((x) => (x.startHiddenOnLogin = (e.target as HTMLInputElement).checked))} /> {t("settings.general.autostartHidden")}</label>
+          <label class="row faint"><input type="checkbox" checked={s.startHiddenOnLogin} disabled={autostart === "off"} onchange={(e) => save((x) => (x.startHiddenOnLogin = (e.target as HTMLInputElement).checked))} /> {t(getPlatform() === "windows" ? "settings.general.autostartHiddenWin" : "settings.general.autostartHidden")}</label>
         </div>
       {/if}
     {:else if tab === "camera"}
