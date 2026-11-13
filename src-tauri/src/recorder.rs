@@ -357,9 +357,23 @@ impl Recorder {
                 ))
             }
             Err(_) => {
+                let devices = {
+                    let inner = self.shared.inner.lock().await;
+                    inner
+                        .session
+                        .as_ref()
+                        .is_some_and(|s| s.params.plan.mic.is_some() || s.params.plan.camera.is_some())
+                };
                 self.kill_live().await;
+                // With package identity Windows asks once per app before the microphone or the
+                // camera opens, and the device waits for the answer: say so instead of "failed".
+                let code = if cfg!(windows) && devices && crate::commands::package_identity().is_some() {
+                    "error.consentPending"
+                } else {
+                    "error.start"
+                };
                 Err(CommandError::new(
-                    "error.start",
+                    code,
                     "the recorder produced no frames within 12 seconds",
                 ))
             }

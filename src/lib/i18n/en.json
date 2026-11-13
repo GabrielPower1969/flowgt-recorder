@@ -199,6 +199,7 @@
   "error.unknown": "Something went wrong",
   "error.windowGone": "The window to record was closed or is not on screen. What was recorded is saved as usual.",
   "error.start": "Could not start recording",
+  "error.consentPending": "Windows is asking whether FlowGT Recorder may use the microphone or the camera. Answer the question on screen, then press Record again.",
   "toast.pathCopied": "Path copied",
   "toast.recovered": "Recovered",
   "toast.discarded": "Discarded",
