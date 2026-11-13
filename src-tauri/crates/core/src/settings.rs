@@ -20,9 +20,8 @@ pub const UNIQUE_TEMPLATE_TOKENS: [&str; 4] = ["{name}", "{date}", "{datetime}",
 
 /// Defaults for a platform (output dir left empty = platform default resolved by the app).
 pub fn default_settings(platform: Platform) -> Settings {
-    // v0.1 ships identical defaults on every platform; the parameter stays so call sites do not
-    // change when (say) Windows gets its own system-audio or shortcut default.
-    let _ = platform;
+    // The defaults are the same everywhere except the two recording shortcuts on Windows (below).
+    let (toggle, pause) = default_record_shortcuts(platform);
     Settings {
         version: SETTINGS_VERSION,
         language: Language::Auto,
@@ -55,8 +54,8 @@ pub fn default_settings(platform: Platform) -> Settings {
         },
         capture: CaptureTarget::Display { display_id: "0".to_string() },
         shortcuts: ShortcutSettings {
-            toggle: "CmdOrCtrl+Shift+R".to_string(),
-            pause: "CmdOrCtrl+Shift+P".to_string(),
+            toggle: toggle.to_string(),
+            pause: pause.to_string(),
             scroll_capture: "Alt+Shift+S".to_string(),
             show_window: String::new(),
         },
@@ -236,6 +235,16 @@ fn looks_absolute(path: &str) -> bool {
         || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/'))
 }
 
+/// Start/stop and pause. On Windows, Ctrl+Shift+R and Ctrl+Shift+P are Edge's "reload without the
+/// cache" and "print", and VS Code's command palette; a global shortcut takes them from those
+/// programs without either side noticing. Windows uses Alt+Shift instead (Gabriel, 2026-11-13).
+pub fn default_record_shortcuts(platform: Platform) -> (&'static str, &'static str) {
+    match platform {
+        Platform::Windows => ("Alt+Shift+R", "Alt+Shift+P"),
+        _ => ("CmdOrCtrl+Shift+R", "CmdOrCtrl+Shift+P"),
+    }
+}
+
 /// Load from JSON text: unknown/missing fields get defaults, `version` migrated to SETTINGS_VERSION.
 ///
 /// Steps: parse → [`migrate`] the raw document → deep-merge over [`default_settings`] → pin the
@@ -265,8 +274,19 @@ pub fn from_json(json: &str, platform: Platform) -> crate::Result<Settings> {
         fields.insert("version".to_string(), Value::from(SETTINGS_VERSION));
     }
 
-    let settings: Settings = serde_json::from_value(merged)
+    let mut settings: Settings = serde_json::from_value(merged)
         .map_err(|e| CoreError::InvalidSettings(format!("settings field has the wrong type: {e}")))?;
+    // A Windows file that still holds the old shared defaults gets the Windows ones. A user who
+    // chose exactly those keys by hand is moved too; no released build had the old defaults.
+    if platform == Platform::Windows {
+        let (toggle, pause) = default_record_shortcuts(platform);
+        if settings.shortcuts.toggle == "CmdOrCtrl+Shift+R" {
+            settings.shortcuts.toggle = toggle.to_string();
+        }
+        if settings.shortcuts.pause == "CmdOrCtrl+Shift+P" {
+            settings.shortcuts.pause = pause.to_string();
+        }
+    }
     validate(&settings)?;
     Ok(settings)
 }
@@ -363,6 +383,22 @@ mod tests {
             Err(CoreError::InvalidSettings(msg)) => msg,
             other => panic!("expected InvalidSettings, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn windows_records_with_alt_shift_and_old_files_follow() {
+        let w = default_settings(Platform::Windows);
+        assert_eq!((w.shortcuts.toggle.as_str(), w.shortcuts.pause.as_str()), ("Alt+Shift+R", "Alt+Shift+P"));
+        let m = default_settings(Platform::MacOs);
+        assert_eq!(m.shortcuts.toggle, "CmdOrCtrl+Shift+R");
+        // A Windows file with the old defaults moves; a chosen key stays.
+        let old = r#"{"version":2,"shortcuts":{"toggle":"CmdOrCtrl+Shift+R","pause":"Ctrl+Alt+9"}}"#;
+        let s = from_json(old, Platform::Windows).unwrap();
+        assert_eq!(s.shortcuts.toggle, "Alt+Shift+R");
+        assert_eq!(s.shortcuts.pause, "Ctrl+Alt+9");
+        // The same file on a Mac is left alone.
+        let s = from_json(old, Platform::MacOs).unwrap();
+        assert_eq!(s.shortcuts.toggle, "CmdOrCtrl+Shift+R");
     }
 
     #[test]
