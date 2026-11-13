@@ -157,6 +157,10 @@ fn input_args(src: &InputSource, fps: u32, is_camera: bool) -> Vec<String> {
                 target.push(format!("video={v}"));
             }
             if let Some(au) = audio {
+                // Without it the device keeps its own buffer, typically 500 ms or more: opening
+                // the microphone took 1.3 s on the test machine (0.39 s with 50 ms), on every start
+                // and every resume, and every sample reached ffmpeg that much later.
+                push(&mut a, &["-audio_buffer_size", &DSHOW_AUDIO_BUFFER_MS.to_string()]);
                 target.push(format!("audio={au}"));
             }
             push(&mut a, &["-i", &target.join(":")]);
@@ -170,6 +174,9 @@ fn input_args(src: &InputSource, fps: u32, is_camera: bool) -> Vec<String> {
     }
     a
 }
+
+/// DirectShow audio buffer in milliseconds (ffmpeg's `audio_buffer_size`).
+pub const DSHOW_AUDIO_BUFFER_MS: u32 = 50;
 
 /// The recording command for one segment:
 /// inputs (screen, camera, mic, system) → filter_complex (scale/crop, pip overlay, amix or two tracks)
@@ -634,6 +641,11 @@ mod tests {
         assert_eq!(a.iter().filter(|x| *x == "-use_wallclock_as_timestamps").count(), 1);
         assert!(value_of(&a, "-filter_complex").starts_with("[0:v]hwdownload,format=bgra,scale=1920:1200"));
         assert_eq!(value_of(&a, "-c:v"), "hevc_nvenc");
+        // The microphone asks for a small device buffer; the camera input does not.
+        let mic = a.iter().position(|x| x == "audio=Microphone Array").unwrap();
+        let buf = a.iter().position(|x| x == "-audio_buffer_size").unwrap();
+        assert!(buf > cam && buf < mic && a[buf + 1] == "50");
+        assert_eq!(a.iter().filter(|x| *x == "-audio_buffer_size").count(), 1);
     }
 
     #[test]
