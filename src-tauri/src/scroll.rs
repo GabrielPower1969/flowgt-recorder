@@ -4,8 +4,8 @@
 //!
 //! The shell's part is the session: the windows (selection, frame, control bar), the frame
 //! source, the events, the file. The frame source is the only platform-specific piece: on macOS
-//! the `sck-record --scroll` helper; other platforms report `scroll_capture: false` until they
-//! have one.
+//! the `sck-record --scroll` helper; on Windows the bundled ffmpeg's Desktop Duplication input;
+//! other platforms report `scroll_capture: false`.
 
 use crate::error::{CmdResult, CommandError};
 use recorder_core::stitch::{Push, StitchOptions, Stitcher};
@@ -107,7 +107,7 @@ pub async fn begin(app: &AppHandle) -> CmdResult<()> {
     crate::windows::hide_main(app);
     // The window fades out; a still taken at once would show it.
     tokio::time::sleep(Duration::from_millis(350)).await;
-    let backdrop = match platform::still(screen).await {
+    let backdrop = match platform::still(app, screen).await {
         Ok(p) => p,
         Err(e) => {
             crate::windows::show_main(app);
@@ -147,13 +147,16 @@ pub fn start(app: &AppHandle, rect: LogicalRect) -> CmdResult<()> {
     crate::windows::close_scroll_select(app);
 
     let started = (|| -> CmdResult<Capturing> {
-        let display = platform::display(selecting.screen)?;
+        let display = platform::display(app, selecting.screen)?;
         let crop = pixel_rect(rect, display.scale, display.width, display.height)?;
         let (mut child, stdin, stdout) = platform::frames(&display, crop)?;
         let stitcher = Arc::new(Mutex::new(Stitcher::new(
             crop.2,
             crop.3,
-            StitchOptions::default(),
+            StitchOptions {
+                settle: platform::settle_frames(crop.2, crop.3),
+                ..StitchOptions::default()
+            },
         )));
         let stopped = Arc::new(AtomicBool::new(false));
         let reader = {
@@ -285,7 +288,7 @@ pub fn cancel(app: &AppHandle) {
 fn stop_capture(mut c: Capturing) -> Arc<Mutex<Stitcher>> {
     c.stopped.store(true, Ordering::SeqCst);
     if let Some(mut stdin) = c.stdin.take() {
-        let _ = stdin.write_all(b"stop\n");
+        let _ = stdin.write_all(platform::STOP);
     }
     // The source exits on "stop"; do not wait for it longer than a moment.
     let deadline = Instant::now() + Duration::from_millis(1500);
@@ -474,7 +477,14 @@ pub struct SourceDisplay {
 #[cfg(target_os = "macos")]
 mod platform {
     use super::*;
-    use std::process::{ChildStdout, Command, Stdio};
+    use std::process::{Command, Stdio};
+
+    /// The helper ends on this line.
+    pub const STOP: &[u8] = b"stop\n";
+    /// The helper sends only frames that changed, so a frame never repeats to confirm itself.
+    pub fn settle_frames(_w: u32, _h: u32) -> u8 {
+        0
+    }
 
     /// The helper is there and the system can take the still for the selection (macOS 14).
     pub fn supported() -> bool {
@@ -485,7 +495,20 @@ mod platform {
         fourteen && crate::commands::find_record_helper().is_some()
     }
 
-    pub fn display(screen: usize) -> CmdResult<SourceDisplay> {
+    pub fn display(_app: &AppHandle, screen: usize) -> CmdResult<SourceDisplay> {
+        let (id, width, height) = crate::windows::display_at(screen)
+            .ok_or_else(|| CommandError::new("error.sourceNotFound", "the screen is gone"))?;
+        let points = crate::windows::screen_size_points(screen)
+            .unwrap_or((f64::from(width), f64::from(height)));
+        Ok(SourceDisplay {
+            id,
+            width,
+            height,
+            scale: (f64::from(width) / points.0).max(1.0),
+        })
+    }
+
+    fn display_at(screen: usize) -> CmdResult<SourceDisplay> {
         let (id, width, height) = crate::windows::display_at(screen)
             .ok_or_else(|| CommandError::new("error.sourceNotFound", "the screen is gone"))?;
         let points = crate::windows::screen_size_points(screen)
@@ -505,7 +528,7 @@ mod platform {
 
     /// A full-size still of the screen as a JPEG in the temp folder. The capture service can be
     /// busy for a moment (the monitor's own thumbnail), so one failure is tried again.
-    pub async fn still(screen: usize) -> CmdResult<PathBuf> {
+    pub async fn still(_app: &AppHandle, screen: usize) -> CmdResult<PathBuf> {
         match still_once(screen).await {
             Ok(p) => Ok(p),
             Err(first) => {
@@ -517,7 +540,7 @@ mod platform {
     }
 
     async fn still_once(screen: usize) -> CmdResult<PathBuf> {
-        let d = display(screen)?;
+        let d = display_at(screen)?;
         let file = std::env::temp_dir().join(format!(
             "flowgt-still-{}-{}.jpg",
             std::process::id(),
@@ -557,7 +580,7 @@ mod platform {
     pub fn frames(
         d: &SourceDisplay,
         crop: (u32, u32, u32, u32),
-    ) -> CmdResult<(Child, ChildStdin, ChildStdout)> {
+    ) -> CmdResult<(Child, ChildStdin, Box<dyn Read + Send>)> {
         let mut child = Command::new(helper()?)
             .args(["--scroll", "--display", &d.id.to_string(), "--crop"])
             .arg(format!("{},{},{},{}", crop.0, crop.1, crop.2, crop.3))
@@ -569,7 +592,7 @@ mod platform {
             .map_err(|e| CommandError::new("error.captureFailed", e.to_string()))?;
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
-        Ok((child, stdin, stdout))
+        Ok((child, stdin, Box::new(stdout)))
     }
 
     /// Put the PNG on the general pasteboard. Returns whether the call was handed over.
@@ -598,12 +621,16 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 mod platform {
-    //! No frame source yet. The Windows one goes here: a display rectangle as "FGTF" records
-    //! (see `read_frames`), a still for the selection, and the clipboard.
+    //! No frame source on this system.
     use super::*;
-    use std::process::ChildStdout;
+
+    pub const STOP: &[u8] = b"";
+
+    pub fn settle_frames(_w: u32, _h: u32) -> u8 {
+        0
+    }
 
     pub fn supported() -> bool {
         false
@@ -616,23 +643,375 @@ mod platform {
         ))
     }
 
-    pub fn display(_screen: usize) -> CmdResult<SourceDisplay> {
+    pub fn display(_app: &AppHandle, _screen: usize) -> CmdResult<SourceDisplay> {
         missing()
     }
 
-    pub async fn still(_screen: usize) -> CmdResult<PathBuf> {
+    pub async fn still(_app: &AppHandle, _screen: usize) -> CmdResult<PathBuf> {
         missing()
     }
 
     pub fn frames(
         _d: &SourceDisplay,
         _crop: (u32, u32, u32, u32),
-    ) -> CmdResult<(Child, ChildStdin, ChildStdout)> {
+    ) -> CmdResult<(Child, ChildStdin, Box<dyn Read + Send>)> {
         missing()
     }
 
     pub fn copy_png(_app: &AppHandle, _png: Vec<u8>) -> bool {
         false
+    }
+}
+
+/// The PNG as a CF_DIB block (BITMAPINFOHEADER + bottom-up 32-bit rows) for the Windows clipboard.
+#[cfg(windows)]
+fn dib_from_png(png_bytes: &[u8]) -> Option<Vec<u8>> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    let (w, h) = (info.width as usize, info.height as usize);
+    let channels = match info.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        _ => return None,
+    };
+    let mut out = Vec::with_capacity(40 + w * h * 4);
+    out.extend_from_slice(&40u32.to_le_bytes()); // biSize
+    out.extend_from_slice(&(w as i32).to_le_bytes());
+    out.extend_from_slice(&(h as i32).to_le_bytes()); // positive: bottom-up
+    out.extend_from_slice(&1u16.to_le_bytes()); // planes
+    out.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+    out.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB
+    out.extend_from_slice(&((w * h * 4) as u32).to_le_bytes());
+    out.extend_from_slice(&[0u8; 16]); // resolution, colours used / important
+    for y in (0..h).rev() {
+        let row = &buf[y * info.line_size..y * info.line_size + w * channels];
+        for p in row.chunks_exact(channels) {
+            out.extend_from_slice(&[p[2], p[1], p[0], 255]);
+        }
+    }
+    Some(out)
+}
+
+#[cfg(windows)]
+mod platform {
+    //! Windows: the bundled ffmpeg's Desktop Duplication input (`ddagrab`), the same one a
+    //! recording uses. It crops the rectangle itself, in the output's pixels, and windows marked
+    //! with `set_content_protected` (WDA_EXCLUDEFROMCAPTURE) stay out of it. Windows.Graphics.
+    //! Capture has no crop and draws a yellow border unless the user agrees in a prompt.
+    use super::*;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    /// ffmpeg ends cleanly on "q" from its standard input.
+    pub const STOP: &[u8] = b"q";
+    /// Desktop Duplication at a fixed rate can catch a window halfway through repainting, and a
+    /// repaint can outlast one frame at 20 per second: a frame is used once the screen has held
+    /// still for about 100 ms (`StitchOptions::settle`), at least two frames.
+    pub fn settle_frames(w: u32, h: u32) -> u8 {
+        let fps = fps_for(w, h);
+        ((fps as f64 * 0.1).ceil() as u8 + 1).max(2)
+    }
+    /// Frames per second: as many as a data budget allows, between 5 and 20. A frame is used
+    /// only when the next one agrees, so a higher rate keeps up with faster scrolling.
+    const MAX_FPS: u32 = 20;
+    const MIN_FPS: u32 = 5;
+    const BYTES_PER_SECOND: u64 = 160 * 1024 * 1024;
+    /// Seconds of frames dropped at the start: the selection window's fade-out is over by then.
+    const SETTLE_SECONDS: f64 = 0.4;
+
+    pub(super) fn fps_for(w: u32, h: u32) -> u32 {
+        let frame = u64::from(w) * u64::from(h) * 4;
+        ((BYTES_PER_SECOND / frame.max(1)) as u32).clamp(MIN_FPS, MAX_FPS)
+    }
+
+    pub fn supported() -> bool {
+        crate::sidecar::Tools::discover().is_ok()
+    }
+
+    /// The nth screen as Tauri lists it; the screen list gives Desktop Duplication the same
+    /// index (`devices::windows_screens`).
+    pub fn display(app: &AppHandle, screen: usize) -> CmdResult<SourceDisplay> {
+        let monitors = app
+            .available_monitors()
+            .map_err(|e| CommandError::new("error.sourceNotFound", e.to_string()))?;
+        let m = monitors
+            .get(screen)
+            .ok_or_else(|| CommandError::new("error.sourceNotFound", "the screen is gone"))?;
+        Ok(SourceDisplay {
+            id: screen as u32,
+            width: m.size().width,
+            height: m.size().height,
+            scale: m.scale_factor().max(1.0),
+        })
+    }
+
+    fn ffmpeg() -> CmdResult<PathBuf> {
+        crate::sidecar::Tools::discover().map(|t| t.ffmpeg)
+    }
+
+    /// A full-size still of the screen as a JPEG in the temp folder.
+    pub async fn still(app: &AppHandle, screen: usize) -> CmdResult<PathBuf> {
+        let d = display(app, screen)?;
+        let file = std::env::temp_dir().join(format!(
+            "flowgt-still-{}-{}.jpg",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let mut c = tokio::process::Command::new(ffmpeg()?);
+        c.args(["-hide_banner", "-loglevel", "error", "-y"])
+            .args(["-init_hw_device", "d3d11va", "-f", "lavfi", "-i"])
+            .arg(format!(
+                "ddagrab=output_idx={}:framerate=30:draw_mouse=0",
+                d.id
+            ))
+            // A few frames in, so the duplication has a fresh image.
+            .args(["-vf", "hwdownload,format=bgra,select=gte(n\\,2)"])
+            .args(["-frames:v", "1", "-c:v", "mjpeg", "-q:v", "3"])
+            .arg(&file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .creation_flags(CREATE_NO_WINDOW)
+            .kill_on_drop(true);
+        match tokio::time::timeout(Duration::from_secs(6), c.output()).await {
+            Ok(Ok(out)) if out.status.success() && file.exists() => Ok(file),
+            Ok(Ok(out)) => Err(CommandError::new(
+                "error.captureFailed",
+                String::from_utf8_lossy(&out.stderr).trim().to_string(),
+            )),
+            Ok(Err(e)) => Err(CommandError::new("error.captureFailed", e.to_string())),
+            Err(_) => Err(CommandError::new(
+                "error.captureFailed",
+                "the still took more than 6 s",
+            )),
+        }
+    }
+
+    /// ffmpeg on the rectangle, raw BGRA on its stdout, wrapped into "FGTF" records.
+    pub fn frames(
+        d: &SourceDisplay,
+        crop: (u32, u32, u32, u32),
+    ) -> CmdResult<(Child, ChildStdin, Box<dyn Read + Send>)> {
+        let (x, y, w, h) = crop;
+        let fps = fps_for(w, h);
+        let mut child = Command::new(ffmpeg()?)
+            .args(["-hide_banner", "-loglevel", "error"])
+            .args(["-init_hw_device", "d3d11va", "-f", "lavfi", "-i"])
+            .arg(format!(
+                "ddagrab=output_idx={}:framerate={fps}:draw_mouse=0:video_size={w}x{h}:offset_x={x}:offset_y={y}",
+                d.id
+            ))
+            .args(["-vf", "hwdownload,format=bgra", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| CommandError::new("error.captureFailed", e.to_string()))?;
+        let stdin = child.stdin.take().expect("piped stdin");
+        let stdout = child.stdout.take().expect("piped stdout");
+        let mut records = Records::new(stdout, w, h);
+        records.skip = (f64::from(fps) * SETTLE_SECONDS).ceil() as u32;
+        Ok((child, stdin, Box::new(records)))
+    }
+
+    /// Put the PNG on the clipboard twice: as "PNG" (keeps the exact pixels, read by browsers,
+    /// Office, chat apps) and as a device-independent bitmap for programs that know only that.
+    pub fn copy_png(_app: &AppHandle, png: Vec<u8>) -> bool {
+        let dib = super::dib_from_png(&png);
+        clipboard::put(&png, dib.as_deref())
+    }
+
+    mod clipboard {
+        use std::ffi::c_void;
+        type Handle = *mut c_void;
+        #[link(name = "user32")]
+        extern "system" {
+            fn OpenClipboard(owner: Handle) -> i32;
+            fn CloseClipboard() -> i32;
+            fn EmptyClipboard() -> i32;
+            fn SetClipboardData(format: u32, mem: Handle) -> Handle;
+            fn RegisterClipboardFormatW(name: *const u16) -> u32;
+        }
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GlobalAlloc(flags: u32, bytes: usize) -> Handle;
+            fn GlobalLock(mem: Handle) -> *mut c_void;
+            fn GlobalUnlock(mem: Handle) -> i32;
+            fn GlobalFree(mem: Handle) -> Handle;
+        }
+        const GMEM_MOVEABLE: u32 = 0x0002;
+        const CF_DIB: u32 = 8;
+
+        /// A movable global block holding `bytes`, or null.
+        unsafe fn global(bytes: &[u8]) -> Handle {
+            let mem = GlobalAlloc(GMEM_MOVEABLE, bytes.len());
+            if mem.is_null() {
+                return mem;
+            }
+            let p = GlobalLock(mem);
+            if p.is_null() {
+                GlobalFree(mem);
+                return std::ptr::null_mut();
+            }
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), p.cast::<u8>(), bytes.len());
+            GlobalUnlock(mem);
+            mem
+        }
+
+        pub fn put(png: &[u8], dib: Option<&[u8]>) -> bool {
+            // SAFETY: documented Win32 clipboard calls. Another program may hold the clipboard
+            // for a moment, so opening is tried a few times. After SetClipboardData succeeds the
+            // system owns the block; on failure it is freed here.
+            unsafe {
+                let mut open = false;
+                for _ in 0..10 {
+                    if OpenClipboard(std::ptr::null_mut()) != 0 {
+                        open = true;
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                }
+                if !open {
+                    return false;
+                }
+                EmptyClipboard();
+                let name: Vec<u16> = "PNG\0".encode_utf16().collect();
+                let fmt = RegisterClipboardFormatW(name.as_ptr());
+                let mut any = false;
+                for (format, bytes) in [(fmt, Some(png)), (CF_DIB, dib)] {
+                    let Some(bytes) = bytes else { continue };
+                    if format == 0 {
+                        continue;
+                    }
+                    let mem = global(bytes);
+                    if mem.is_null() {
+                        continue;
+                    }
+                    if SetClipboardData(format, mem).is_null() {
+                        GlobalFree(mem);
+                    } else {
+                        any = true;
+                    }
+                }
+                CloseClipboard();
+                any
+            }
+        }
+    }
+
+    /// Raw frames of a known size, each given the 12-byte "FGTF" head `read_frames` expects.
+    struct Records<R> {
+        inner: R,
+        head: [u8; 12],
+        pending: Option<u8>,
+        frame: usize,
+        pos: usize,
+        /// Frames still to drop at the start: windows that just closed may be fading out.
+        skip: u32,
+    }
+
+    impl<R: Read> Records<R> {
+        fn new(inner: R, w: u32, h: u32) -> Self {
+            let mut head = [0u8; 12];
+            head[..4].copy_from_slice(b"FGTF");
+            head[4..8].copy_from_slice(&w.to_le_bytes());
+            head[8..].copy_from_slice(&h.to_le_bytes());
+            Records {
+                inner,
+                head,
+                pending: None,
+                frame: w as usize * h as usize * 4,
+                pos: 0,
+                skip: 0,
+            }
+        }
+    }
+
+    impl<R: Read> Read for Records<R> {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            if out.is_empty() {
+                return Ok(0);
+            }
+            while self.skip > 0 && self.pos == 0 {
+                let mut sink = vec![0u8; self.frame];
+                self.inner.read_exact(&mut sink)?;
+                self.skip -= 1;
+            }
+            if self.pos < 12 {
+                // A head is written only when a frame follows: peek one byte first.
+                if self.pos == 0 {
+                    let mut first = [0u8; 1];
+                    if self.inner.read(&mut first)? == 0 {
+                        return Ok(0);
+                    }
+                    let n = out.len().min(12);
+                    out[..n].copy_from_slice(&self.head[..n]);
+                    self.pending = Some(first[0]);
+                    self.pos = n;
+                    return Ok(n);
+                }
+                let n = out.len().min(12 - self.pos);
+                out[..n].copy_from_slice(&self.head[self.pos..self.pos + n]);
+                self.pos += n;
+                return Ok(n);
+            }
+            if let Some(b) = self.pending.take() {
+                out[0] = b;
+                self.pos += 1;
+                if self.pos == 12 + self.frame {
+                    self.pos = 0;
+                }
+                return Ok(1);
+            }
+            let left = 12 + self.frame - self.pos;
+            let want = out.len().min(left);
+            let n = self.inner.read(&mut out[..want])?;
+            self.pos += n;
+            if self.pos == 12 + self.frame {
+                self.pos = 0;
+            }
+            Ok(n)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn frame_rate_follows_the_area() {
+            assert_eq!(fps_for(760, 900), 20);
+            assert_eq!(fps_for(1920, 1080), 20);
+            assert_eq!(fps_for(3840, 2160), 5);
+            assert_eq!(fps_for(2560, 1440), 11);
+            assert_eq!(settle_frames(760, 900), 3);
+            assert_eq!(settle_frames(3840, 2160), 2);
+        }
+
+        #[test]
+        fn raw_frames_get_a_head_each() {
+            let (w, h) = (2u32, 2u32);
+            let raw: Vec<u8> = (0..32u8).collect(); // two frames of 16 bytes
+            let mut r = Records::new(std::io::Cursor::new(raw), w, h);
+            let mut all = Vec::new();
+            let mut chunk = [0u8; 5]; // odd size, to cross the boundaries
+            loop {
+                let n = r.read(&mut chunk).unwrap();
+                if n == 0 {
+                    break;
+                }
+                all.extend_from_slice(&chunk[..n]);
+            }
+            assert_eq!(all.len(), 2 * (12 + 16));
+            assert_eq!(&all[..4], b"FGTF");
+            assert_eq!(&all[12..28], &(0..16u8).collect::<Vec<_>>()[..]);
+            assert_eq!(&all[28..32], b"FGTF");
+            assert_eq!(&all[40..], &(16..32u8).collect::<Vec<_>>()[..]);
+        }
     }
 }
 
@@ -683,6 +1062,17 @@ mod tests {
         let mut buf = vec![0; reader.output_buffer_size().unwrap()];
         reader.next_frame(&mut buf).unwrap();
         assert_eq!(&buf[..3], &[30, 20, 10], "BGRA became RGB");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_png_becomes_a_bottom_up_dib() {
+        let bgra = [10u8, 20, 30, 255, 40, 50, 60, 255]; // 1x2: top pixel, bottom pixel
+        let png = encode_png(1, 2, &bgra, 1.0).unwrap();
+        let dib = dib_from_png(&png).unwrap();
+        assert_eq!(dib.len(), 40 + 8);
+        assert_eq!(&dib[40..44], &[40, 50, 60, 255], "bottom row first");
+        assert_eq!(&dib[44..48], &[10, 20, 30, 255]);
     }
 
     #[test]

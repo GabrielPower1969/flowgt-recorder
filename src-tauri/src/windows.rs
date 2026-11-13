@@ -437,6 +437,10 @@ pub fn open_scroll_select(app: &AppHandle, screen: usize) -> tauri::Result<()> {
         .visible(false)
         .initialization_script("location.hash = '#/scroll-select';")
         .build()?;
+    // Windows fades a closing window out; kept out of the capture, the fade cannot reach the
+    // first frames of the rectangle.
+    #[cfg(windows)]
+    let _ = win.set_content_protected(true);
     let _ = win.set_size(LogicalSize::new(w, h));
     let _ = win.set_position(LogicalPosition::new(x, y));
     raise_above_menu_bar(&win);
