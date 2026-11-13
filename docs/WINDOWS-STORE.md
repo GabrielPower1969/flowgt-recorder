@@ -103,18 +103,29 @@ activations", `0x80073D2B`, seen 2026-11-12).
 
 ## Known gaps
 
-- **The package has never been installed.** On the build machine every route was refused without a
-  settings change: unsigned (`0x800B0100`), `-AllowUnsigned` (`0x80073D2B`: not allowed for a package with an executable), loose-file
-  registration without Developer Mode (`0x80073CFF`). Everything measured was measured by starting the
-  programs in `layout/` directly, so without package identity. Not measured with identity: install,
-  first launch, the camera and microphone consent, where settings land, uninstall.
+- **Installed only by registering the layout** (Developer Mode, `Add-AppxPackage -Register`), never
+  from the `.msix` file: that needs a signature (the Store's, on submission). Measured with package
+  identity on 2026-11-14 (`docs/reports/11-Windows-通宵测试与优化-2026-11-14.md`): start, the startup
+  task, the global shortcuts, scrolling screenshots, recording without sound, settings in the
+  package's private `LocalCache`, screenshots and recordings in the real Videos folder.
+- **Media Foundation hardware encoding crashes inside the package** (measured, Intel graphics driver
+  26.8.7.5603): any `ffmpeg.exe` that lies in the package folder crashes in the driver's
+  `mfx_mft_h265ve_64.dll` (0xc0000005) when it opens `hevc_mf` or `h264_mf` in hardware mode. The
+  same file outside the package folder, with package identity, works, and so does Intel QSV inside
+  the folder; turning off registry and file write virtualization does not help. The app's encoder
+  test catches the crash and records with software H.264 (about 80 % of one core at 1080p30, against
+  65 % for QSV). Fix under consideration: Intel's VPL dispatcher (MIT) in
+  `scripts/build-ffmpeg-win.sh`, so the package can use `hevc_qsv`.
+- **The first microphone or camera use asks** ("Let FlowGT Recorder access your microphone?"). The
+  device waits for the answer; after 12 s the start ends with `error.consentPending`, which tells
+  the user to answer the question. Not tested past that point: nobody answered on the test machine.
 - **Not submitted to Partner Center.** No account was available. The identity values are placeholders.
 - **Windows App Certification Kit not run**: it installs the package first.
 - **Computer sound is not recorded on Windows**, in this variant or the ordinary one. ffmpeg has no
   WASAPI loopback input; the plan is the native engine (`docs/tasks/W-6.md`).
 - **Windows 11 only.** A Windows 10 package would have to bring or require the WebView2 Runtime.
 - **x64 only.**
-- **Software H.264 overshoots the size budget.** Hardware HEVC measured 872 kbps against the 889 kbps
+- **Software H.264 overshoots the size budget**, and it is what the package records with today (above). Hardware HEVC measured 872 kbps against the 889 kbps
   budget; the Media Foundation software encoder measured 735 to 919 kbps on ten seconds of a still
   screen, depending on the rate-control mode, and was not measured on a long or busy recording.
 - **Smart App Control.** On a PC with Smart App Control on, an unsigned `ffmpeg.exe` built from source
