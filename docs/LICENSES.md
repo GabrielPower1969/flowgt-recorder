@@ -32,9 +32,12 @@ The app runs ffmpeg and ffprobe as **separate sidecar processes** (D2); it never
   `https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz` (SHA-256
   `8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e`; the release signature was checked by
   hand against the same FFmpeg release key, "Good signature", 2026-11-12). LGPL 2.1 or later (no
-  `--enable-version3`), no external libraries, no network protocols; the video encoders are Windows' own
-  through Media Foundation. `scripts/build-store-win.ps1` puts the notice (source URL, hash, compiler,
-  configure line), the LGPL 2.1 text and the app's own licence in `licenses/` inside the MSIX package.
+  `--enable-version3`), no network protocols; the video encoders are Windows' own through Media
+  Foundation. One external library since 2026-11-14: the Intel VPL dispatcher 2.17.0 (MIT,
+  `https://github.com/intel/libvpl`, linked statically, hash checked by the script) for the Intel QSV
+  encoders; MIT code may be combined with LGPL 2.1 code, and the build stays LGPL 2.1.
+  `scripts/build-store-win.ps1` puts the notice (source URLs, hashes, compiler, configure line), the
+  LGPL 2.1 text, the VPL licence and the app's own licence in `licenses/` inside the MSIX package.
   This settles the open point below for the Store variant: it ships LGPL 2.1, not the LGPL 3 development
   build. Not done: showing the texts in the About screen.
 

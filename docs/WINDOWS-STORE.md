@@ -15,12 +15,12 @@ Evidence for every "measured" below, and the sentences quoted from Microsoft's d
 |---|---|---|
 | Output | NSIS `.exe` and `.msi` installers | one `.msix` (about 31 MB), not signed: the Store signs it on submission |
 | Identity | none | package identity; `commands::package_identity()` returns the package full name |
-| ffmpeg / ffprobe | whatever is in `src-tauri/binaries/` (in development a third-party LGPL 3 build, 114 MB each, with network protocols) | the build from `scripts/build-ffmpeg-win.sh`: ffmpeg.org source, LGPL 2.1, no external libraries, no network protocols, 30 MB each. The script refuses anything else |
-| Video encoders | whatever that ffmpeg has (`hevc_qsv`, `hevc_nvenc`, …) | Windows' own, through Media Foundation: `hevc_mf`, `h264_mf` (hardware), then `h264_mf` in software, then `mpeg4` |
+| ffmpeg / ffprobe | whatever is in `src-tauri/binaries/` (in development a third-party LGPL 3 build, 114 MB each, with network protocols) | the build from `scripts/build-ffmpeg-win.sh`: ffmpeg.org source, LGPL 2.1, no network protocols, 30 MB each; the only external library is Intel's VPL dispatcher (MIT, static). The script refuses anything else |
+| Video encoders | whatever that ffmpeg has (`hevc_qsv`, `hevc_nvenc`, …) | Intel QSV through VPL (`hevc_qsv`, `h264_qsv`), then Windows' own through Media Foundation: `hevc_mf`, `h264_mf` (hardware), then `h264_mf` in software, then `mpeg4` |
 | DLLs the app imports | Windows system DLLs only (measured) | the same, and the script fails on anything else; `+crt-static` keeps the Visual C++ runtime out, so the package declares no framework dependency |
 | Build-machine paths in the binary | 711 (measured) | 0: `--remap-path-prefix`, no `CARGO_MANIFEST_DIR` lookup; the script checks every file |
 | WebView2 | the installer downloads the bootstrapper | none shipped: the manifest asks for Windows 11, where the runtime is part of the system |
-| Licences | not bundled | `licenses/` in the package: ffmpeg notice (source URL, hash, configure line), LGPL 2.1 text, the app's MIT licence |
+| Licences | not bundled | `licenses/` in the package: ffmpeg notice (source URLs, hashes, configure line), LGPL 2.1 text, the VPL MIT licence, the app's MIT licence |
 | Uninstall | the installer's uninstaller | Windows removes the package and its redirected app data. Recordings stay (see below) |
 
 Runtime code asks `commands::package_identity()`; the only compile-time difference is
@@ -112,10 +112,11 @@ activations", `0x80073D2B`, seen 2026-11-12).
   26.8.7.5603): any `ffmpeg.exe` that lies in the package folder crashes in the driver's
   `mfx_mft_h265ve_64.dll` (0xc0000005) when it opens `hevc_mf` or `h264_mf` in hardware mode. The
   same file outside the package folder, with package identity, works, and so does Intel QSV inside
-  the folder; turning off registry and file write virtualization does not help. The app's encoder
-  test catches the crash and records with software H.264 (about 80 % of one core at 1080p30, against
-  65 % for QSV). Fix under consideration: Intel's VPL dispatcher (MIT) in
-  `scripts/build-ffmpeg-win.sh`, so the package can use `hevc_qsv`.
+  the folder; turning off registry and file write virtualization does not help. Since 2026-11-14 our
+  ffmpeg carries Intel's VPL dispatcher, and the app picks `hevc_qsv` before `hevc_mf`: inside the
+  package it recorded HEVC at 58 % of one core at 1080p30, where software H.264 took about 80 %. On a
+  PC without Intel graphics QSV fails its test and the app falls back to Media Foundation; whether
+  that path crashes in a package with NVIDIA or AMD drivers is not known (one machine, Intel only).
 - **The first microphone or camera use asks** ("Let FlowGT Recorder access your microphone?"). The
   device waits for the answer; after 12 s the start ends with `error.consentPending`, which tells
   the user to answer the question. Not tested past that point: nobody answered on the test machine.
@@ -125,7 +126,7 @@ activations", `0x80073D2B`, seen 2026-11-12).
   WASAPI loopback input; the plan is the native engine (`docs/tasks/W-6.md`).
 - **Windows 11 only.** A Windows 10 package would have to bring or require the WebView2 Runtime.
 - **x64 only.**
-- **Software H.264 overshoots the size budget**, and it is what the package records with today (above). Hardware HEVC measured 872 kbps against the 889 kbps
+- **Software H.264 overshoots the size budget**; the package falls back to it only on a PC where neither QSV nor Media Foundation hardware encoding works. Hardware HEVC measured 872 kbps against the 889 kbps
   budget; the Media Foundation software encoder measured 735 to 919 kbps on ten seconds of a still
   screen, depending on the rate-control mode, and was not measured on a long or busy recording.
 - **Smart App Control.** On a PC with Smart App Control on, an unsigned `ffmpeg.exe` built from source
