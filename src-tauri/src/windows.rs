@@ -437,6 +437,10 @@ pub fn open_scroll_select(app: &AppHandle, screen: usize) -> tauri::Result<()> {
         .visible(false)
         .initialization_script("location.hash = '#/scroll-select';")
         .build()?;
+    // Windows fades a closing window out; kept out of the capture, the fade cannot reach the
+    // first frames of the rectangle.
+    #[cfg(windows)]
+    let _ = win.set_content_protected(true);
     let _ = win.set_size(LogicalSize::new(w, h));
     let _ = win.set_position(LogicalPosition::new(x, y));
     raise_above_menu_bar(&win);
@@ -531,11 +535,13 @@ pub fn close_scroll_frame(app: &AppHandle) {
 pub fn hide_main(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.hide();
+        webview_visible(&win, false);
     }
 }
 
 pub fn show_main(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
+        webview_visible(&win, true);
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();
@@ -549,10 +555,32 @@ pub fn toggle_main(app: &AppHandle) {
     };
     let in_front = win.is_visible().unwrap_or(false) && win.is_focused().unwrap_or(false);
     if in_front {
-        let _ = win.hide();
+        hide_main(app);
     } else {
         show_main(app);
     }
+}
+
+/// Windows: hiding the window leaves WebView2 rendering it. The main window kept turning its
+/// reels at 60 frames a second during every recording (measured: 60 style recalculations and
+/// layouts a second, a quarter of a core for the webview processes). With the controller set
+/// invisible the page reports `visibilityState = "hidden"` and stops painting; events still
+/// arrive. Other systems stop drawing a hidden window by themselves.
+fn webview_visible(win: &tauri::WebviewWindow, visible: bool) {
+    #[cfg(windows)]
+    {
+        let _ = win.with_webview(move |webview| {
+            // SAFETY: called by Tauri on the thread that owns the webview; the controller is live
+            // for the duration of the call.
+            unsafe {
+                if let Err(e) = webview.controller().SetIsVisible(visible) {
+                    log::warn!("webview visibility {visible}: {e}");
+                }
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = (win, visible);
 }
 
 #[cfg(test)]

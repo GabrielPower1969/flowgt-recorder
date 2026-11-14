@@ -163,7 +163,8 @@ foreach ($tool in 'ffmpeg', 'ffprobe') {
     if ($config -match [regex]::Escape($flag)) { Fail "$tool is configured with $flag. Run scripts/build-ffmpeg-win.sh" }
   }
   if ($config -notmatch '--disable-network') { Fail "$tool is built with network protocols. Run scripts/build-ffmpeg-win.sh" }
-  if ($config -match '--enable-lib') { Fail "$tool is built with an external library. Run scripts/build-ffmpeg-win.sh" }
+  $libs = @([regex]::Matches($config, '--enable-lib\S*') | ForEach-Object { $_.Value } | Where-Object { $_ -ne '--enable-libvpl' })
+  if ($libs.Count) { Fail "$tool is built with an external library ($($libs -join ', ')); only libvpl is allowed. Run scripts/build-ffmpeg-win.sh" }
   if ($facts.ran -and ($facts.license -notmatch 'GNU Lesser General Public License' -or $facts.license -notmatch 'version 2\.1')) { Fail "$tool -L does not print the LGPL 2.1" }
   $network = @($facts.protocols | Where-Object { $_ -match '^(http|https|tcp|udp|tls|rtp|rtmp.*|ftp|srt|sftp|rist|zmq|gopher.*|mms.*|icecast|httpproxy|udplite|srtp|dtls|ipfs|ipns|prompeg)$' })
   if ($network.Count) { Fail "$tool still has network protocols: $($network -join ', ')" }
@@ -175,7 +176,9 @@ foreach ($tool in 'ffmpeg', 'ffprobe') {
   else { Note '  NOT RUN: Windows refused to start this file (unsigned; Smart App Control). Licence and protocols are judged from the configure line only.' }
   Note "  imports: $((Get-Imports $dumpbin $exe) -join ' ')"
 }
-foreach ($f in 'ffmpeg-NOTICE.txt', 'ffmpeg-COPYING.LGPLv2.1.txt') {
+$notices = @('ffmpeg-NOTICE.txt', 'ffmpeg-COPYING.LGPLv2.1.txt')
+if ($config -match '--enable-libvpl') { $notices += 'libvpl-LICENSE.txt' }
+foreach ($f in $notices) {
   if (-not (Test-Path (Join-Path $Bin $f))) { Fail "$f is missing from the ffmpeg folder. Run scripts/build-ffmpeg-win.sh" }
 }
 
@@ -207,8 +210,7 @@ if (Test-Path $Layout) { Remove-Item -Recurse -Force $Layout }
 New-Item -ItemType Directory -Force -Path (Join-Path $Layout 'Assets'), (Join-Path $Layout 'licenses') | Out-Null
 Copy-Item $exeBuilt (Join-Path $Layout 'flowgt-recorder.exe')
 foreach ($tool in 'ffmpeg', 'ffprobe') { Copy-Item (Join-Path $Bin "$tool-$Triple.exe") (Join-Path $Layout "$tool.exe") }
-Copy-Item (Join-Path $Bin 'ffmpeg-NOTICE.txt') (Join-Path $Layout 'licenses/ffmpeg-NOTICE.txt')
-Copy-Item (Join-Path $Bin 'ffmpeg-COPYING.LGPLv2.1.txt') (Join-Path $Layout 'licenses/ffmpeg-COPYING.LGPLv2.1.txt')
+foreach ($f in $notices) { Copy-Item (Join-Path $Bin $f) (Join-Path $Layout "licenses/$f") }
 Copy-Item (Join-Path $Root 'LICENSE') (Join-Path $Layout 'licenses/FlowGT-Recorder-LICENSE.txt')
 
 # Logos: the simple drawing for 50 px and smaller, the full one above (src-tauri/icons/README.md).
@@ -216,15 +218,22 @@ $full = Join-Path $Root 'design/brand/icon-full-1024.png'
 $small = Join-Path $Root 'design/brand/icon-small-512.png'
 if (-not (Test-Path $small)) { $small = $full }
 $assets = Join-Path $Layout 'Assets'
-foreach ($scale in 100, 200, 400) {
+# Scales 100/125/150/200/400 (the system picks the nearest). Square44x44Logo also has the target sizes
+# Windows 11 shows on the taskbar, Start and the app list, each in three files: plain, dark theme
+# (altform-unplated) and light theme (altform-lightunplated); without the theme files the icon is
+# drawn small on a plate. The picture has its own background, so the three are the same picture.
+# Tiles other than the medium one are not used by Windows 11 (docs/reports/09, section 6.1).
+foreach ($scale in 100, 125, 150, 200, 400) {
   foreach ($logo in @{ n = 'Square44x44Logo'; s = 44 }, @{ n = 'Square150x150Logo'; s = 150 }, @{ n = 'StoreLogo'; s = 50 }) {
-    $px = [int]($logo.s * $scale / 100)
+    $px = [int][math]::Round($logo.s * $scale / 100)
     Save-Png $(if ($px -le 50) { $small } else { $full }) $px (Join-Path $assets "$($logo.n).scale-$scale.png")
   }
 }
-foreach ($px in 16, 24, 32, 48, 256) {
-  Save-Png $(if ($px -le 50) { $small } else { $full }) $px (Join-Path $assets "Square44x44Logo.targetsize-${px}_altform-unplated.png")
-  Save-Png $(if ($px -le 50) { $small } else { $full }) $px (Join-Path $assets "Square44x44Logo.targetsize-$px.png")
+foreach ($px in 16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256) {
+  $src = if ($px -le 50) { $small } else { $full }
+  foreach ($suffix in '', '_altform-unplated', '_altform-lightunplated') {
+    Save-Png $src $px (Join-Path $assets "Square44x44Logo.targetsize-$px$suffix.png")
+  }
 }
 
 # The manifest. A four-part version whose last part is 0: the Store keeps that part for itself.

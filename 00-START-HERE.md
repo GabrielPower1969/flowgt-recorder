@@ -1,3 +1,4 @@
+> **2026-11-14 下一轮 Windows 平台层（通宵，无人值守）**：滚动截图、开机启动、托盘图标、快捷键 Alt+Shift+R／P／S 在 Windows 上做完，普通版和上架版（有包身份）都实测过；修了撕裂帧拼错、选区淡出进图、麦克风打开慢 1 秒、隐藏的主窗口还在绘制。下午按 Gabriel 的选择给自编 ffmpeg 加了 Intel VPL，上架版改走 QSV 硬件编码（CPU 约 80% → 58% 个核）。没解决：音画可能差几百毫秒、上架版首次用麦克风要回答系统弹框。见 `docs/reports/11-Windows-通宵测试与优化-2026-11-14.md`，分支 `win/overnight-2026-11-13`（草稿 PR，基于 `mac/next-round`）。
 > **2026-11-13 下一轮（Mac 已做，Windows 待做）**：滚动截图、1080p／4K 清晰度、开机启动、四个全局快捷键（冲突有提示）、图片统一到 `design/brand/`（托盘图标重画、清单、老图残留检查）、`scripts/install-mac.sh` 装到“应用程序”。Mac 上架版里实测通过的和没验证的见 `docs/reports/10-下一轮-Mac实现-2026-11-13.md`。分支 `mac/next-round`（草稿 PR）。Windows 按 `docs/reports/09-…` 接平台层。
 > **2026-11-13 下一轮计划（未动手，等 Gabriel 点头）**：图片资产统一、1080p／4K 清晰度、快捷键入口、开机启动、滚动截图、找得到程序。Mac 计划 `docs/reports/08-下一轮计划-Mac-2026-11-13.md`，Windows 计划 `docs/reports/09-下一轮计划-Windows-2026-11-13.md`（第 2–5 节相同）。另：2026-11-12 夜 main 上修了上架版一点录制就闪退（`b84c87e`）。
 > **2026-11-12 Windows 上架版**：新增 `scripts/build-ffmpeg-win.sh`（从 ffmpeg.org 源码编的独立 LGPL 2.1 ffmpeg）和 `scripts/build-store-win.ps1`（打出 MSIX 包，31 MB）。包能打出来、清单通过校验、包里的程序直接运行时真录通过；**包没有装过**（不改系统设置装不上），也没有提交过。分支 `win/store-msix`（草稿 PR），结果和留给 Gabriel 的事见 `docs/reports/07-Windows-上架版重构-2026-11-12.md`，英文说明见 `docs/WINDOWS-STORE.md`。
@@ -54,6 +55,7 @@ shows a notice until it is back. Collapsible to the bar with the chevron; dragga
 |---|---|---|
 | 01 | `docs/reports/01-首版验收报告-2026-11-04.html` | **待写**：首版验收，测试、自检、基准、本机真录 |
 | 03 | `docs/reports/03-Mac验收-Faceplate-2026-11-11.md` | Faceplate 界面与新图标在 Mac 上的逐项验收：命令输出、真录、修了什么、没修什么、要人工看的 |
+| 11 | `docs/reports/11-Windows-通宵测试与优化-2026-11-14.md` | 下一轮的 Windows 平台层、全面实测（普通版和上架版）、性能优化；没解决的三件和留给 Gabriel 的事 |
 | 10 | `docs/reports/10-下一轮-Mac实现-2026-11-13.md` | 下一轮在 Mac 上做完的：六件事的实测结果、没验证的、留给 Gabriel 的事、给 Windows 负责人的交接 |
 | 09 | `docs/reports/09-下一轮计划-Windows-2026-11-13.md` | 下一轮计划（Windows）：同样六件事在 Windows 上怎么做，平台部分全是待核对的推断 |
 | 08 | `docs/reports/08-下一轮计划-Mac-2026-11-13.md` | 下一轮计划（Mac）：六件事的设计、共享约定、分工、验收、要 Gabriel 做的 |

@@ -2,7 +2,8 @@
 //! settings), so nothing is stored here: every question is put to the system.
 //!
 //! macOS: `SMAppService.mainApp` (macOS 13+), the one way that also works inside the App
-//! Sandbox. Other platforms report `autostart: false` until they have their own.
+//! Sandbox. Windows: the package's startup task under MSIX, the per-user Run value otherwise.
+//! Other platforms report `autostart: false`.
 
 use serde::Serialize;
 
@@ -152,10 +153,9 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 mod platform {
-    //! Not built yet. Windows goes here: the per-user Run entry for the plain installer, the
-    //! package's startup task under MSIX.
+    //! Not available on this system.
     use super::*;
 
     pub fn supported() -> bool {
@@ -173,6 +173,228 @@ mod platform {
     }
 }
 
+#[cfg(windows)]
+mod platform {
+    //! Windows has two ways, picked by whether the app runs with package identity (a capability,
+    //! not a platform check):
+    //! - packaged (MSIX): the package's startup task (`uap5:StartupTask` in the manifest,
+    //!   `Windows.ApplicationModel.StartupTask`). A packaged app cannot use the Run key: its
+    //!   writes under HKCU go to a private copy the system does not read at login.
+    //! - plain installer: a value under HKCU\Software\Microsoft\Windows\CurrentVersion\Run.
+    //!   Task Manager's "Disabled" for it has no documented API, so that state cannot be seen.
+    use super::*;
+    use std::sync::OnceLock;
+
+    /// `TaskId` of the startup task in `src-tauri/msix/AppxManifest.xml`.
+    const TASK_ID: &str = "FlowGTRecorderStartup";
+    /// Name of the Run value, and the argument it passes.
+    const RUN_VALUE: &str = "FlowGT Recorder";
+    pub const LOGIN_ARG: &str = "--autostart";
+
+    fn packaged() -> bool {
+        crate::commands::package_identity().is_some()
+    }
+
+    pub fn supported() -> bool {
+        true
+    }
+
+    pub fn status() -> AutostartStatus {
+        if packaged() {
+            task::state().map_or(AutostartStatus::Unsupported, from_task_state)
+        } else if run::get().is_some_and(|cmd| cmd == run::command()) {
+            AutostartStatus::On
+        } else {
+            AutostartStatus::Off
+        }
+    }
+
+    pub fn set(enabled: bool) -> Result<(), String> {
+        if packaged() {
+            task::set(enabled)
+        } else if enabled {
+            run::put(&run::command())
+        } else {
+            run::delete()
+        }
+    }
+
+    /// Settings > Apps > Startup lists both kinds and is where a user re-enables a task.
+    pub fn open_settings() {
+        if let Err(e) = tauri_plugin_opener::open_url("ms-settings:startupapps", None::<&str>) {
+            log::warn!("cannot open the startup settings: {e}");
+        }
+    }
+
+    /// Packaged: the activation says "startup task" (the system answers this only once, so the
+    /// answer is kept). Plain: the Run value passes `--autostart`.
+    pub fn launched_at_login() -> bool {
+        static AT_LOGIN: OnceLock<bool> = OnceLock::new();
+        *AT_LOGIN.get_or_init(|| {
+            if packaged() {
+                task::activated_by_startup_task()
+            } else {
+                std::env::args().any(|a| a == LOGIN_ARG)
+            }
+        })
+    }
+
+    /// StartupTaskState: 0 Disabled, 1 DisabledByUser (only the user can turn it back on),
+    /// 2 Enabled, 3 DisabledByPolicy, 4 EnabledByPolicy.
+    pub(super) fn from_task_state(state: i32) -> AutostartStatus {
+        match state {
+            2 | 4 => AutostartStatus::On,
+            1 => AutostartStatus::NeedsApproval,
+            3 => AutostartStatus::Unsupported,
+            _ => AutostartStatus::Off,
+        }
+    }
+
+    mod task {
+        use windows::ApplicationModel::Activation::ActivationKind;
+        use windows::ApplicationModel::{AppInstance, StartupTask, StartupTaskState};
+        use windows_core::HSTRING;
+
+        fn get() -> Result<StartupTask, String> {
+            StartupTask::GetAsync(&HSTRING::from(super::TASK_ID))
+                .and_then(|op| op.join())
+                .map_err(|e| format!("startup task {}: {e}", super::TASK_ID))
+        }
+
+        pub fn state() -> Option<i32> {
+            match get().and_then(|t| t.State().map_err(|e| e.to_string())) {
+                Ok(s) => Some(s.0),
+                Err(e) => {
+                    log::warn!("{e}");
+                    None
+                }
+            }
+        }
+
+        /// A packaged desktop app gets no consent dialog from RequestEnableAsync; a task the user
+        /// disabled stays disabled whatever the app asks.
+        pub fn set(enabled: bool) -> Result<(), String> {
+            let t = get()?;
+            if enabled {
+                let s = t
+                    .RequestEnableAsync()
+                    .and_then(|op| op.join())
+                    .map_err(|e| e.to_string())?;
+                if s == StartupTaskState::DisabledByUser || s == StartupTaskState::DisabledByPolicy
+                {
+                    log::info!("startup task stays off: state {}", s.0);
+                }
+                Ok(())
+            } else {
+                t.Disable().map_err(|e| e.to_string())
+            }
+        }
+
+        pub fn activated_by_startup_task() -> bool {
+            AppInstance::GetActivatedEventArgs()
+                .and_then(|a| a.Kind())
+                .is_ok_and(|k| k == ActivationKind::StartupTask)
+        }
+    }
+
+    mod run {
+        use std::ffi::c_void;
+
+        #[link(name = "advapi32")]
+        extern "system" {
+            fn RegSetKeyValueW(
+                key: isize,
+                sub: *const u16,
+                name: *const u16,
+                kind: u32,
+                data: *const c_void,
+                len: u32,
+            ) -> i32;
+            fn RegGetValueW(
+                key: isize,
+                sub: *const u16,
+                name: *const u16,
+                flags: u32,
+                kind: *mut u32,
+                data: *mut c_void,
+                len: *mut u32,
+            ) -> i32;
+            fn RegDeleteKeyValueW(key: isize, sub: *const u16, name: *const u16) -> i32;
+        }
+        const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
+        const REG_SZ: u32 = 1;
+        const RRF_RT_REG_SZ: u32 = 0x0000_0002;
+        const ERROR_FILE_NOT_FOUND: i32 = 2;
+        const SUBKEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+        fn wide(s: &str) -> Vec<u16> {
+            s.encode_utf16().chain(std::iter::once(0)).collect()
+        }
+
+        /// The command line the Run value should hold for this program.
+        pub fn command() -> String {
+            let exe = std::env::current_exe()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            format!("\"{exe}\" {}", super::LOGIN_ARG)
+        }
+
+        pub fn get() -> Option<String> {
+            let (sub, name) = (wide(SUBKEY), wide(super::RUN_VALUE));
+            let mut buf = vec![0u16; 1024];
+            let mut len = (buf.len() * 2) as u32;
+            // SAFETY: documented registry call; the buffer length is passed in bytes.
+            let rc = unsafe {
+                RegGetValueW(
+                    HKEY_CURRENT_USER,
+                    sub.as_ptr(),
+                    name.as_ptr(),
+                    RRF_RT_REG_SZ,
+                    std::ptr::null_mut(),
+                    buf.as_mut_ptr().cast(),
+                    &mut len,
+                )
+            };
+            if rc != 0 {
+                return None;
+            }
+            let chars = (len as usize / 2).saturating_sub(1);
+            Some(String::from_utf16_lossy(&buf[..chars.min(buf.len())]))
+        }
+
+        pub fn put(cmd: &str) -> Result<(), String> {
+            let (sub, name, data) = (wide(SUBKEY), wide(super::RUN_VALUE), wide(cmd));
+            // SAFETY: documented registry call; `data` is a NUL-terminated UTF-16 string.
+            let rc = unsafe {
+                RegSetKeyValueW(
+                    HKEY_CURRENT_USER,
+                    sub.as_ptr(),
+                    name.as_ptr(),
+                    REG_SZ,
+                    data.as_ptr().cast(),
+                    (data.len() * 2) as u32,
+                )
+            };
+            if rc == 0 {
+                Ok(())
+            } else {
+                Err(format!("cannot write the Run value: error {rc}"))
+            }
+        }
+
+        pub fn delete() -> Result<(), String> {
+            let (sub, name) = (wide(SUBKEY), wide(super::RUN_VALUE));
+            // SAFETY: documented registry call.
+            let rc = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, sub.as_ptr(), name.as_ptr()) };
+            if rc == 0 || rc == ERROR_FILE_NOT_FOUND {
+                Ok(())
+            } else {
+                Err(format!("cannot remove the Run value: error {rc}"))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +405,17 @@ mod tests {
         assert_eq!(status_from_code(1), AutostartStatus::On);
         assert_eq!(status_from_code(2), AutostartStatus::NeedsApproval);
         assert_eq!(status_from_code(3), AutostartStatus::Off);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn startup_task_states() {
+        use platform::from_task_state as s;
+        assert_eq!(s(0), AutostartStatus::Off);
+        assert_eq!(s(1), AutostartStatus::NeedsApproval);
+        assert_eq!(s(2), AutostartStatus::On);
+        assert_eq!(s(3), AutostartStatus::Unsupported);
+        assert_eq!(s(4), AutostartStatus::On);
     }
 
     #[test]
