@@ -163,7 +163,8 @@ foreach ($tool in 'ffmpeg', 'ffprobe') {
     if ($config -match [regex]::Escape($flag)) { Fail "$tool is configured with $flag. Run scripts/build-ffmpeg-win.sh" }
   }
   if ($config -notmatch '--disable-network') { Fail "$tool is built with network protocols. Run scripts/build-ffmpeg-win.sh" }
-  if ($config -match '--enable-lib') { Fail "$tool is built with an external library. Run scripts/build-ffmpeg-win.sh" }
+  $libs = @([regex]::Matches($config, '--enable-lib\S*') | ForEach-Object { $_.Value } | Where-Object { $_ -ne '--enable-libvpl' })
+  if ($libs.Count) { Fail "$tool is built with an external library ($($libs -join ', ')); only libvpl is allowed. Run scripts/build-ffmpeg-win.sh" }
   if ($facts.ran -and ($facts.license -notmatch 'GNU Lesser General Public License' -or $facts.license -notmatch 'version 2\.1')) { Fail "$tool -L does not print the LGPL 2.1" }
   $network = @($facts.protocols | Where-Object { $_ -match '^(http|https|tcp|udp|tls|rtp|rtmp.*|ftp|srt|sftp|rist|zmq|gopher.*|mms.*|icecast|httpproxy|udplite|srtp|dtls|ipfs|ipns|prompeg)$' })
   if ($network.Count) { Fail "$tool still has network protocols: $($network -join ', ')" }
@@ -175,7 +176,9 @@ foreach ($tool in 'ffmpeg', 'ffprobe') {
   else { Note '  NOT RUN: Windows refused to start this file (unsigned; Smart App Control). Licence and protocols are judged from the configure line only.' }
   Note "  imports: $((Get-Imports $dumpbin $exe) -join ' ')"
 }
-foreach ($f in 'ffmpeg-NOTICE.txt', 'ffmpeg-COPYING.LGPLv2.1.txt') {
+$notices = @('ffmpeg-NOTICE.txt', 'ffmpeg-COPYING.LGPLv2.1.txt')
+if ($config -match '--enable-libvpl') { $notices += 'libvpl-LICENSE.txt' }
+foreach ($f in $notices) {
   if (-not (Test-Path (Join-Path $Bin $f))) { Fail "$f is missing from the ffmpeg folder. Run scripts/build-ffmpeg-win.sh" }
 }
 
@@ -207,8 +210,7 @@ if (Test-Path $Layout) { Remove-Item -Recurse -Force $Layout }
 New-Item -ItemType Directory -Force -Path (Join-Path $Layout 'Assets'), (Join-Path $Layout 'licenses') | Out-Null
 Copy-Item $exeBuilt (Join-Path $Layout 'flowgt-recorder.exe')
 foreach ($tool in 'ffmpeg', 'ffprobe') { Copy-Item (Join-Path $Bin "$tool-$Triple.exe") (Join-Path $Layout "$tool.exe") }
-Copy-Item (Join-Path $Bin 'ffmpeg-NOTICE.txt') (Join-Path $Layout 'licenses/ffmpeg-NOTICE.txt')
-Copy-Item (Join-Path $Bin 'ffmpeg-COPYING.LGPLv2.1.txt') (Join-Path $Layout 'licenses/ffmpeg-COPYING.LGPLv2.1.txt')
+foreach ($f in $notices) { Copy-Item (Join-Path $Bin $f) (Join-Path $Layout "licenses/$f") }
 Copy-Item (Join-Path $Root 'LICENSE') (Join-Path $Layout 'licenses/FlowGT-Recorder-LICENSE.txt')
 
 # Logos: the simple drawing for 50 px and smaller, the full one above (src-tauri/icons/README.md).
