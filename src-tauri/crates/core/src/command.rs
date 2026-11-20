@@ -178,22 +178,104 @@ fn input_args(src: &InputSource, fps: u32, is_camera: bool) -> Vec<String> {
 /// DirectShow audio buffer in milliseconds (ffmpeg's `audio_buffer_size`).
 pub const DSHOW_AUDIO_BUFFER_MS: u32 = 50;
 
+/// How often ffmpeg looks at stdin and writes a `-progress` block, in seconds. ffmpeg's default
+/// is 0.5: a stop ("q") then waited up to half a second before ffmpeg even noticed it, and the
+/// first progress block (which tells the app the recording runs) came up to 0.5 s late.
+pub const STATS_PERIOD_S: &str = "0.1";
+
+/// The line ffmpeg prints (at `info`) once every input is open and the run begins.
+pub const READY_LINE: &str = "Press [q] to stop";
+
+/// Whether a plan can be gated (see [`recording_command_gated`]): the Windows screen sources.
+pub fn gate_applies(plan: &RecordingPlan) -> bool {
+    matches!(plan.screen, InputSource::DdaGrab { .. } | InputSource::GdiGrab { .. })
+}
+
+/// A start gate on the wall clock (seconds since the Unix epoch): `origin` is when ffmpeg is
+/// started, `at` the moment the file begins (the end of the countdown). `at >= origin`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Gate {
+    pub origin: f64,
+    pub at: f64,
+}
+
+/// Encoders that start a keyframe on request (`-force_key_frames`, IDR) and answer within a frame
+/// or two once warm, checked on Windows 2026-11-20 (Intel graphics): with these the encoder runs
+/// during the countdown and the file is cut at the gate after encoding. Any other encoder gets its
+/// first frame at the gate (`trim`), and starts up only then.
+pub fn gate_cuts_after_encoding(encoder_name: &str) -> bool {
+    encoder_name.ends_with("_qsv") || encoder_name.ends_with("_mf")
+}
+
+/// Extra encoder options for a gate cut after encoding: no B-frames and one frame in flight, so
+/// the first packet after the gate is not held back, and the requested keyframe is an IDR.
+fn gate_encoder_args(encoder_name: &str) -> &'static [&'static str] {
+    if encoder_name.ends_with("_qsv") {
+        &["-bf", "0", "-async_depth", "1", "-forced_idr", "1"]
+    } else {
+        &[]
+    }
+}
+
 /// The recording command for one segment:
 /// inputs (screen, camera, mic, system) → filter_complex (scale/crop, pip overlay, amix or two tracks)
 /// → -c:v enc -b:v -maxrate -bufsize -g fps*2 -pix_fmt yuv420p → -c:a aac -b:a → -movflags +frag_keyframe+empty_moov+default_base_moof
 /// → -progress pipe:1 -nostats -y output. `-t` when duration_limit_s.
 pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
+    recording_command_gated(ffmpeg, plan, None)
+}
+
+/// [`recording_command`] for a segment started before it is wanted (during the countdown): every
+/// device opens now, and nothing captured before `gate.at` reaches the file.
+///
+/// Every input is stamped with the wall clock as its packets arrive (`-use_wallclock_as_timestamps`)
+/// and the stamps are kept (`-copyts`), so screen, camera and microphone share one clock. Then,
+/// with an encoder from [`gate_cuts_after_encoding`], everything is encoded from `origin` on, a
+/// keyframe is forced at the gate and the `noise` bitstream filter drops every packet before it:
+/// the encoder is warm when the countdown ends and the first frame follows within a frame or
+/// two. (Cutting before the encoder instead, the encoder started up after the gate, 0.6-0.9 s
+/// with Intel QSV, and ffmpeg held the microphone back meanwhile: its packets arrived late,
+/// were stamped late, and the first 0.6 s of sound went missing. Measured 2026-11-20.)
+/// Other encoders get `trim=start=G,setpts=PTS-G/TB` (`atrim`/`asetpts` for sound) instead.
+///
+/// ffmpeg logs at `info` so that the app sees [`READY_LINE`] once the inputs are open.
+pub fn recording_command_gated(ffmpeg: &str, plan: &RecordingPlan, gate: Option<Gate>) -> FfmpegCommand {
     let mut args = Vec::new();
-    push(&mut args, &["-hide_banner", "-loglevel", "warning"]);
+    push(&mut args, &["-hide_banner", "-loglevel", if gate.is_some() { "info" } else { "warning" }]);
+    if gate.is_some() {
+        args.push(s("-copyts"));
+    }
+    let gated_input = |a: Vec<String>| -> Vec<String> {
+        if gate.is_none() || a.iter().any(|x| x == "-use_wallclock_as_timestamps") {
+            return a;
+        }
+        let mut out = vec![s("-use_wallclock_as_timestamps"), s("1")];
+        out.extend(a);
+        out
+    };
+    let after_encoding = gate.is_some() && gate_cuts_after_encoding(&plan.encoder.name);
+    // Seconds from the origin to the gate, for the cut after encoding.
+    let cut = gate.map(|g| format!("{:.6}", (g.at - g.origin).max(0.0)));
+    let (vgate, agate) = match gate {
+        None => (String::new(), String::new()),
+        Some(g) if after_encoding => {
+            let o = format!("{:.6}", g.origin);
+            (format!("setpts=PTS-{o}/TB"), format!("asetpts=PTS-{o}/TB,"))
+        }
+        Some(g) => {
+            let a = format!("{:.6}", g.at);
+            (format!("trim=start={a},setpts=PTS-{a}/TB"), format!("atrim=start={a},asetpts=PTS-{a}/TB,"))
+        }
+    };
 
     // ---- inputs, in a fixed order: screen, camera, mic, system audio
     let screen_idx = 0usize;
-    args.extend(input_args(&plan.screen, plan.fps, false));
+    args.extend(gated_input(input_args(&plan.screen, plan.fps, false)));
     let mut next = 1usize;
     let mut idx = [None::<usize>; 3];
     for (slot, (src, is_camera)) in idx.iter_mut().zip([(&plan.camera, true), (&plan.mic, false), (&plan.system_audio, false)]) {
         if let Some(src) = src {
-            args.extend(input_args(src, plan.fps, is_camera));
+            args.extend(gated_input(input_args(src, plan.fps, is_camera)));
             *slot = Some(next);
             next += 1;
         }
@@ -204,6 +286,10 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
     let mut graph: Vec<String> = Vec::new();
     let mut chain = format!("[{screen_idx}:v]");
     let mut steps: Vec<String> = Vec::new();
+    // The gate comes first: frames before it are dropped while still on the graphics card.
+    if !vgate.is_empty() {
+        steps.push(vgate.clone());
+    }
     if matches!(plan.screen, InputSource::DdaGrab { .. }) {
         // Frames arrive as D3D11 surfaces; bring them to system memory for scale / overlay.
         steps.push("hwdownload".into());
@@ -218,7 +304,13 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
         (Some(layout), Some(ci)) => {
             chain.push_str("[scr]");
             graph.push(chain);
-            graph.push(crate::pip::pip_filter(layout, &format!("{ci}:v"), "pip"));
+            let cam = if vgate.is_empty() {
+                format!("{ci}:v")
+            } else {
+                graph.push(format!("[{ci}:v]{vgate}[camg]"));
+                "camg".to_string()
+            };
+            graph.push(crate::pip::pip_filter(layout, &cam, "pip"));
             graph.push(crate::pip::overlay_filter(layout, "scr", "pip", "vout"));
         }
         _ => {
@@ -230,8 +322,8 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
     // ---- audio graph
     let mut audio_maps: Vec<String> = Vec::new();
     // The mic gets speech levelling; computer audio is already mastered and stays as it is.
-    let mic_chain = |idx: usize, out: &str| format!("[{idx}:a]aresample=48000:async=1,{MIC_FILTER},{LIMITER}[{out}]");
-    let plain_chain = |idx: usize, out: &str| format!("[{idx}:a]aresample=48000:async=1[{out}]");
+    let mic_chain = |idx: usize, out: &str| format!("[{idx}:a]{agate}aresample=48000:async=1,{MIC_FILTER},{LIMITER}[{out}]");
+    let plain_chain = |idx: usize, out: &str| format!("[{idx}:a]{agate}aresample=48000:async=1[{out}]");
     match (mic_idx, sys_idx) {
         (Some(m), Some(sy)) if plan.audio_tracks == AudioTracks::Separate => {
             graph.push(mic_chain(m, "a0"));
@@ -239,7 +331,7 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
             audio_maps.extend(["[a0]".to_string(), "[a1]".to_string()]);
         }
         (Some(m), Some(sy)) => {
-            graph.push(format!("[{m}:a]aresample=48000:async=1,{MIC_FILTER}[am];[{sy}:a]aresample=48000:async=1[as];[am][as]amix=inputs=2:duration=longest:normalize=0,{LIMITER}[aout]"));
+            graph.push(format!("[{m}:a]{agate}aresample=48000:async=1,{MIC_FILTER}[am];[{sy}:a]{agate}aresample=48000:async=1[as];[am][as]amix=inputs=2:duration=longest:normalize=0,{LIMITER}[aout]"));
             audio_maps.push("[aout]".into());
         }
         (Some(m), None) => {
@@ -278,12 +370,23 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
             "-fps_mode", "cfr",
         ],
     );
+    // The cut after encoding: a keyframe at the gate, every packet before it dropped. The
+    // expression is "time < cut" without a comma (a comma would split the filter list):
+    // floor((sgn(cut - t) + 1) / 2) is 1 before the cut and 0 from it on.
+    let drop = cut.as_ref().filter(|_| after_encoding).map(|c| format!("noise=drop=floor((sgn({c}-pts*tb)+1)/2)"));
+    if let (Some(drop), Some(c)) = (&drop, &cut) {
+        push(&mut args, gate_encoder_args(&plan.encoder.name));
+        push(&mut args, &["-force_key_frames:v", &format!("expr:gte(t,{c})*eq(n_forced,0)"), "-bsf:v", drop]);
+    }
 
     // ---- audio encode
     if audio_maps.is_empty() {
         args.push(s("-an"));
     } else {
         push(&mut args, &["-c:a", "aac", "-b:a", &format!("{}k", plan.audio_bitrate_kbps), "-ar", "48000", "-ac", "2"]);
+        if let Some(drop) = &drop {
+            push(&mut args, &["-bsf:a", drop]);
+        }
         if audio_maps.len() == 2 {
             push(&mut args, &["-metadata:s:a:0", "title=Microphone", "-metadata:s:a:1", "title=System audio"]);
         }
@@ -295,7 +398,13 @@ pub fn recording_command(ffmpeg: &str, plan: &RecordingPlan) -> FfmpegCommand {
     } else {
         push(&mut args, &["-movflags", "+faststart"]);
     }
-    push(&mut args, &["-progress", "pipe:1", "-nostats"]);
+    if gate.is_some() {
+        // The streams keep their place on the shared clock; one shift for all of them puts the
+        // first packet at zero (a device that opened after the gate would otherwise leave empty
+        // time at the start).
+        push(&mut args, &["-avoid_negative_ts", "make_zero"]);
+    }
+    push(&mut args, &["-stats_period", STATS_PERIOD_S, "-progress", "pipe:1", "-nostats"]);
     if let Some(t) = plan.duration_limit_s {
         push(&mut args, &["-t", &t.to_string()]);
     }
@@ -646,6 +755,67 @@ mod tests {
         let buf = a.iter().position(|x| x == "-audio_buffer_size").unwrap();
         assert!(buf > cam && buf < mic && a[buf + 1] == "50");
         assert_eq!(a.iter().filter(|x| *x == "-audio_buffer_size").count(), 1);
+        // Without a gate: no shared clock, quiet log.
+        assert!(!a.contains(&"-copyts".to_string()));
+        assert_eq!(value_of(&a, "-loglevel"), "warning");
+        assert_eq!(value_of(&a, "-stats_period"), STATS_PERIOD_S);
+    }
+
+    #[test]
+    fn a_gate_puts_every_input_on_the_wall_clock_and_trims_each_chain() {
+        let mut plan = sample_plan();
+        plan.platform = Platform::Windows;
+        plan.screen = InputSource::DdaGrab { output_idx: 0 };
+        plan.camera = Some(InputSource::DShow { video: Some("Cam".into()), audio: None });
+        plan.mic = Some(InputSource::DShow { video: None, audio: Some("Mic".into()) });
+        plan.pip = Some(crate::pip::layout(&crate::testutil::camera_settings(), plan.out_width, plan.out_height));
+        assert!(gate_applies(&plan));
+        let gate = Gate { origin: 1_795_000_000.25, at: 1_795_000_003.0 };
+
+        // An encoder that cannot be cut after encoding: trimmed at the gate before it.
+        plan.encoder = crate::encoders::choose(&["hevc_nvenc".to_string()], Platform::Windows, EncoderPreference::Auto).unwrap();
+        let a = recording_command_gated("ffmpeg.exe", &plan, Some(gate)).args;
+        assert!(a.contains(&"-copyts".to_string()));
+        assert_eq!(value_of(&a, "-loglevel"), "info");
+        // One wall-clock stamp per input, each before its own -i.
+        assert_eq!(a.iter().filter(|x| *x == "-use_wallclock_as_timestamps").count(), 3);
+        assert_eq!(a.iter().filter(|x| *x == "-i").count(), 3);
+        let g = "1795000003.000000";
+        let fc = value_of(&a, "-filter_complex");
+        assert!(fc.starts_with(&format!("[0:v]trim=start={g},setpts=PTS-{g}/TB,hwdownload,format=bgra")), "{fc}");
+        assert!(fc.contains(&format!("[1:v]trim=start={g},setpts=PTS-{g}/TB[camg]")), "{fc}");
+        assert!(fc.contains("[camg]crop=ih:ih"), "{fc}");
+        assert!(fc.contains(&format!("[2:a]atrim=start={g},asetpts=PTS-{g}/TB,aresample=48000:async=1")), "{fc}");
+        assert!(!a.iter().any(|x| x.starts_with("-bsf")));
+        assert_eq!(value_of(&a, "-avoid_negative_ts"), "make_zero");
+
+        // Intel QSV: everything encoded from the origin, cut 2.75 s later after encoding.
+        plan.encoder = crate::encoders::choose(&["hevc_qsv".to_string()], Platform::Windows, EncoderPreference::Auto).unwrap();
+        let a = recording_command_gated("ffmpeg.exe", &plan, Some(gate)).args;
+        let o = "1795000000.250000";
+        let fc = value_of(&a, "-filter_complex");
+        assert!(fc.starts_with(&format!("[0:v]setpts=PTS-{o}/TB,hwdownload")), "{fc}");
+        assert!(fc.contains(&format!("[1:v]setpts=PTS-{o}/TB[camg]")), "{fc}");
+        assert!(fc.contains(&format!("[2:a]asetpts=PTS-{o}/TB,aresample")), "{fc}");
+        assert!(!fc.contains("trim=start"), "{fc}");
+        let drop = "noise=drop=floor((sgn(2.750000-pts*tb)+1)/2)";
+        assert_eq!(value_of(&a, "-bsf:v"), drop);
+        assert_eq!(value_of(&a, "-bsf:a"), drop);
+        assert!(!drop.contains(','), "a comma would split the bitstream filter list");
+        assert_eq!(value_of(&a, "-force_key_frames:v"), "expr:gte(t,2.750000)*eq(n_forced,0)");
+        assert!(has_pair(&a, "-forced_idr", "1") && has_pair(&a, "-bf", "0") && has_pair(&a, "-async_depth", "1"));
+        // Options of the video encoder come before the output, after -c:v.
+        let cv = a.iter().position(|x| x == "-c:v").unwrap();
+        assert!(a.iter().position(|x| x == "-forced_idr").unwrap() > cv);
+
+        // Media Foundation: cut after encoding as well, with no QSV options.
+        plan.encoder = crate::encoders::choose(&["hevc_mf".to_string()], Platform::Windows, EncoderPreference::Auto).unwrap();
+        let a = recording_command_gated("ffmpeg.exe", &plan, Some(gate)).args;
+        assert_eq!(value_of(&a, "-bsf:v"), drop);
+        assert!(!a.contains(&"-forced_idr".to_string()));
+
+        // macOS sources are never gated.
+        assert!(!gate_applies(&sample_plan()));
     }
 
     #[test]

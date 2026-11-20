@@ -156,6 +156,10 @@ pub fn show_marker(app: &AppHandle, index: usize) -> tauri::Result<()> {
             if !SEE_THROUGH {
                 native_outline(&win);
             }
+            // Windows: ffmpeg is already capturing during the countdown (armed); the outline
+            // must not be in a frame even while it is being hidden at the end.
+            #[cfg(windows)]
+            let _ = win.set_content_protected(true);
             win
         }
     };

@@ -3,7 +3,7 @@
 
 use crate::error::{CmdResult, CommandError};
 use crate::permissions::{self, Kind};
-use crate::recorder::{EventSink, StartParams};
+use crate::recorder::{EventSink, Recorder, StartParams};
 use crate::sidecar::{self, Tools};
 use crate::state::AppState;
 use chrono::Local;
@@ -123,7 +123,9 @@ pub fn package_identity() -> Option<String> {
         const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
         let mut len = 0u32;
         // SAFETY: a null buffer with length 0 is the documented way to ask for the length.
-        if unsafe { GetCurrentPackageFullName(&mut len, std::ptr::null_mut()) } != ERROR_INSUFFICIENT_BUFFER {
+        if unsafe { GetCurrentPackageFullName(&mut len, std::ptr::null_mut()) }
+            != ERROR_INSUFFICIENT_BUFFER
+        {
             return None; // APPMODEL_ERROR_NO_PACKAGE: the process has no package identity
         }
         let mut buf = vec![0u16; len as usize];
@@ -131,7 +133,11 @@ pub fn package_identity() -> Option<String> {
         if unsafe { GetCurrentPackageFullName(&mut len, buf.as_mut_ptr()) } != 0 {
             return None;
         }
-        Some(String::from_utf16_lossy(&buf).trim_end_matches('\0').to_string())
+        Some(
+            String::from_utf16_lossy(&buf)
+                .trim_end_matches('\0')
+                .to_string(),
+        )
     }
     #[cfg(not(windows))]
     {
@@ -361,6 +367,19 @@ pub async fn get_app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
     let t = tools(&state).await;
     let (path, version, bundled, encoder) = match &t {
         Ok(t) => {
+            // The first ffprobe of a session took 1.1-1.4 s on Windows (the program is read and
+            // scanned once), and that first run used to be the one measuring the first recording
+            // while the user waited for it to be saved. Run it now, while nobody waits.
+            static WARMED: std::sync::Once = std::sync::Once::new();
+            WARMED.call_once(|| {
+                let probe = FfmpegCommand {
+                    program: t.ffprobe_str(),
+                    args: vec!["-version".into()],
+                };
+                tauri::async_runtime::spawn(async move {
+                    let _ = sidecar::run(&probe).await;
+                });
+            });
             let enc = resolve_encoder(&state, t, EncoderPreference::Auto)
                 .await
                 .ok();
@@ -382,7 +401,11 @@ pub async fn get_app_info(state: State<'_, AppState>) -> CmdResult<AppInfo> {
 /// What this platform can do right now (S-2). Cheap: no ffmpeg is started.
 #[tauri::command]
 pub fn get_capabilities() -> Capabilities {
-    let mut c = Capabilities::of(Platform::current(), find_record_helper().is_some(), find_helper().is_some());
+    let mut c = Capabilities::of(
+        Platform::current(),
+        find_record_helper().is_some(),
+        find_helper().is_some(),
+    );
     c.scroll_capture = crate::scroll::supported();
     c.autostart = crate::autostart::supported();
     c
@@ -420,7 +443,9 @@ pub async fn scroll_capture_begin(app: AppHandle, state: State<'_, AppState>) ->
     if state.recorder.phase().await != Phase::Idle {
         return Err(CommandError::busy("a recording is in progress"));
     }
-    if Platform::current() == Platform::MacOs && permissions::check().screen != PermissionState::Granted {
+    if Platform::current() == Platform::MacOs
+        && permissions::check().screen != PermissionState::Granted
+    {
         return Err(CommandError::new(
             "error.permission",
             "screen recording permission is not granted",
@@ -441,7 +466,10 @@ pub fn scroll_capture_progress() -> Option<crate::scroll::ScrollProgress> {
 }
 
 #[tauri::command]
-pub async fn scroll_capture_start(app: AppHandle, rect: crate::scroll::LogicalRect) -> CmdResult<()> {
+pub async fn scroll_capture_start(
+    app: AppHandle,
+    rect: crate::scroll::LogicalRect,
+) -> CmdResult<()> {
     crate::scroll::start(&app, rect)
 }
 
@@ -467,7 +495,9 @@ pub async fn toggle_scroll_capture(app: &AppHandle) {
             Ok(Err(e)) if e.code == "error.busy" => {
                 // Still choosing the area: the same key backs out.
                 let handle = app.clone();
-                let _ = tauri::async_runtime::spawn_blocking(move || crate::scroll::cancel(&handle)).await;
+                let _ =
+                    tauri::async_runtime::spawn_blocking(move || crate::scroll::cancel(&handle))
+                        .await;
                 Ok(())
             }
             Ok(Err(e)) => Err(e),
@@ -947,17 +977,26 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
     tauri::async_runtime::spawn(async move {
         let state = handle.state::<AppState>();
         let counting = std::time::Instant::now();
+        // The end of the countdown on the wall clock: an armed ffmpeg keeps nothing before it.
+        let gate = crate::recorder::epoch_now() + f64::from(s.countdown_seconds);
+        let counting_down = s.countdown_seconds > 0;
         // Everything that does not depend on the countdown runs during it: the device list, the
-        // encoder, and (native helper) starting the screen, camera and microphone. Before, all of
-        // it ran after "1", which left the user staring at a finished countdown for 2-3 seconds.
+        // encoder, and starting the screen, camera and microphone (native helper on macOS, ffmpeg
+        // on Windows). Before, all of it ran after "1", which left the user staring at a finished
+        // countdown for 2-3 seconds.
         let prep = {
             let handle = handle.clone();
             let name = meeting_name.clone();
-            tauri::async_runtime::spawn(async move { prepare(&handle, &name).await })
+            tauri::async_runtime::spawn(async move {
+                prepare(&handle, &name, gate, counting_down).await
+            })
         };
         for remaining in (1..=s.countdown_seconds).rev() {
             let _ = handle.emit("countdown://tick", json!({ "remaining": remaining }));
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            // Each tick on a fixed schedule from the start, so the last one ends at the gate
+            // instead of drifting a few milliseconds per second behind it.
+            let next = u64::from(s.countdown_seconds - remaining + 1);
+            tokio::time::sleep_until((counting + Duration::from_secs(next)).into()).await;
             if state.recorder.phase().await != Phase::Countdown {
                 return; // cancelled; prepare() cleans up after itself
             }
@@ -975,13 +1014,15 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
         }
         let t0 = std::time::Instant::now();
         // Neither the outline nor the countdown may end up in the recording. The native helper
-        // leaves this app's windows out of the picture by itself (D27); the ffmpeg path needs them
-        // gone first, and the floating window with them.
+        // leaves this app's windows out of the picture by itself (D27); on Windows both windows are
+        // kept out of the capture (content protection), so an armed ffmpeg needs no pause here.
+        // An ffmpeg started only now on another system still needs them gone first.
         crate::windows::hide_marker(&handle);
-        let started = match prepared {
-            Ok(Prepared::Armed) => state.recorder.go().await,
-            Ok(Prepared::Params(p)) => {
-                if p.native.is_none() {
+        let after_countdown = |p: Box<StartParams>| {
+            let handle = handle.clone();
+            async move {
+                let state = handle.state::<AppState>();
+                if p.native.is_none() && !cfg!(windows) {
                     crate::windows::hide_floating(&handle);
                     tokio::time::sleep(Duration::from_millis(150)).await;
                 }
@@ -990,6 +1031,23 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
                 drop(turn);
                 r
             }
+        };
+        let started = match prepared {
+            Ok(Prepared::Armed(p)) => match state.recorder.go().await {
+                Ok(st) => Ok(st),
+                // The armed sources died during the countdown (a camera that gave up, say):
+                // start the usual way, which drops what does not work.
+                Err(e) if e.code == "error.start" && p.native.is_none() => {
+                    // go() has dropped the armed session; the phase is still Countdown.
+                    log::warn!(
+                        "armed ffmpeg was lost ({}); starting after the countdown",
+                        e.detail
+                    );
+                    after_countdown(p).await
+                }
+                Err(e) => Err(e),
+            },
+            Ok(Prepared::Params(p)) => after_countdown(p).await,
             Err(e) => Err(e),
         };
         log::info!(
@@ -1009,31 +1067,42 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
 
 /// What the countdown got ready.
 enum Prepared {
-    /// The native helper runs and waits for `go`.
-    Armed,
-    /// Parameters only: the ffmpeg path, or a helper that could not be armed.
+    /// The sources run: the native helper waits for `go`, ffmpeg for its gate. The parameters
+    /// stay for a start after the countdown should the armed sources be lost.
+    Armed(Box<StartParams>),
+    /// Parameters only: sources that cannot be armed, or that could not be.
     Params(Box<StartParams>),
 }
 
-async fn prepare(app: &AppHandle, meeting_name: &str) -> CmdResult<Prepared> {
+async fn prepare(
+    app: &AppHandle,
+    meeting_name: &str,
+    gate: f64,
+    counting: bool,
+) -> CmdResult<Prepared> {
     let state = app.state::<AppState>();
     let t0 = std::time::Instant::now();
     // A thumbnail still being taken must finish before the stream starts (see SNAPSHOT_TURN).
     let _turn = SNAPSHOT_TURN.lock().await;
     let params = build_params(app, &state, meeting_name).await?;
     log::info!("timing prepare.params {} ms", t0.elapsed().as_millis());
-    if params.native.is_none() {
+    // ffmpeg is armed only ahead of a countdown: without one, its devices would open after the
+    // gate and the file would start with that wait as a frozen picture.
+    if !Recorder::can_arm(&params) || (params.native.is_none() && !counting) {
         return Ok(Prepared::Params(Box::new(params)));
     }
-    match state.recorder.arm(params.clone()).await {
+    match state.recorder.arm(params.clone(), gate).await {
         Ok(()) => {
             log::info!("timing prepare.armed {} ms", t0.elapsed().as_millis());
-            Ok(Prepared::Armed)
+            Ok(Prepared::Armed(Box::new(params)))
         }
         // Cancelled meanwhile: nothing more to do.
         Err(_) if state.recorder.phase().await != Phase::Countdown => {
             Ok(Prepared::Params(Box::new(params)))
         }
+        // Windows is asking the user about the microphone or camera: asking again after the
+        // countdown would only wait another 12 seconds for the same answer.
+        Err(e) if e.code == "error.consentPending" => Err(e),
         Err(e) => {
             log::warn!(
                 "could not get the recorder ready during the countdown ({}); starting after it",
@@ -1266,15 +1335,25 @@ pub async fn screen_thumbnail(state: State<'_, AppState>, id: String) -> CmdResu
         // The same Desktop Duplication input the recording uses; the id is the output index.
         let output_idx: u32 = id.parse().unwrap_or(0);
         c.args(["-init_hw_device", "d3d11va", "-f", "lavfi", "-i"])
-            .arg(format!("ddagrab=output_idx={output_idx}:framerate=30:draw_mouse=0"))
+            .arg(format!(
+                "ddagrab=output_idx={output_idx}:framerate=30:draw_mouse=0"
+            ))
             .args(["-vf", "hwdownload,format=bgra,scale=480:-2"]);
         #[cfg(windows)]
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     } else {
-        c.args(["-f", "avfoundation", "-framerate", "30", "-capture_cursor", "0", "-i"])
-            .arg(format!("{id}:none"))
-            // The first frames from a screen input can be black; take a later one.
-            .args(["-vf", "select=gte(n\\,5),scale=480:-2"]);
+        c.args([
+            "-f",
+            "avfoundation",
+            "-framerate",
+            "30",
+            "-capture_cursor",
+            "0",
+            "-i",
+        ])
+        .arg(format!("{id}:none"))
+        // The first frames from a screen input can be black; take a later one.
+        .args(["-vf", "select=gte(n\\,5),scale=480:-2"]);
     }
     c.args([
         "-frames:v",
@@ -1921,7 +2000,10 @@ mod tests {
         assert_eq!(outside_container(c), PathBuf::from("/Users/g/Movies"));
         let home = Path::new("/Users/g/Library/Containers/nz.co.flowgt.recorder/Data");
         assert_eq!(outside_container(home), PathBuf::from("/Users/g"));
-        for same in ["/Users/g/Movies", "/Users/g/Library/Containers/x/Database/a"] {
+        for same in [
+            "/Users/g/Movies",
+            "/Users/g/Library/Containers/x/Database/a",
+        ] {
             assert_eq!(outside_container(Path::new(same)), PathBuf::from(same));
         }
     }
