@@ -60,6 +60,28 @@ final class ArgumentTests: XCTestCase {
         XCTAssertThrowsError(try ArgumentParser.parse(["--bogus"]))
     }
 
+    func testArmedAndGo() throws {
+        guard case .record(let o) = try ArgumentParser.parse(["--display", "1", "--out", "a.mp4", "--size", "640x400", "--armed"]) else {
+            return XCTFail("not a recording")
+        }
+        XCTAssertTrue(o.armed)
+        guard case .record(let plain) = try ArgumentParser.parse(["--display", "1", "--out", "a.mp4", "--size", "640x400"]) else {
+            return XCTFail("not a recording")
+        }
+        XCTAssertFalse(plain.armed)
+        guard case .record(let paused) = try ArgumentParser.parse(["--display", "1", "--out", "a.mp4", "--size", "640x400", "--armed", "--defer-devices"]) else {
+            return XCTFail("not a recording")
+        }
+        XCTAssertTrue(paused.deferDevices)
+        guard case .record(let alone) = try ArgumentParser.parse(["--display", "1", "--out", "a.mp4", "--size", "640x400", "--defer-devices"]) else {
+            return XCTFail("not a recording")
+        }
+        XCTAssertFalse(alone.deferDevices, "only meaningful when armed")
+        XCTAssertEqual(Control.parse(" GO\n"), .go)
+        XCTAssertEqual(Control.parse("stop"), .stop)
+        XCTAssertEqual(Event.ready.json, #"{"event":"ready"}"#)
+    }
+
     func testScroll() throws {
         XCTAssertEqual(
             try ArgumentParser.parse(["--scroll", "--display", "1", "--crop", "10,20,800,600", "--exclude-pid", "42"]),

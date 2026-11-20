@@ -36,6 +36,8 @@ pub trait EventSink: Send + Sync + 'static {
     fn warning(&self, warning: &Warning);
     fn error(&self, code: &str, detail: &str);
     fn finished(&self, result: &RecordingResult);
+    /// Saving after stop: the fraction of the final pass that is done (0 to 1).
+    fn finalizing(&self, _fraction: f64) {}
 }
 
 pub struct NullSink;
@@ -86,6 +88,8 @@ const HARD_FLOOR_BYTES: u64 = 300 * 1_000_000;
 struct Live {
     index: u32,
     stop_tx: Option<oneshot::Sender<()>>,
+    /// An armed native helper: sending starts the file.
+    go_tx: Option<oneshot::Sender<()>>,
     done_rx: oneshot::Receiver<SegmentOutcome>,
     started: Instant,
 }
@@ -116,6 +120,11 @@ struct Session {
     mic_child: Option<Child>,
     /// The app error code behind the native helper's last `error` event.
     native_error: Option<String>,
+    /// Armed during the countdown: the helper runs, the file starts at `go`.
+    arming: bool,
+    /// Armed during a pause: as `arming`, with the camera and microphone opened only at `go`.
+    defer_devices: bool,
+    ready: Option<oneshot::Sender<()>>,
 }
 
 struct Inner {
@@ -255,8 +264,20 @@ impl Recorder {
         if inner.phase == Phase::Countdown {
             inner.phase = Phase::Idle;
         }
+        let armed = if inner.phase == Phase::Idle && !inner.transition {
+            inner.session.take()
+        } else {
+            None
+        };
         let st = snapshot(&inner);
         self.shared.sink.state(&st);
+        drop(inner);
+        if let Some(mut s) = armed {
+            if let Some(l) = s.live.take() {
+                let _ = Self::stop_live(l).await;
+            }
+            let _ = tokio::fs::remove_dir_all(&s.params.work_dir).await;
+        }
         st
     }
 
@@ -290,7 +311,143 @@ impl Recorder {
         }
     }
 
+    /// Native helper only: during the countdown, start every source (screen, camera, microphone)
+    /// so that the file can begin the moment the countdown ends. Starting them takes one to two
+    /// seconds; before this, that wait came after the countdown. The phase stays `Countdown`.
+    pub async fn arm(&self, params: StartParams) -> CmdResult<()> {
+        if params.native.is_none() {
+            return Err(busy("only the native helper can be armed"));
+        }
+        {
+            let mut inner = self.shared.inner.lock().await;
+            if inner.phase != Phase::Countdown || inner.transition || inner.session.is_some() {
+                return Err(busy("not counting down"));
+            }
+            inner.transition = true;
+        }
+        let work_dir = params.work_dir.clone();
+        let result = self.open_session(params, true).await;
+        let ready_rx = match result {
+            Ok(rx) => rx,
+            Err(e) => {
+                self.drop_armed(&work_dir).await;
+                return Err(e);
+            }
+        };
+        let waited = match ready_rx {
+            Some(rx) => match tokio::time::timeout(START_TIMEOUT, rx).await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(_)) => Err(CommandError::new(
+                    "error.start",
+                    "the recorder exited while getting ready",
+                )),
+                Err(_) => Err(CommandError::new(
+                    "error.start",
+                    "the recorder was not ready within 12 seconds",
+                )),
+            },
+            None => Ok(()),
+        };
+        if let Err(e) = waited {
+            self.drop_armed(&work_dir).await;
+            return Err(e);
+        }
+        let cancelled = {
+            let mut inner = self.shared.inner.lock().await;
+            inner.transition = false;
+            inner.phase != Phase::Countdown
+        };
+        // Cancelled while the sources were starting: stop the helper that just got ready.
+        if cancelled {
+            self.drop_armed(&work_dir).await;
+            return Err(busy("the countdown was cancelled"));
+        }
+        Ok(())
+    }
+
+    /// Stop an armed helper and forget the session; the phase is left to the caller.
+    async fn drop_armed(&self, work_dir: &Path) {
+        let live = {
+            let mut inner = self.shared.inner.lock().await;
+            inner.transition = false;
+            inner.session.take().and_then(|mut s| s.live.take())
+        };
+        if let Some(l) = live {
+            let _ = Self::stop_live(l).await;
+        }
+        let _ = tokio::fs::remove_dir_all(work_dir).await;
+    }
+
+    /// Whether the countdown has an armed helper waiting for `go`.
+    pub async fn armed(&self) -> bool {
+        let inner = self.shared.inner.lock().await;
+        inner.phase == Phase::Countdown && inner.session.as_ref().is_some_and(|s| s.arming)
+    }
+
+    /// The countdown is over: the armed helper writes its first frame within one frame interval.
+    pub async fn go(&self) -> CmdResult<RecorderState> {
+        let (go_tx, first_rx, work_dir) = {
+            let mut inner = self.shared.inner.lock().await;
+            if inner.phase != Phase::Countdown || inner.transition {
+                return Err(busy("not counting down"));
+            }
+            let Some(s) = inner.session.as_mut().filter(|s| s.arming) else {
+                return Err(busy("nothing is armed"));
+            };
+            s.arming = false;
+            let (tx, rx) = oneshot::channel();
+            s.first_progress = Some(tx);
+            s.seg_started = Some(Instant::now());
+            let go_tx = s.live.as_mut().and_then(|l| l.go_tx.take());
+            let work_dir = s.params.work_dir.clone();
+            inner.phase = Phase::Starting;
+            inner.transition = true;
+            let st = snapshot(&inner);
+            self.shared.sink.state(&st);
+            (go_tx, rx, work_dir)
+        };
+        if let Some(tx) = go_tx {
+            let _ = tx.send(());
+        }
+        if let Err(e) = self.wait_first_progress(first_rx).await {
+            self.drop_armed(&work_dir).await;
+            let mut inner = self.shared.inner.lock().await;
+            inner.phase = Phase::Idle;
+            let st = snapshot(&inner);
+            self.shared.sink.state(&st);
+            return Err(e);
+        }
+        let mut inner = self.shared.inner.lock().await;
+        inner.phase = Phase::Recording;
+        inner.transition = false;
+        self.start_monitor(&mut inner);
+        let st = snapshot(&inner);
+        self.shared.sink.state(&st);
+        Ok(st)
+    }
+
     async fn start_inner(&self, params: StartParams) -> CmdResult<RecorderState> {
+        let first_rx = self.open_session(params, false).await?;
+        let Some(first_rx) = first_rx else {
+            return Err(busy("no session"));
+        };
+        self.wait_first_progress(first_rx).await?;
+        let mut inner = self.shared.inner.lock().await;
+        inner.phase = Phase::Recording;
+        inner.transition = false;
+        self.start_monitor(&mut inner);
+        let st = snapshot(&inner);
+        self.shared.sink.state(&st);
+        Ok(st)
+    }
+
+    /// Create the session and launch the first segment. Returns the channel that fires on the
+    /// first frame, or, when `armed`, on the helper's `ready`.
+    async fn open_session(
+        &self,
+        params: StartParams,
+        armed: bool,
+    ) -> CmdResult<Option<oneshot::Receiver<()>>> {
         tokio::fs::create_dir_all(&params.work_dir).await?;
         #[cfg(windows)]
         hide_dot_folder(&params.work_dir);
@@ -306,13 +463,18 @@ impl Recorder {
         );
         manifest.native_audio = params.native.as_ref().map(native::NativeAudio::of);
         let (first_tx, first_rx) = oneshot::channel();
+        let (first_tx, ready) = if armed {
+            (None, Some(first_tx))
+        } else {
+            (Some(first_tx), None)
+        };
         {
             let mut inner = self.shared.inner.lock().await;
             inner.session = Some(Session {
                 params,
                 manifest,
                 live: None,
-                first_progress: Some(first_tx),
+                first_progress: first_tx,
                 seg_started: None,
                 elapsed_before_ms: 0,
                 closed_bytes: 0,
@@ -325,17 +487,13 @@ impl Recorder {
                 helper_child: None,
                 mic_child: None,
                 native_error: None,
+                arming: armed,
+                defer_devices: false,
+                ready,
             });
             self.spawn_next_segment(&mut inner).await?;
         }
-        self.wait_first_progress(first_rx).await?;
-        let mut inner = self.shared.inner.lock().await;
-        inner.phase = Phase::Recording;
-        inner.transition = false;
-        self.start_monitor(&mut inner);
-        let st = snapshot(&inner);
-        self.shared.sink.state(&st);
-        Ok(st)
+        Ok(Some(first_rx))
     }
 
     async fn wait_first_progress(&self, rx: oneshot::Receiver<()>) -> CmdResult<()> {
@@ -387,7 +545,13 @@ impl Recorder {
                 cap.camera = None;
             }
             cap.preview = Some(s.params.work_dir.join(PREVIEW_FILE));
-            let args = native::helper_args(&cap, &s.params.plan, &path);
+            let mut args = native::helper_args(&cap, &s.params.plan, &path);
+            if s.arming {
+                args.push("--armed".into());
+                if s.defer_devices {
+                    args.push("--defer-devices".into());
+                }
+            }
             let mut c = Command::new(&cap.helper);
             c.args(&args)
                 .stdin(Stdio::piped())
@@ -405,16 +569,27 @@ impl Recorder {
             let stdin = child.stdin.take();
             let (stop_tx, stop_rx) = oneshot::channel::<()>();
             let (done_tx, done_rx) = oneshot::channel::<SegmentOutcome>();
+            let (go_tx, go_rx) = oneshot::channel::<()>();
+            let armed = s.arming;
             s.live = Some(Live {
                 index,
                 stop_tx: Some(stop_tx),
+                go_tx: armed.then_some(go_tx),
                 done_rx,
                 started: Instant::now(),
             });
             s.seg_started = Some(Instant::now());
             s.live_bytes = 0;
             s.native_error = None;
-            self.supervise_native(child, stdout, stderr, stdin, stop_rx, done_tx, index);
+            self.supervise_native(
+                child,
+                stdout,
+                stderr,
+                stdin,
+                (stop_rx, armed.then_some(go_rx)),
+                done_tx,
+                index,
+            );
             return Ok(());
         }
 
@@ -514,6 +689,7 @@ impl Recorder {
         s.live = Some(Live {
             index,
             stop_tx: Some(stop_tx),
+            go_tx: None,
             done_rx,
             started: Instant::now(),
         });
@@ -622,7 +798,7 @@ impl Recorder {
         stdout: Option<tokio::process::ChildStdout>,
         stderr: Option<tokio::process::ChildStderr>,
         mut stdin: Option<tokio::process::ChildStdin>,
-        mut stop_rx: oneshot::Receiver<()>,
+        (mut stop_rx, go_rx): (oneshot::Receiver<()>, Option<oneshot::Receiver<()>>),
         done_tx: oneshot::Sender<SegmentOutcome>,
         index: u32,
     ) {
@@ -635,6 +811,12 @@ impl Recorder {
                 let mut lines = BufReader::new(out).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     match native::parse_event(&line) {
+                        Some(NativeEvent::Ready) => {
+                            let mut inner = rec_out.shared.inner.lock().await;
+                            if let Some(tx) = inner.session.as_mut().and_then(|s| s.ready.take()) {
+                                let _ = tx.send(());
+                            }
+                        }
                         Some(NativeEvent::Started { .. }) => {
                             rec_out
                                 .on_progress(native::progress_from(0.0, 0, 0, 0, false))
@@ -689,21 +871,52 @@ impl Recorder {
                 tail
             });
 
+            // An armed helper waits for "go"; it shares stdin with "stop". A stop before "go"
+            // (the countdown was cancelled) ends it like any requested stop.
             let mut requested = false;
-            let status = tokio::select! {
-                st = child.wait() => st,
-                _ = &mut stop_rx => {
-                    requested = true;
-                    if let Some(mut si) = stdin.take() {
-                        let _ = si.write_all(b"stop\n").await;
-                        let _ = si.flush().await;
-                        drop(si);
+            if let Some(go_rx) = go_rx {
+                tokio::select! {
+                    r = go_rx => {
+                        if r.is_ok() {
+                            if let Some(si) = stdin.as_mut() {
+                                let _ = si.write_all(b"go\n").await;
+                                let _ = si.flush().await;
+                            }
+                        }
                     }
-                    match tokio::time::timeout(STOP_GRACE, child.wait()).await {
-                        Ok(st) => st,
-                        Err(_) => {
-                            let _ = child.kill().await;
-                            child.wait().await
+                    _ = &mut stop_rx => requested = true,
+                    _ = child.wait() => {}
+                }
+            }
+            let status = if requested {
+                if let Some(mut si) = stdin.take() {
+                    let _ = si.write_all(b"stop\n").await;
+                    let _ = si.flush().await;
+                    drop(si);
+                }
+                match tokio::time::timeout(STOP_GRACE, child.wait()).await {
+                    Ok(st) => st,
+                    Err(_) => {
+                        let _ = child.kill().await;
+                        child.wait().await
+                    }
+                }
+            } else {
+                tokio::select! {
+                    st = child.wait() => st,
+                    _ = &mut stop_rx => {
+                        requested = true;
+                        if let Some(mut si) = stdin.take() {
+                            let _ = si.write_all(b"stop\n").await;
+                            let _ = si.flush().await;
+                            drop(si);
+                        }
+                        match tokio::time::timeout(STOP_GRACE, child.wait()).await {
+                            Ok(st) => st,
+                            Err(_) => {
+                                let _ = child.kill().await;
+                                child.wait().await
+                            }
                         }
                     }
                 }
@@ -875,10 +1088,35 @@ impl Recorder {
         }
         let st = snapshot(&inner);
         self.shared.sink.state(&st);
+        self.arm_next(&mut inner).await;
         Ok(st)
     }
 
+    /// Native helper: start the next segment's screen capture now, so that resume only has to
+    /// say "go". Starting it took 0.5-1.3 s (measured 2026-11-20), which was lost from the start
+    /// of every resumed part. The camera and microphone stay closed until resume. A failure
+    /// here costs nothing: resume starts a helper the usual way.
+    async fn arm_next(&self, inner: &mut Inner) {
+        let Some(s) = inner.session.as_mut() else { return };
+        if s.params.native.is_none() || s.live.is_some() {
+            return;
+        }
+        s.arming = true;
+        s.defer_devices = true;
+        let spawned = self.spawn_next_segment(inner).await;
+        if let Some(s) = inner.session.as_mut() {
+            // Paused time is not recording time; `go` starts the clock again.
+            s.seg_started = None;
+            if let Err(e) = spawned {
+                log::warn!("could not prepare the next part during the pause: {}", e.detail);
+                s.arming = false;
+                s.defer_devices = false;
+            }
+        }
+    }
+
     pub async fn resume(&self) -> CmdResult<RecorderState> {
+        let t0 = Instant::now();
         let first_rx = {
             let mut inner = self.shared.inner.lock().await;
             if inner.phase != Phase::Paused || inner.transition {
@@ -886,17 +1124,33 @@ impl Recorder {
             }
             inner.transition = true;
             let (tx, rx) = oneshot::channel();
+            let mut go_tx = None;
             if let Some(s) = inner.session.as_mut() {
                 s.first_progress = Some(tx);
                 s.manifest.status = SessionStatus::Recording;
+                // Prepared during the pause: just start it.
+                if s.arming && s.live.is_some() {
+                    go_tx = s.live.as_mut().and_then(|l| l.go_tx.take());
+                    s.seg_started = Some(Instant::now());
+                }
+                s.arming = false;
+                s.defer_devices = false;
             }
-            if let Err(e) = self.spawn_next_segment(&mut inner).await {
-                inner.transition = false;
-                return Err(e);
+            match go_tx {
+                Some(tx) => {
+                    let _ = tx.send(());
+                }
+                None => {
+                    if let Err(e) = self.spawn_next_segment(&mut inner).await {
+                        inner.transition = false;
+                        return Err(e);
+                    }
+                }
             }
             rx
         };
         let waited = self.wait_first_progress(first_rx).await;
+        log::info!("timing resume {} ms", t0.elapsed().as_millis());
         let mut inner = self.shared.inner.lock().await;
         inner.transition = false;
         match waited {
@@ -930,6 +1184,15 @@ impl Recorder {
             };
             if s.live.as_ref().map(|l| l.index) != Some(index) {
                 return; // a stale segment from before a restart
+            }
+            if phase == Phase::Paused && s.arming {
+                // The helper prepared for resume went away (the display slept, a window
+                // closed). Nothing was written; resume starts a new one.
+                log::warn!("the helper prepared during the pause exited; resume will start a new one");
+                s.live = None;
+                s.arming = false;
+                s.defer_devices = false;
+                return;
             }
             let quick = s
                 .live
@@ -1095,10 +1358,13 @@ impl Recorder {
             }
             inner.session.as_mut().and_then(|s| s.live.take())
         };
+        let t0 = std::time::Instant::now();
         if let Some(live) = live {
             let index = live.index;
             let _ = Self::stop_live(live).await;
+            log::info!("timing stop.helper {} ms", t0.elapsed().as_millis());
             self.close_current(index).await;
+            log::info!("timing stop.probe {} ms", t0.elapsed().as_millis());
         }
 
         let (manifest, tools, target_mb, recovered_budget) = {
@@ -1113,7 +1379,18 @@ impl Recorder {
             )
         };
 
-        let result = assemble(&manifest, &tools, target_mb, recovered_budget, false).await;
+        let sink = self.shared.sink.clone();
+        let report = move |f: f64| sink.finalizing(f);
+        let result = assemble(
+            &manifest,
+            &tools,
+            target_mb,
+            recovered_budget,
+            false,
+            Some(&report),
+        )
+        .await;
+        log::info!("timing stop.assembled {} ms", t0.elapsed().as_millis());
         let mut inner = self.shared.inner.lock().await;
         match result {
             Ok(res) => {
@@ -1146,10 +1423,25 @@ impl Recorder {
     pub async fn cancel(&self) -> CmdResult<RecorderState> {
         let (live, work_dir) = {
             let mut inner = self.shared.inner.lock().await;
-            if inner.phase == Phase::Countdown {
+            if inner.phase == Phase::Countdown && inner.session.is_none() {
                 inner.phase = Phase::Idle;
                 let st = snapshot(&inner);
                 self.shared.sink.state(&st);
+                return Ok(st);
+            }
+            if inner.phase == Phase::Countdown {
+                // Armed: the helper is running but nothing was written yet.
+                inner.phase = Phase::Idle;
+                let st = snapshot(&inner);
+                self.shared.sink.state(&st);
+                let s = inner.session.take();
+                drop(inner);
+                if let Some(mut s) = s {
+                    if let Some(l) = s.live.take() {
+                        let _ = Self::stop_live(l).await;
+                    }
+                    let _ = tokio::fs::remove_dir_all(&s.params.work_dir).await;
+                }
                 return Ok(st);
             }
             if !matches!(
@@ -1217,6 +1509,7 @@ pub async fn assemble(
     target_mb_per_hour: u32,
     planned_budget: BitrateBudget,
     recovered: bool,
+    on_progress: Option<&(dyn Fn(f64) + Send + Sync)>,
 ) -> CmdResult<RecordingResult> {
     let sizes = |p: &Path| std::fs::metadata(p).ok().map(|m| m.len());
     let segments = match recovery::decide(manifest, &sizes) {
@@ -1240,7 +1533,8 @@ pub async fn assemble(
     } else {
         segments[0].clone()
     };
-    let cmd = match manifest.native_audio {
+    let total_ms: u64 = manifest.segments.iter().filter_map(|g| g.duration_ms).sum();
+    let make = |aac: &str| match manifest.native_audio {
         // Native segments: copy the video, level the mic and mix at the end (D27).
         Some(audio) => native::finish_command(
             &ffmpeg,
@@ -1250,11 +1544,27 @@ pub async fn assemble(
             audio,
             manifest.plan.audio_tracks,
             manifest.plan.audio_bitrate_kbps,
+            aac,
         ),
         None if concat => command::concat_command(&ffmpeg, &input, &manifest.final_output),
         None => command::remux_command(&ffmpeg, &input, &manifest.final_output),
     };
-    let out = sidecar::run(&cmd).await?;
+    let run = |cmd: FfmpegCommand| async move {
+        match on_progress {
+            Some(cb) if total_ms > 0 => sidecar::run_with_progress(&cmd, total_ms, cb).await,
+            _ => sidecar::run(&cmd).await,
+        }
+    };
+    let mut out = run(make(native::FINISH_AAC)).await?;
+    // An ffmpeg without AudioToolbox (a Homebrew build on another Mac): the built-in encoder.
+    if !out.success && manifest.native_audio.is_some() && out.stderr.contains(native::FINISH_AAC) {
+        log::warn!(
+            "{} is not available; using {}",
+            native::FINISH_AAC,
+            native::FALLBACK_AAC
+        );
+        out = run(make(native::FALLBACK_AAC)).await?;
+    }
     if !out.success {
         return Err(CommandError::new(
             "error.ffmpegExit",
