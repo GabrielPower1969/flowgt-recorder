@@ -195,6 +195,8 @@ pub fn helper_args(cap: &NativeCapture, plan: &RecordingPlan, output: &Path) -> 
     rename_all_fields = "camelCase"
 )]
 pub enum NativeEvent {
+    /// `--armed`: every source runs; the file begins when "go" is written to stdin.
+    Ready,
     Started {
         width: u32,
         height: u32,
@@ -276,6 +278,13 @@ pub fn error_code(helper_code: &str) -> &'static str {
 
 /// Native segments → the final file. The video is copied; the audio is levelled (mic) and mixed
 /// (one track) or kept apart (two tracks). `list` is a concat list for several segments.
+/// The AAC encoder for the final pass: the system's own (AudioToolbox). On a 10-minute file it
+/// took 3.8 s against 5.6 s for ffmpeg's built-in one, at the same loudness and bitrate
+/// (measured 2026-11-20). [`FALLBACK_AAC`] is used when an ffmpeg lacks it.
+pub const FINISH_AAC: &str = "aac_at";
+pub const FALLBACK_AAC: &str = "aac";
+
+#[allow(clippy::too_many_arguments)] // every one is a separate choice of the final pass
 pub fn finish_command(
     ffmpeg: &str,
     input: &Path,
@@ -284,6 +293,7 @@ pub fn finish_command(
     audio: NativeAudio,
     tracks: AudioTracks,
     audio_kbps: u32,
+    aac_encoder: &str,
 ) -> FfmpegCommand {
     let mut args: Vec<String> = vec!["-hide_banner".into(), "-loglevel".into(), "error".into()];
     if concat {
@@ -302,7 +312,7 @@ pub fn finish_command(
                 "-map".into(),
                 "[aout]".into(),
                 "-c:a".into(),
-                "aac".into(),
+                aac_encoder.into(),
                 "-b:a".into(),
                 kbps,
             ]);
@@ -319,7 +329,7 @@ pub fn finish_command(
             ]);
             args.extend([
                 "-c:a:0".into(),
-                "aac".into(),
+                aac_encoder.into(),
                 "-b:a:0".into(),
                 kbps,
                 "-c:a:1".into(),
@@ -333,7 +343,7 @@ pub fn finish_command(
                 "-map".into(),
                 "[aout]".into(),
                 "-c:a".into(),
-                "aac".into(),
+                aac_encoder.into(),
                 "-b:a".into(),
                 kbps,
             ]);
@@ -419,6 +429,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_ready() {
+        assert_eq!(
+            parse_event(r#"{"event":"ready"}"#),
+            Some(NativeEvent::Ready)
+        );
+    }
+
+    #[test]
     fn events_parse() {
         assert_eq!(
             parse_event(
@@ -475,6 +493,7 @@ mod tests {
             },
             AudioTracks::Mixed,
             128,
+            FALLBACK_AAC,
         );
         let s = mixed.args.join(" ");
         assert!(
@@ -502,6 +521,7 @@ mod tests {
             },
             AudioTracks::Separate,
             96,
+            FALLBACK_AAC,
         );
         let s = sep.args.join(" ");
         assert!(s.contains("-f concat -safe 0 -i l.txt"), "{s}");
@@ -521,6 +541,7 @@ mod tests {
             },
             AudioTracks::Mixed,
             128,
+            FALLBACK_AAC,
         );
         assert!(sys
             .args
@@ -538,6 +559,7 @@ mod tests {
             },
             AudioTracks::Mixed,
             128,
+            FALLBACK_AAC,
         );
         assert!(mic
             .args
@@ -552,6 +574,7 @@ mod tests {
             NativeAudio::default(),
             AudioTracks::Mixed,
             128,
+            FALLBACK_AAC,
         );
         assert_eq!(none.args.join(" "), "-hide_banner -loglevel error -i s.mp4 -map 0:v:0 -c:v copy -movflags +faststart -y o.mp4");
     }

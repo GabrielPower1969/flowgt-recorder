@@ -78,6 +78,12 @@ public struct RecordOptions: Equatable {
     /// A JPEG of the latest output frame is kept at this path (written atomically) so the app can
     /// show what is being recorded. nil = no preview.
     public var preview: String?
+    /// Start every source but write nothing until "go" arrives on stdin, so the app can get the
+    /// capture running during its countdown and begin the file the moment the countdown ends.
+    public var armed = false
+    /// With `armed`: the camera and microphone open at "go", not before. For a pause: the
+    /// screen is ready to go on, but the camera light and the microphone indicator stay off.
+    public var deferDevices = false
     /// Seconds between preview frames.
     public var previewInterval = 0.125
     /// MP4 fragment interval, so a crash leaves a playable file.
@@ -170,7 +176,7 @@ public enum ArgumentParser {
                  [--fps 30] [--codec hevc|h264] [--video-kbps 1500] [--audio-kbps 128]
                  [--crop x,y,w,h] [--system-audio] [--mic] [--mic-device <name>]
                  [--camera] [--camera-device <name>] [--pip x,y,size,square|rounded|circle,0|1]
-                 [--no-cursor] [--exclude-pid <pid>] [--duration <s>] [--fragment <s>]
+                 [--no-cursor] [--exclude-pid <pid>] [--duration <s>] [--fragment <s>] [--armed [--defer-devices]]
                  [--preview <file.jpg>] [--preview-fps 8]
       sck-record --snapshot (--display <id> | --window <id>) --out <file.jpg> [--max-width 480]
       sck-record --scroll --display <id> --crop x,y,w,h [--exclude-pid <pid>] [--fps 10]
@@ -178,6 +184,8 @@ public enum ArgumentParser {
       sck-record --check
       sck-record --help | --version
 
+    --armed starts every source, prints {"event":"ready"} and writes nothing until "go" arrives on stdin.
+    --defer-devices (with --armed) opens the camera and microphone only at "go".
     The recording runs until "stop" arrives on stdin, stdin closes, SIGINT/SIGTERM, or --duration.
     stdout carries one JSON object per line: started, progress, warning, stopped, error.
     Audio tracks in the file, in order: system (if --system-audio), mic (if --mic).
@@ -206,6 +214,8 @@ public enum ArgumentParser {
         var audioKbps: Int?
         var crop: CropSpec?
         var systemAudio = false
+        var armed = false
+        var deferDevices = false
         var mic = false
         var micDevice: String?
         var camera = false
@@ -288,6 +298,8 @@ public enum ArgumentParser {
                 }
                 crop = CropSpec(x: x, y: y, w: w, h: h)
             case "--system-audio": systemAudio = true
+            case "--armed": armed = true
+            case "--defer-devices": deferDevices = true
             case "--mic": mic = true
             case "--mic-device":
                 mic = true
@@ -352,6 +364,8 @@ public enum ArgumentParser {
         if let audioKbps { o.audioKbps = audioKbps }
         o.crop = crop
         o.systemAudio = systemAudio
+        o.armed = armed
+        o.deferDevices = deferDevices && armed
         o.mic = mic
         o.micDevice = micDevice
         o.camera = camera

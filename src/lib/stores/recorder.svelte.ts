@@ -8,6 +8,8 @@ import { toast } from "./toasts.svelte";
 let state = $state<RecorderState>(idleRecorderState());
 let progress = $state<Progress | null>(null);
 let countdown = $state<number | null>(null);
+/** Saving after stop: percent of the final pass done, or null before the first report. */
+let saving = $state<number | null>(null);
 let lastResult = $state<RecordingResult | null>(null);
 let busy = $state(false);
 let unlisteners: UnlistenFn[] = [];
@@ -18,6 +20,9 @@ export const recorder = {
   },
   get progress() {
     return progress;
+  },
+  get saving() {
+    return saving;
   },
   get countdown() {
     return countdown;
@@ -40,9 +45,13 @@ export function bindRecorderEvents(onFinished?: (r: RecordingResult) => void): U
       state = s;
       if (s.phase !== "countdown") countdown = null;
       if (s.phase === "idle") progress = null;
+      if (s.phase !== "finalizing") saving = null;
     }),
     subscribe("recorder://progress", (p) => {
       progress = p;
+    }),
+    subscribe("recorder://finalizing", ({ percent }) => {
+      saving = percent;
     }),
     subscribe("countdown://tick", ({ remaining }) => {
       countdown = remaining;

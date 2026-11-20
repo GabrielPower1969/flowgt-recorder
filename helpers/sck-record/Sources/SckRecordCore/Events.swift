@@ -50,6 +50,8 @@ public enum HelperError: Error, Equatable {
 /// One line of stdout. Keys are sorted so the output is stable for tests and logs.
 public enum Event: Equatable {
     /// The first frame is in the file.
+    /// `--armed`: every source is running; frames are written from "go" on stdin.
+    case ready
     case started(width: Int, height: Int, audioTracks: [String])
     case progress(seconds: Double, bytes: UInt64, frames: Int, dropped: Int)
     case warning(code: String, detail: String)
@@ -59,6 +61,8 @@ public enum Event: Equatable {
     public var json: String {
         var o: [String: Any] = [:]
         switch self {
+        case .ready:
+            o = ["event": "ready"]
         case .started(let w, let h, let tracks):
             o = ["event": "started", "width": w, "height": h, "audioTracks": tracks]
         case .progress(let s, let b, let f, let d):
@@ -83,10 +87,13 @@ public enum Event: Equatable {
 /// Lines on stdin that control the run.
 public enum Control: Equatable {
     case stop
+    /// `--armed`: start writing now.
+    case go
     case unknown(String)
 
     public static func parse(_ line: String) -> Control {
         let t = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if t == "go" { return .go }
         return t == "stop" || t == "q" ? .stop : .unknown(t)
     }
 }
