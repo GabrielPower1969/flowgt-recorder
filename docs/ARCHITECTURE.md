@@ -68,3 +68,16 @@ frames stay on the GPU for NVENC; for QSV/AMF/MF they go through `hwdownload,for
 Camera/mic: `dshow`. System audio: a loopback device ("Stereo Mix" or `virtual-audio-capturer`); a WASAPI
 loopback helper is future work. **Nothing Windows-side has been executed on real hardware yet** — see
 `docs/WINDOWS-VERIFY.md`.
+
+**Start during the countdown (2026-11-20).** The first segment's ffmpeg is started when the countdown
+starts (`Recorder::arm`), with every input stamped by the wall clock (`-use_wallclock_as_timestamps 1`,
+`-copyts`), and given the wall-clock end of the countdown as its gate (`command::recording_command_gated`).
+With QSV or Media Foundation the encoder runs from the start; a keyframe is forced at the gate and the
+`noise` bitstream filter drops every packet before it, so the encoder is warm when the countdown ends.
+Other encoders are cut before encoding (`trim`/`atrim`). ffmpeg prints `Press [q] to stop` at `info`
+once its inputs are open: that is the "ready" of an armed segment. The countdown and the recording bar
+are excluded from capture (content protection), so nothing waits for windows to disappear.
+Later segments (resume, a restart) and a start without a countdown use the plain command.
+Stop: ffmpeg reads stdin every 0.1 s (`-stats_period`), and the segment counts as done at its
+`progress=end` block; the camera and microphone then close in the background.
+Measurements: `docs/reports/12-Windows-开始与保存提速-2026-11-20.md`.
