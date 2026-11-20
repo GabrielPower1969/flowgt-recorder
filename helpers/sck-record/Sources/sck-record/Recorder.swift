@@ -25,7 +25,10 @@ final class Recorder {
     private var cameraWatch = CameraWatch()
     private var cameraOn = false
     private var startedAt: Double?
+    private let launchedAt = CMClockGetTime(CMClockGetHostTimeClock()).seconds
     private var reportedStart = false
+    /// `--armed` and no "go" yet: sources run, nothing is written.
+    private var holding = false
     private var clock: DispatchSourceTimer?
     private var progressTimer: DispatchSourceTimer?
     private var durationTimer: DispatchSourceTimer?
@@ -55,6 +58,7 @@ final class Recorder {
             Console.event(.warning(code: "warn.audioDeviceLost", detail: "microphone permission is not granted"))
         }
 
+        holding = options.armed
         installSignalHandlers()
         startStdinReader()
 
@@ -128,6 +132,18 @@ final class Recorder {
         startClock()
         startTimers()
         screen.startRefreshing(every: 3, on: frameQueue)
+        if holding {
+            Console.event(.ready)
+            Console.err("ready after-ms=\(Int((Self.now().seconds - launchedAt) * 1000))")
+        }
+    }
+
+    /// "go": the countdown is over. The next tick writes the first frame.
+    private func go() {
+        guard holding, !stopping else { return }
+        holding = false
+        startedAt = Self.now().seconds
+        screenDirty = true
     }
 
     private func startClock() {
@@ -141,7 +157,7 @@ final class Recorder {
 
     /// One tick of the frame clock (frame queue).
     private func tick() {
-        guard !stopping, let writer, let screenFrame = latestScreen else { return }
+        guard !stopping, !holding, let writer, let screenFrame = latestScreen else { return }
         let now = Self.now()
         if cameraOn, let started = startedAt, let change = cameraWatch.update(now: now.seconds, startedAt: started) {
             switch change {
@@ -212,9 +228,14 @@ final class Recorder {
     private func startStdinReader() {
         Thread.detachNewThread { [weak self] in
             while let line = readLine(strippingNewline: true) {
-                if Control.parse(line) == .stop {
+                switch Control.parse(line) {
+                case .stop:
                     self?.frameQueue.async { self?.stop(reason: "stdin-stop") }
                     return
+                case .go:
+                    self?.frameQueue.async { self?.go() }
+                case .unknown:
+                    break
                 }
             }
             self?.frameQueue.async { self?.stop(reason: "stdin-closed") }

@@ -289,7 +289,7 @@
         <span>{t("picker.name")}</span>
       </label>
 
-      <div class="status glass" role="status"><span class="lamp" class:on={st.phase === "recording"} class:blink={paused}></span>{t(statusKey)}</div>
+      <div class="status glass" role="status"><span class="lamp" class:on={st.phase === "recording"} class:blink={paused || st.phase === "finalizing"}></span>{t(statusKey)}{#if st.phase === "finalizing" && recorder.saving !== null}<span class="mono" data-testid="saving-percent">&nbsp;{recorder.saving}%</span>{/if}</div>
 
       <div class="monitor glass">
         <div class="screen">

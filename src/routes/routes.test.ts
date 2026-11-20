@@ -644,3 +644,15 @@ describe("scrolling screenshot", () => {
     await waitFor(() => expect(mock.callsTo("scroll_capture_cancel")).toHaveLength(1));
   });
 });
+
+describe("saving after stop", () => {
+  it("the panel says how far the save is", async () => {
+    bindRecorderEvents();
+    render(Main, { settings: defaultSettings("macos") });
+    await new Promise((r) => setTimeout(r, 0));
+    mock.emit("recorder://state", { ...idleRecorderState(), phase: "finalizing" });
+    mock.emit("recorder://finalizing", { percent: 37 });
+    expect((await screen.findByTestId("saving-percent")).textContent).toContain("37%");
+    expect(screen.getByRole("status").textContent).toContain("正在保存");
+  });
+});
