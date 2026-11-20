@@ -345,15 +345,15 @@
       </div>
 
       <div class="well keys-l" class:two={getCapabilities().scrollCapture}>
-        {#if getCapabilities().scrollCapture}<button type="button" class="key" aria-label={t("scroll.key")} title={hint(t("scroll.key"), settings.shortcuts.scrollCapture)} data-testid="scroll-shot" disabled={busy} onclick={scrollShot}></button>{/if}
-        <button type="button" class="key" aria-label={t("history.title")} aria-pressed={route === "/history"} data-testid="open-history" disabled={busy} onclick={() => toggleSheet("/history")}></button>
+        {#if getCapabilities().scrollCapture}<button type="button" class="key util" aria-label={t("scroll.key")} title={hint(t("scroll.key"), settings.shortcuts.scrollCapture)} data-testid="scroll-shot" disabled={busy} onclick={scrollShot}><svg class="glyph" width="13" height="16" viewBox="0 0 13 16" aria-hidden="true"><path d="M1 0h11v1.6H1zM5.7 3h1.6v7.6l2.6-2.6 1.1 1.1-4.5 4.5L2 9.1 3.1 8l2.6 2.6zM1 14.4h11V16H1z" fill="currentColor" /></svg></button>{/if}
+        <button type="button" class="key util" aria-label={t("history.title")} aria-pressed={route === "/history"} data-testid="open-history" disabled={busy} onclick={() => toggleSheet("/history")}><svg class="glyph" width="18" height="12" viewBox="0 0 18 12" aria-hidden="true"><path d="M8.5 0v12L0 6zM18 0v12L9.5 6z" fill="currentColor" /></svg></button>
       </div>
       <div class="well keys-m">
-        <button type="button" class="key" aria-label={paused ? t("floating.resume") : t("floating.pause")} title={hint(paused ? t("floating.resume") : t("floating.pause"), settings.shortcuts.pause)} aria-pressed={paused} disabled={!live || recorder.busy} onclick={() => togglePause()}></button>
-        <button type="button" class="key" aria-label={t("home.record")} title={hint(t("home.record"), settings.shortcuts.toggle)} aria-pressed={busy} data-testid="rec" disabled={busy} onclick={record}><span class="key-dot"></span></button>
-        <button type="button" class="key" aria-label={st.phase === "countdown" ? t("common.cancel") : t("floating.stopLong")} disabled={!(live || st.phase === "countdown") || recorder.busy} onclick={stop}></button>
+        <button type="button" class="key" aria-label={paused ? t("floating.resume") : t("floating.pause")} title={hint(paused ? t("floating.resume") : t("floating.pause"), settings.shortcuts.pause)} aria-pressed={paused} disabled={!live || recorder.busy} onclick={() => togglePause()}><svg class="glyph" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">{#if paused}<path d="M3 1v12l10-6z" fill="currentColor" />{:else}<path d="M2 1h3.5v12H2zM8.5 1H12v12H8.5z" fill="currentColor" />{/if}</svg></button>
+        <button type="button" class="key rec" aria-label={t("home.record")} title={hint(t("home.record"), settings.shortcuts.toggle)} aria-pressed={busy} data-testid="rec" disabled={busy} onclick={record}><span class="key-dot"></span></button>
+        <button type="button" class="key halt" aria-label={st.phase === "countdown" ? t("common.cancel") : t("floating.stopLong")} disabled={!(live || st.phase === "countdown") || recorder.busy} onclick={stop}><svg class="glyph" width="13" height="13" viewBox="0 0 13 13" aria-hidden="true"><path d="M1 1h11v11H1z" fill="currentColor" /></svg></button>
       </div>
-      <div class="well keys-r"><button type="button" class="key" aria-label={t("common.settings")} aria-pressed={route === "/settings"} disabled={busy} onclick={() => toggleSheet("/settings")}></button></div>
+      <div class="well keys-r"><button type="button" class="key util gear" aria-label={t("common.settings")} aria-pressed={route === "/settings"} disabled={busy} onclick={() => toggleSheet("/settings")}><svg class="glyph" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-dasharray="2.2 2.2" /><circle cx="8" cy="8" r="4.2" fill="none" stroke="currentColor" stroke-width="1.6" /></svg></button></div>
       {#if getCapabilities().scrollCapture}<span class="klabel" class:off={busy} aria-hidden="true" style:left="322px" style:width="60px"><svg width="9" height="11" viewBox="0 0 9 11"><path d="M1 0h7v1H1zM4 2h1v5.3l2-2 .7.7L4.5 9.2 1.3 6l.7-.7 2 2zM1 10h7v1H1z" fill="currentColor" /></svg>{t("face.key.scroll")}</span>{/if}
       <span class="klabel" class:off={busy} aria-hidden="true" style:left={getCapabilities().scrollCapture ? "384px" : "374px"} style:width={getCapabilities().scrollCapture ? "60px" : undefined}><svg width="13" height="9" viewBox="0 0 13 9"><path d="M6 0v9L0 4.5zM13 0v9L7 4.5z" fill="currentColor" /></svg>{t("face.key.history")}</span>
       <span class="klabel" class:off={!live} aria-hidden="true" style:left="474px"><svg width="8" height="9" viewBox="0 0 8 9">{#if paused}<path d="M0 0v9l8-4.5z" fill="currentColor" />{:else}<path d="M0 0h3v9H0zM5 0h3v9H5z" fill="currentColor" />{/if}</svg>{paused ? t("floating.resume") : t("floating.pause")}</span>
@@ -497,6 +497,18 @@
 
   .well { top: 556px; }
   .keys-l { left: 382px; } .keys-l.two { left: 320px; } .keys-m { left: 482px; } .keys-r { left: 706px; }
+  /* Each key reads at a glance: an engraved glyph on every cap, and three cap finishes.
+     Utility keys (scroll, history, settings) are ribbed; record has a dished cap; stop is a darker cap. */
+  .glyph { color: color-mix(in srgb, var(--color-key-ink) 72%, transparent); filter: drop-shadow(0 1px 0 color-mix(in srgb, var(--color-key) 40%, white)); transition: opacity 0.15s; }
+  .key:disabled .glyph { opacity: 0.35; }
+  .key:disabled .key-dot { opacity: 0.55; }
+  .key.util { background-image: repeating-linear-gradient(0deg, transparent 0 3px, color-mix(in srgb, var(--color-key-shade) 30%, transparent) 3px 4px); }
+  .key.gear { border-radius: 20px; }
+  .key.rec { background-image: radial-gradient(circle at 50% 46%, color-mix(in srgb, var(--color-key-shade) 55%, transparent) 0 15px, transparent 23px); }
+  .key.rec .key-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-record) 18%, transparent); }
+  .key.halt { background-color: color-mix(in srgb, var(--color-key) 78%, var(--color-key-ink)); }
+  .key.halt:active:not(:disabled) { background-color: color-mix(in srgb, var(--color-key-down) 72%, var(--color-key-ink)); }
+  .key.halt .glyph { color: var(--color-key); filter: none; }
   .quality { left: 744px; top: 420px; width: 168px; height: 46px; padding: 5px; display: flex; gap: 4px; }
   .quality button { flex: 1; border: 0; border-radius: var(--radius-s); background: var(--color-glass-dim); color: var(--color-glass-muted); font-size: var(--text-md); font-weight: 600; cursor: pointer; }
   .quality button[aria-pressed="true"] { background: var(--color-glass-fg); color: var(--color-glass); }
