@@ -123,6 +123,39 @@ struct Session {
     /// Armed during the countdown: the helper runs, the file starts at `go`.
     arming: bool,
     ready: Option<oneshot::Sender<()>>,
+    /// Wall-clock start (seconds since the epoch) for the next ffmpeg segment on Windows: the end
+    /// of the countdown for the first one. Later segments start when they are asked for.
+    gate: Option<f64>,
+    /// When the first frame of the armed ffmpeg segment is written (for the timing log).
+    first_frame_at: Option<oneshot::Sender<()>>,
+}
+
+/// Whether the session being started opens a microphone or a camera.
+async fn params_devices(shared: &Shared) -> bool {
+    let inner = shared.inner.lock().await;
+    inner
+        .session
+        .as_ref()
+        .is_some_and(|s| s.params.plan.mic.is_some() || s.params.plan.camera.is_some())
+}
+
+/// Wait for a process that was asked to stop; kill it after the grace period.
+async fn wait_or_kill(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
+    match tokio::time::timeout(STOP_GRACE, child.wait()).await {
+        Ok(st) => st,
+        Err(_) => {
+            let _ = child.kill().await;
+            child.wait().await
+        }
+    }
+}
+
+/// Seconds since the Unix epoch, as ffmpeg's `-use_wallclock_as_timestamps` counts them.
+pub fn epoch_now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 struct Inner {
@@ -195,7 +228,10 @@ fn hide_dot_folder(work_dir: &std::path::Path) {
     let Some(root) = work_dir.parent() else {
         return;
     };
-    if !root.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+    if !root
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+    {
         return;
     }
     // Asked of Windows directly rather than by starting attrib.exe: a store package should not start
@@ -309,12 +345,20 @@ impl Recorder {
         }
     }
 
-    /// Native helper only: during the countdown, start every source (screen, camera, microphone)
-    /// so that the file can begin the moment the countdown ends. Starting them takes one to two
-    /// seconds; before this, that wait came after the countdown. The phase stays `Countdown`.
-    pub async fn arm(&self, params: StartParams) -> CmdResult<()> {
-        if params.native.is_none() {
-            return Err(busy("only the native helper can be armed"));
+    /// Whether these parameters can be armed: the native helper (macOS), or ffmpeg with a start
+    /// gate (Windows screen sources, see `command::recording_command_gated`).
+    pub fn can_arm(params: &StartParams) -> bool {
+        params.native.is_some() || (cfg!(windows) && command::gate_applies(&params.plan))
+    }
+
+    /// During the countdown, start every source (screen, camera, microphone) so that the file can
+    /// begin the moment the countdown ends. Starting them takes one to three seconds; before this,
+    /// that wait came after the countdown. The phase stays `Countdown`.
+    /// The native helper waits for `go`; ffmpeg is told `gate`, the wall-clock end of the
+    /// countdown, and drops everything before it by itself.
+    pub async fn arm(&self, params: StartParams, gate: f64) -> CmdResult<()> {
+        if !Self::can_arm(&params) {
+            return Err(busy("these sources cannot be armed"));
         }
         {
             let mut inner = self.shared.inner.lock().await;
@@ -324,7 +368,7 @@ impl Recorder {
             inner.transition = true;
         }
         let work_dir = params.work_dir.clone();
-        let result = self.open_session(params, true).await;
+        let result = self.open_session(params, true, Some(gate)).await;
         let ready_rx = match result {
             Ok(rx) => rx,
             Err(e) => {
@@ -339,8 +383,17 @@ impl Recorder {
                     "error.start",
                     "the recorder exited while getting ready",
                 )),
+                // With package identity Windows asks before the microphone or camera opens, and
+                // the device waits for the answer (see `wait_first_progress`).
                 Err(_) => Err(CommandError::new(
-                    "error.start",
+                    if cfg!(windows)
+                        && (params_devices(&self.shared).await)
+                        && crate::commands::package_identity().is_some()
+                    {
+                        "error.consentPending"
+                    } else {
+                        "error.start"
+                    },
                     "the recorder was not ready within 12 seconds",
                 )),
             },
@@ -383,12 +436,54 @@ impl Recorder {
     }
 
     /// The countdown is over: the armed helper writes its first frame within one frame interval.
+    /// An armed ffmpeg already keeps everything from the end of the countdown (its gate): the
+    /// recording runs from that moment, whenever its encoder writes the first frame.
     pub async fn go(&self) -> CmdResult<RecorderState> {
-        let (go_tx, first_rx, work_dir) = {
+        {
             let mut inner = self.shared.inner.lock().await;
             if inner.phase != Phase::Countdown || inner.transition {
                 return Err(busy("not counting down"));
             }
+            let Some(s) = inner.session.as_mut().filter(|s| s.arming) else {
+                return Err(busy("nothing is armed"));
+            };
+            if s.live.is_none() {
+                let tail = s.last_error_tail.join("\n");
+                let code = s
+                    .native_error
+                    .clone()
+                    .unwrap_or_else(|| "error.start".to_string());
+                let work_dir = s.params.work_dir.clone();
+                drop(inner);
+                self.drop_armed(&work_dir).await;
+                return Err(CommandError::new(
+                    &code,
+                    format!("the recorder exited during the countdown:\n{tail}"),
+                ));
+            }
+            if s.params.native.is_none() {
+                s.arming = false;
+                s.seg_started = Some(Instant::now());
+                let (tx, rx) = oneshot::channel();
+                s.first_frame_at = Some(tx);
+                let t0 = Instant::now();
+                tokio::spawn(async move {
+                    if tokio::time::timeout(START_TIMEOUT, rx)
+                        .await
+                        .is_ok_and(|r| r.is_ok())
+                    {
+                        log::info!("timing go.first_frame {} ms", t0.elapsed().as_millis());
+                    }
+                });
+                inner.phase = Phase::Recording;
+                self.start_monitor(&mut inner);
+                let st = snapshot(&inner);
+                self.shared.sink.state(&st);
+                return Ok(st);
+            }
+        }
+        let (go_tx, first_rx, work_dir) = {
+            let mut inner = self.shared.inner.lock().await;
             let Some(s) = inner.session.as_mut().filter(|s| s.arming) else {
                 return Err(busy("nothing is armed"));
             };
@@ -425,7 +520,7 @@ impl Recorder {
     }
 
     async fn start_inner(&self, params: StartParams) -> CmdResult<RecorderState> {
-        let first_rx = self.open_session(params, false).await?;
+        let first_rx = self.open_session(params, false, None).await?;
         let Some(first_rx) = first_rx else {
             return Err(busy("no session"));
         };
@@ -445,6 +540,7 @@ impl Recorder {
         &self,
         params: StartParams,
         armed: bool,
+        gate: Option<f64>,
     ) -> CmdResult<Option<oneshot::Receiver<()>>> {
         tokio::fs::create_dir_all(&params.work_dir).await?;
         #[cfg(windows)]
@@ -487,6 +583,8 @@ impl Recorder {
                 native_error: None,
                 arming: armed,
                 ready,
+                gate,
+                first_frame_at: None,
             });
             self.spawn_next_segment(&mut inner).await?;
         }
@@ -514,19 +612,19 @@ impl Recorder {
             Err(_) => {
                 let devices = {
                     let inner = self.shared.inner.lock().await;
-                    inner
-                        .session
-                        .as_ref()
-                        .is_some_and(|s| s.params.plan.mic.is_some() || s.params.plan.camera.is_some())
+                    inner.session.as_ref().is_some_and(|s| {
+                        s.params.plan.mic.is_some() || s.params.plan.camera.is_some()
+                    })
                 };
                 self.kill_live().await;
                 // With package identity Windows asks once per app before the microphone or the
                 // camera opens, and the device waits for the answer: say so instead of "failed".
-                let code = if cfg!(windows) && devices && crate::commands::package_identity().is_some() {
-                    "error.consentPending"
-                } else {
-                    "error.start"
-                };
+                let code =
+                    if cfg!(windows) && devices && crate::commands::package_identity().is_some() {
+                        "error.consentPending"
+                    } else {
+                        "error.start"
+                    };
                 Err(CommandError::new(
                     code,
                     "the recorder produced no frames within 12 seconds",
@@ -673,7 +771,21 @@ impl Recorder {
             }
         }
 
-        let mut cmd = command::recording_command(&s.params.tools.ffmpeg_str(), &plan);
+        // Windows, armed during the countdown: every device opens now, the file begins at the end
+        // of the countdown (`recording_command_gated`). Later segments (resume, a restart) are
+        // asked for when they are wanted and start the usual way.
+        let gate = s
+            .gate
+            .take()
+            .filter(|_| cfg!(windows) && command::gate_applies(&plan))
+            .map(|at| {
+                let origin = epoch_now();
+                command::Gate {
+                    origin,
+                    at: at.max(origin),
+                }
+            });
+        let mut cmd = command::recording_command_gated(&s.params.tools.ffmpeg_str(), &plan, gate);
         if has_lavfi(&plan) {
             command::realtime_lavfi(&mut cmd);
         }
@@ -725,16 +837,25 @@ impl Recorder {
         let rec = self.clone();
         tokio::spawn(async move {
             let rec_out = rec.clone();
+            // ffmpeg's last progress block ("progress=end") comes after the file is closed.
+            let (end_tx, mut end_rx) = oneshot::channel::<()>();
             let out_task = tokio::spawn(async move {
                 let Some(mut out) = stdout else { return };
                 let mut parser = ProgressParser::new();
                 let mut buf = [0u8; 4096];
+                let mut end_tx = Some(end_tx);
                 while let Ok(n) = out.read(&mut buf).await {
                     if n == 0 {
                         break;
                     }
                     for p in parser.feed(&String::from_utf8_lossy(&buf[..n])) {
+                        let finished = p.finished;
                         rec_out.on_progress(p).await;
+                        if finished {
+                            if let Some(tx) = end_tx.take() {
+                                let _ = tx.send(());
+                            }
+                        }
                     }
                 }
             });
@@ -745,6 +866,10 @@ impl Recorder {
                 if let Some(e) = stderr {
                     let mut lines = BufReader::new(e).lines();
                     while let Ok(Some(line)) = lines.next_line().await {
+                        if line.contains(command::READY_LINE) {
+                            rec_err.on_ready().await;
+                            continue;
+                        }
                         if let Some(code) = classify_stderr_line(&line) {
                             if !classes.contains(&code) {
                                 classes.push(code);
@@ -772,11 +897,31 @@ impl Recorder {
                         let _ = si.flush().await;
                         drop(si);
                     }
-                    match tokio::time::timeout(STOP_GRACE, child.wait()).await {
-                        Ok(st) => st,
-                        Err(_) => {
-                            let _ = child.kill().await;
-                            child.wait().await
+                    let ended = tokio::select! {
+                        st = child.wait() => Err(st),
+                        r = &mut end_rx => match r {
+                            Ok(()) => Ok(()),
+                            // stdout closed without an end block: wait for the exit as before.
+                            Err(_) => Err(wait_or_kill(&mut child).await),
+                        },
+                        _ = tokio::time::sleep(STOP_GRACE) => Err(wait_or_kill(&mut child).await),
+                    };
+                    match ended {
+                        Err(st) => st,
+                        // The file is complete once ffmpeg reports the end. Closing the devices
+                        // still takes it 0.1 s (microphone) to 0.4 s (camera): not the user's
+                        // wait. The process is left to exit by itself, or killed if it hangs.
+                        Ok(()) => {
+                            let _ = done_tx.send(SegmentOutcome {
+                                success: true,
+                                code: Some(0),
+                                stderr_tail: Vec::new(),
+                                classes: Vec::new(),
+                            });
+                            let _ = wait_or_kill(&mut child).await;
+                            out_task.abort();
+                            err_task.abort();
+                            return;
                         }
                     }
                 }
@@ -962,11 +1107,24 @@ impl Recorder {
         if let Some(tx) = s.first_progress.take() {
             let _ = tx.send(());
         }
+        if p.frame > 0 {
+            if let Some(tx) = s.first_frame_at.take() {
+                let _ = tx.send(());
+            }
+        }
         if s.last_emit.elapsed() >= EMIT_EVERY {
             s.last_emit = Instant::now();
             let st = snapshot(&inner);
             self.shared.sink.progress(&p);
             self.shared.sink.state(&st);
+        }
+    }
+
+    /// ffmpeg has every input open (an armed segment waits for its gate from here on).
+    async fn on_ready(&self) {
+        let mut inner = self.shared.inner.lock().await;
+        if let Some(tx) = inner.session.as_mut().and_then(|s| s.ready.take()) {
+            let _ = tx.send(());
         }
     }
 
@@ -1162,8 +1320,12 @@ impl Recorder {
             if let Some(tx) = s.first_progress.take() {
                 drop(tx); // wakes start()/resume() with an error
             }
+            drop(s.ready.take()); // wakes arm() with an error
             (
-                phase == Phase::Starting || (inner.transition && phase != Phase::Recording),
+                // Countdown: an armed segment died before `go`, which reports it.
+                phase == Phase::Starting
+                    || phase == Phase::Countdown
+                    || (inner.transition && phase != Phase::Recording),
                 s_camera(&inner),
                 quick,
                 native_error,
