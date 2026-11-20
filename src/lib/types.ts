@@ -311,6 +311,7 @@ export interface Events {
   "recorder://progress": Progress;
   "recorder://warning": Warning;
   "recorder://finished": RecordingResult;
+  "recorder://finalizing": { percent: number };
   "recorder://error": { code: string; detail: string };
   "shortcut://toggle": null;
   "shortcut://pause": null;

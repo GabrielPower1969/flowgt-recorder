@@ -126,6 +126,57 @@ pub async fn run(cmd: &FfmpegCommand) -> CmdResult<Output> {
     })
 }
 
+/// Like [`run`], with ffmpeg's `-progress` read as it goes: `on_progress` gets the fraction done
+/// (0 to 1) of `total_ms`. stdout is used for the progress, so it is not captured.
+pub async fn run_with_progress(
+    cmd: &FfmpegCommand,
+    total_ms: u64,
+    on_progress: &(dyn Fn(f64) + Send + Sync),
+) -> CmdResult<Output> {
+    use tokio::io::AsyncReadExt;
+    let mut c = tokio::process::Command::new(&cmd.program);
+    c.args(["-progress", "pipe:1", "-nostats"])
+        .args(&cmd.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    c.creation_flags(0x0800_0000);
+    let mut child = c.spawn().map_err(|e| {
+        CommandError::new("error.noFfmpeg", format!("cannot run {}: {e}", cmd.program))
+    })?;
+    let mut stderr = child.stderr.take();
+    let err_task = tokio::spawn(async move {
+        let mut s = String::new();
+        if let Some(e) = stderr.as_mut() {
+            let _ = e.read_to_string(&mut s).await;
+        }
+        s
+    });
+    let mut parser = recorder_core::progress::ProgressParser::new();
+    let mut buf = [0u8; 4096];
+    if let Some(mut out) = child.stdout.take() {
+        while let Ok(n) = out.read(&mut buf).await {
+            if n == 0 {
+                break;
+            }
+            for p in parser.feed(&String::from_utf8_lossy(&buf[..n])) {
+                on_progress((p.out_time_ms as f64 / total_ms.max(1) as f64).clamp(0.0, 1.0));
+            }
+        }
+    }
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| CommandError::new("error.ffmpegExit", e.to_string()))?;
+    Ok(Output {
+        success: status.success(),
+        stdout: String::new(),
+        stderr: err_task.await.unwrap_or_default(),
+    })
+}
+
 /// ffprobe a file into [`MediaInfo`].
 pub async fn probe(tools: &Tools, path: &Path) -> CmdResult<MediaInfo> {
     let out = run(&command::probe_command(&tools.ffprobe_str(), path)).await?;

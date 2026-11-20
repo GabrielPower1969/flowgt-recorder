@@ -49,7 +49,13 @@ impl EventSink for TauriSink {
                     crate::windows::hide_main(&self.app);
                     crate::windows::show_floating(&self.app, true);
                 }
-                Phase::Starting | Phase::Recording | Phase::Paused | Phase::Finalizing => {
+                // Saving: the bar has nothing left to offer. The main window comes back at once and
+                // says how far the save is, instead of the bar sitting there until it is done.
+                Phase::Finalizing => {
+                    crate::windows::hide_floating(&self.app);
+                    crate::windows::show_main(&self.app);
+                }
+                Phase::Starting | Phase::Recording | Phase::Paused => {
                     if was_idle {
                         crate::windows::hide_main(&self.app);
                     }
@@ -72,6 +78,12 @@ impl EventSink for TauriSink {
         let _ = self.app.emit(
             "recorder://error",
             json!({ "code": code, "detail": detail }),
+        );
+    }
+    fn finalizing(&self, fraction: f64) {
+        let _ = self.app.emit(
+            "recorder://finalizing",
+            json!({ "percent": (fraction * 100.0).round() }),
         );
     }
     fn finished(&self, r: &RecordingResult) {
@@ -248,7 +260,26 @@ pub async fn resolve_encoder(
     ))
 }
 
+/// How long a device list is reused. Listing runs ffmpeg against every camera and microphone
+/// (about 0.4 s on a MacBook, measured 2026-11-20); the panel, the chooser and the start each
+/// asked again within seconds of each other, and the chooser sat empty meanwhile.
+const DEVICE_LIST_FRESH: Duration = Duration::from_secs(10);
+static DEVICE_LIST: std::sync::Mutex<Option<(std::time::Instant, DeviceList)>> =
+    std::sync::Mutex::new(None);
+
 pub async fn devices(app: &AppHandle, tools: &Tools) -> CmdResult<DeviceList> {
+    if let Some((at, list)) = DEVICE_LIST.lock().expect("device list lock").as_ref() {
+        if at.elapsed() < DEVICE_LIST_FRESH {
+            return Ok(list.clone());
+        }
+    }
+    let list = list_devices_now(app, tools).await?;
+    *DEVICE_LIST.lock().expect("device list lock") =
+        Some((std::time::Instant::now(), list.clone()));
+    Ok(list)
+}
+
+async fn list_devices_now(app: &AppHandle, tools: &Tools) -> CmdResult<DeviceList> {
     let platform = Platform::current();
     let out = sidecar::run(&command::list_devices_command(
         &tools.ffmpeg_str(),
@@ -915,32 +946,56 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = handle.state::<AppState>();
+        let counting = std::time::Instant::now();
+        // Everything that does not depend on the countdown runs during it: the device list, the
+        // encoder, and (native helper) starting the screen, camera and microphone. Before, all of
+        // it ran after "1", which left the user staring at a finished countdown for 2-3 seconds.
+        let prep = {
+            let handle = handle.clone();
+            let name = meeting_name.clone();
+            tauri::async_runtime::spawn(async move { prepare(&handle, &name).await })
+        };
         for remaining in (1..=s.countdown_seconds).rev() {
             let _ = handle.emit("countdown://tick", json!({ "remaining": remaining }));
             tokio::time::sleep(Duration::from_secs(1)).await;
             if state.recorder.phase().await != Phase::Countdown {
-                return; // cancelled
+                return; // cancelled; prepare() cleans up after itself
             }
         }
+        let prepared = prep
+            .await
+            .unwrap_or_else(|e| Err(CommandError::new("error.internal", e.to_string())));
+        log::info!(
+            "timing countdown.prepared {} ms",
+            counting.elapsed().as_millis()
+        );
         if state.recorder.phase().await != Phase::Countdown {
+            state.recorder.abort_countdown().await;
             return;
         }
-        // Neither the outline nor the countdown may end up in the recording. The bar comes back
-        // once the recording is running. The native helper leaves this app's windows out of the
-        // picture by itself (D27), but only windows that exist when its filter is built: the
-        // floating window stays up so the bar never appears in the video.
+        let t0 = std::time::Instant::now();
+        // Neither the outline nor the countdown may end up in the recording. The native helper
+        // leaves this app's windows out of the picture by itself (D27); the ffmpeg path needs them
+        // gone first, and the floating window with them.
         crate::windows::hide_marker(&handle);
-        if find_record_helper().is_none() || Platform::current() != Platform::MacOs {
-            crate::windows::hide_floating(&handle);
-        }
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        // A thumbnail still being taken must finish before the stream starts (see SNAPSHOT_TURN).
-        let turn = SNAPSHOT_TURN.lock().await;
-        let started = match build_params(&handle, &state, &meeting_name).await {
-            Ok(p) => start_with_fallbacks(&handle, &state, p).await,
+        let started = match prepared {
+            Ok(Prepared::Armed) => state.recorder.go().await,
+            Ok(Prepared::Params(p)) => {
+                if p.native.is_none() {
+                    crate::windows::hide_floating(&handle);
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                }
+                let turn = SNAPSHOT_TURN.lock().await;
+                let r = start_with_fallbacks(&handle, &state, *p).await;
+                drop(turn);
+                r
+            }
             Err(e) => Err(e),
         };
-        drop(turn);
+        log::info!(
+            "timing start.running {} ms after the countdown",
+            t0.elapsed().as_millis()
+        );
         if let Err(e) = started {
             state.recorder.abort_countdown().await;
             let _ = handle.emit(
@@ -950,6 +1005,43 @@ pub async fn begin(app: &AppHandle, meeting_name: String) -> CmdResult<RecorderS
         }
     });
     Ok(st)
+}
+
+/// What the countdown got ready.
+enum Prepared {
+    /// The native helper runs and waits for `go`.
+    Armed,
+    /// Parameters only: the ffmpeg path, or a helper that could not be armed.
+    Params(Box<StartParams>),
+}
+
+async fn prepare(app: &AppHandle, meeting_name: &str) -> CmdResult<Prepared> {
+    let state = app.state::<AppState>();
+    let t0 = std::time::Instant::now();
+    // A thumbnail still being taken must finish before the stream starts (see SNAPSHOT_TURN).
+    let _turn = SNAPSHOT_TURN.lock().await;
+    let params = build_params(app, &state, meeting_name).await?;
+    log::info!("timing prepare.params {} ms", t0.elapsed().as_millis());
+    if params.native.is_none() {
+        return Ok(Prepared::Params(Box::new(params)));
+    }
+    match state.recorder.arm(params.clone()).await {
+        Ok(()) => {
+            log::info!("timing prepare.armed {} ms", t0.elapsed().as_millis());
+            Ok(Prepared::Armed)
+        }
+        // Cancelled meanwhile: nothing more to do.
+        Err(_) if state.recorder.phase().await != Phase::Countdown => {
+            Ok(Prepared::Params(Box::new(params)))
+        }
+        Err(e) => {
+            log::warn!(
+                "could not get the recorder ready during the countdown ({}); starting after it",
+                e.detail
+            );
+            Ok(Prepared::Params(Box::new(params)))
+        }
+    }
 }
 
 /// A camera that will not open or a silent audio helper must not cost the recording: try again
@@ -1728,6 +1820,7 @@ pub async fn recover_session(
         s.video.target_mb_per_hour,
         m2.plan.budget.clone(),
         true,
+        None,
     )
     .await?;
     let _ = tokio::fs::remove_dir_all(&m.work_dir).await;
