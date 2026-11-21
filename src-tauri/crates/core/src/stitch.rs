@@ -18,6 +18,11 @@
 //! A wrong join ruins the picture while a missed one only asks the user to scroll back a little,
 //! so every doubtful case ends in [`Push::NoOverlap`].
 //!
+//! With [`StitchOptions::settle`] a frame is used only once the next one shows (almost) the same
+//! thing. A source that samples the screen at a fixed rate (Windows Desktop Duplication) can catch
+//! a window halfway through repainting after a scroll: the top already moved, the bottom still old.
+//! Such a frame matches the image at its top, so without this its stale bottom would be appended.
+//!
 //! Pure and deterministic: no I/O, no threads, no dependencies beyond `std`.
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -34,6 +39,9 @@ const SEARCH_FRAMES: usize = 2;
 const PROFILE_BIN: usize = 8;
 /// At most this many rows of a frame are compared by brightness.
 const VERIFY_SAMPLE_ROWS: usize = 256;
+/// With `settle`, a frame counts as settled when at most this share (in percent) of its rows
+/// differ from the frame before: a blinking caret or a small animation does not hold it back.
+const SETTLE_DIFF_PERCENT: usize = 3;
 /// Two rows are alike when their profiles differ by at most this much per channel on average.
 const VERIFY_ROW_DIFF: u64 = 2;
 /// A row whose bins all lie within this much per channel says nothing and is not compared.
@@ -57,6 +65,11 @@ pub struct StitchOptions {
     pub max_height: u32,
     /// The image stops growing at this many bytes. Default 300 MB.
     pub max_bytes: usize,
+    /// Use a frame only when this many frames in a row agree (see the module notes); 0 or 1 is
+    /// off. For a source that sends frames at a fixed rate whether or not the screen changed; a
+    /// source that sends only changed frames must leave it off, or nothing would ever settle.
+    /// Default 0.
+    pub settle: u8,
 }
 
 impl Default for StitchOptions {
@@ -65,6 +78,7 @@ impl Default for StitchOptions {
             ignore_right_px: 20,
             max_height: 30_000,
             max_bytes: 300 * 1024 * 1024,
+            settle: 0,
         }
     }
 }
@@ -157,6 +171,10 @@ pub struct Stitcher {
     settled_bars: Option<(usize, usize)>,
     started: bool,
     full: bool,
+    /// With `settle`: exact row hashes of the frame before, and how many frames in a row
+    /// agreed up to it.
+    waiting: Option<Vec<u64>>,
+    agreeing: u8,
 }
 
 impl Stitcher {
@@ -173,6 +191,8 @@ impl Stitcher {
             settled_bars: None,
             started: false,
             full: false,
+            waiting: None,
+            agreeing: 0,
         }
     }
 
@@ -189,11 +209,14 @@ impl Stitcher {
         if stride == 0 || frame_height == 0 || bgra.len() != stride * frame_height {
             return Push::NoOverlap;
         }
+        if self.started && self.previous_frame == bgra {
+            return Push::Unchanged;
+        }
+        if self.options.settle > 1 && !self.settled(bgra) {
+            return Push::Unchanged;
+        }
         if !self.started {
             return self.start(bgra);
-        }
-        if self.previous_frame == bgra {
-            return Push::Unchanged;
         }
 
         let frame = self.hash_rows(bgra);
@@ -243,6 +266,22 @@ impl Stitcher {
 
     pub fn into_pixels(self) -> (u32, u32, Vec<u8>) {
         (self.width, self.rows.len() as u32, self.pixels)
+    }
+
+    /// With `settle`: whether `bgra` ends a run of `settle` frames that agree with each other.
+    fn settled(&mut self, bgra: &[u8]) -> bool {
+        let exact = self.hash_rows(bgra).exact;
+        let agrees = self.waiting.as_ref().is_some_and(|before| {
+            let differ = before.iter().zip(&exact).filter(|(a, b)| a != b).count();
+            differ * 100 <= exact.len() * SETTLE_DIFF_PERCENT
+        });
+        self.agreeing = if agrees {
+            self.agreeing.saturating_add(1)
+        } else {
+            1
+        };
+        self.waiting = Some(exact);
+        self.agreeing >= self.options.settle
     }
 
     fn stride(&self) -> usize {
@@ -1135,6 +1174,78 @@ mod tests {
 
         let mut empty = Stitcher::new(0, 0, StitchOptions::default());
         assert_eq!(empty.push(&[]), Push::NoOverlap);
+    }
+
+    fn settling() -> Stitcher {
+        Stitcher::new(
+            W as u32,
+            H as u32,
+            StitchOptions {
+                settle: 2,
+                ..StitchOptions::default()
+            },
+        )
+    }
+
+    /// The window repainted only its top after a scroll: rows from `top` above `split`, the old
+    /// frame below it.
+    fn torn(page: &[u8], top: usize, old_top: usize, split: usize) -> Vec<u8> {
+        let mut f = frame(page, top);
+        f[split * W * 4..].copy_from_slice(&frame(page, old_top)[split * W * 4..]);
+        f
+    }
+
+    #[test]
+    fn with_settle_a_torn_frame_is_never_used() {
+        let p = page(5);
+        let mut s = settling();
+        // Every position is seen twice in a row, as a fixed-rate source does between scroll steps;
+        // a torn frame comes between two of them.
+        let mut seq = vec![frame(&p, 0), frame(&p, 0)];
+        let mut old = 0;
+        for top in (100..=1500).step_by(100) {
+            seq.push(torn(&p, top, old, H / 2));
+            seq.push(frame(&p, top));
+            seq.push(frame(&p, top));
+            old = top;
+        }
+        for f in &seq {
+            assert_ne!(s.push(f), Push::NoOverlap);
+        }
+        assert_eq!(s.height() as usize, 1500 + H);
+        assert!(
+            s.pixels() == rows(&p, 0, 1500 + H),
+            "the picture is the page"
+        );
+    }
+
+    #[test]
+    fn without_settle_the_torn_frame_would_spoil_the_picture() {
+        // The case the option exists for, so its test stays honest.
+        let p = page(5);
+        let mut s = stitcher();
+        s.push(&frame(&p, 0));
+        s.push(&torn(&p, 100, 0, H / 2));
+        assert!(s.pixels() != rows(&p, 0, s.height() as usize));
+    }
+
+    #[test]
+    fn with_settle_a_frame_alone_waits_and_a_caret_does_not_hold_it_back() {
+        let p = page(6);
+        let mut s = settling();
+        assert_eq!(
+            s.push(&frame(&p, 0)),
+            Push::Unchanged,
+            "waits for the next frame"
+        );
+        assert_eq!(s.height(), 0);
+        // The next frame differs in 4 rows of 300 (a caret blinking): settled.
+        let mut caret = frame(&p, 0);
+        for b in &mut caret[100 * W * 4..104 * W * 4] {
+            *b = b.wrapping_add(90);
+        }
+        assert!(matches!(s.push(&caret), Push::Joined { .. }));
+        assert_eq!(s.height() as usize, H);
     }
 
     /// Not a test of behaviour: prints how long one push takes. Run with
