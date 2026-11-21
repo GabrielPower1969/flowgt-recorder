@@ -61,6 +61,8 @@ block2 = "0.6"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
 windows-core = "0.62"
+# Start at login under MSIX (Windows.ApplicationModel.StartupTask, activation kind).
+windows = { version = "0.62", features = ["ApplicationModel", "ApplicationModel_Activation", "Foundation"] }
 
 [profile.release]
 opt-level = 3
