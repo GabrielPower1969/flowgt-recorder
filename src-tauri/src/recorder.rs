@@ -40,6 +40,20 @@ pub trait EventSink: Send + Sync + 'static {
     fn finalizing(&self, _fraction: f64) {}
 }
 
+/// Remove a session's work folder that holds nothing worth keeping (a cancel). On Windows a file
+/// that ffmpeg still has open cannot be deleted, and ffmpeg may still be closing its devices when
+/// the segment is reported done; with NVENC that took longer than one try, and the folder with an
+/// empty `seg-000.mp4` stayed behind (measured 2026-11-21). Try again for up to two seconds.
+async fn remove_work_dir(dir: &Path) {
+    for _ in 0..20 {
+        match tokio::fs::remove_dir_all(dir).await {
+            Ok(()) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+        }
+    }
+}
+
 pub struct NullSink;
 impl EventSink for NullSink {
     fn state(&self, _: &RecorderState) {}
@@ -312,7 +326,7 @@ impl Recorder {
             if let Some(l) = s.live.take() {
                 let _ = Self::stop_live(l).await;
             }
-            let _ = tokio::fs::remove_dir_all(&s.params.work_dir).await;
+            remove_work_dir(&s.params.work_dir).await;
         }
         st
     }
@@ -428,7 +442,7 @@ impl Recorder {
         if let Some(l) = live {
             let _ = Self::stop_live(l).await;
         }
-        let _ = tokio::fs::remove_dir_all(work_dir).await;
+        remove_work_dir(work_dir).await;
     }
 
     /// Whether the countdown has an armed helper waiting for `go`.
@@ -1616,7 +1630,7 @@ impl Recorder {
                     if let Some(l) = s.live.take() {
                         let _ = Self::stop_live(l).await;
                     }
-                    let _ = tokio::fs::remove_dir_all(&s.params.work_dir).await;
+                    remove_work_dir(&s.params.work_dir).await;
                 }
                 return Ok(st);
             }
