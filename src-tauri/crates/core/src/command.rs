@@ -200,11 +200,12 @@ pub struct Gate {
 }
 
 /// Encoders that start a keyframe on request (`-force_key_frames`, IDR) and answer within a frame
-/// or two once warm, checked on Windows 2026-11-20 (Intel graphics): with these the encoder runs
-/// during the countdown and the file is cut at the gate after encoding. Any other encoder gets its
-/// first frame at the gate (`trim`), and starts up only then.
+/// or two once warm: with these the encoder runs during the countdown and the file is cut at the
+/// gate after encoding. Checked on Windows: Intel QSV and Media Foundation 2026-11-20, NVIDIA NVENC
+/// 2026-11-21 (GeForce GTX 1660 Ti; with the trim instead, the first 0.2 s of sound had a hole).
+/// Any other encoder gets its first frame at the gate (`trim`), and starts up only then.
 pub fn gate_cuts_after_encoding(encoder_name: &str) -> bool {
-    encoder_name.ends_with("_qsv") || encoder_name.ends_with("_mf")
+    encoder_name.ends_with("_qsv") || encoder_name.ends_with("_mf") || encoder_name.ends_with("_nvenc")
 }
 
 /// Extra encoder options for a gate cut after encoding: no B-frames and one frame in flight, so
@@ -212,6 +213,8 @@ pub fn gate_cuts_after_encoding(encoder_name: &str) -> bool {
 fn gate_encoder_args(encoder_name: &str) -> &'static [&'static str] {
     if encoder_name.ends_with("_qsv") {
         &["-bf", "0", "-async_depth", "1", "-forced_idr", "1"]
+    } else if encoder_name.ends_with("_nvenc") {
+        &["-bf", "0", "-delay", "0", "-zerolatency", "1", "-forced-idr", "1"]
     } else {
         &[]
     }
@@ -750,6 +753,8 @@ mod tests {
         assert_eq!(a.iter().filter(|x| *x == "-use_wallclock_as_timestamps").count(), 1);
         assert!(value_of(&a, "-filter_complex").starts_with("[0:v]hwdownload,format=bgra,scale=1920:1200"));
         assert_eq!(value_of(&a, "-c:v"), "hevc_nvenc");
+        // With the global D3D11 device NVENC opens in D3D11 mode and refuses yuv420p.
+        assert_eq!(value_of(&a, "-pix_fmt"), "nv12");
         // The microphone asks for a small device buffer; the camera input does not.
         let mic = a.iter().position(|x| x == "audio=Microphone Array").unwrap();
         let buf = a.iter().position(|x| x == "-audio_buffer_size").unwrap();
@@ -773,7 +778,7 @@ mod tests {
         let gate = Gate { origin: 1_795_000_000.25, at: 1_795_000_003.0 };
 
         // An encoder that cannot be cut after encoding: trimmed at the gate before it.
-        plan.encoder = crate::encoders::choose(&["hevc_nvenc".to_string()], Platform::Windows, EncoderPreference::Auto).unwrap();
+        plan.encoder = crate::encoders::choose(&["hevc_amf".to_string()], Platform::Windows, EncoderPreference::Auto).unwrap();
         let a = recording_command_gated("ffmpeg.exe", &plan, Some(gate)).args;
         assert!(a.contains(&"-copyts".to_string()));
         assert_eq!(value_of(&a, "-loglevel"), "info");
@@ -813,6 +818,18 @@ mod tests {
         let a = recording_command_gated("ffmpeg.exe", &plan, Some(gate)).args;
         assert_eq!(value_of(&a, "-bsf:v"), drop);
         assert!(!a.contains(&"-forced_idr".to_string()));
+
+        // NVIDIA NVENC: cut after encoding, no B-frames, no output delay, an IDR at the gate.
+        plan.encoder = crate::encoders::choose(&["hevc_nvenc".to_string()], Platform::Windows, EncoderPreference::Auto).unwrap();
+        let a = recording_command_gated("ffmpeg.exe", &plan, Some(gate)).args;
+        assert!(value_of(&a, "-filter_complex").starts_with(&format!("[0:v]setpts=PTS-{o}/TB,hwdownload")));
+        assert_eq!(value_of(&a, "-bsf:v"), drop);
+        assert_eq!(value_of(&a, "-bsf:a"), drop);
+        assert_eq!(value_of(&a, "-force_key_frames:v"), "expr:gte(t,2.750000)*eq(n_forced,0)");
+        assert!(has_pair(&a, "-bf", "0") && has_pair(&a, "-delay", "0") && has_pair(&a, "-zerolatency", "1"));
+        assert!(has_pair(&a, "-forced-idr", "1") && !a.contains(&"-forced_idr".to_string()));
+        assert!(a.iter().position(|x| x == "-forced-idr").unwrap() > a.iter().position(|x| x == "-c:v").unwrap());
+        assert!(gate_cuts_after_encoding("h264_nvenc") && !gate_cuts_after_encoding("hevc_amf"));
 
         // macOS sources are never gated.
         assert!(!gate_applies(&sample_plan()));
