@@ -24,7 +24,7 @@
   <Properties>
     <DisplayName>{{DISPLAY_NAME}}</DisplayName>
     <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
-    <Description>Records the screen with camera, microphone and computer sound into one small MP4.</Description>
+    <Description>Records the screen with camera and microphone into one small MP4.</Description>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Resources>

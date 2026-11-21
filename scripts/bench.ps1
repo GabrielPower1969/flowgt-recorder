@@ -21,7 +21,7 @@ foreach ($enc in $chain) {
   $out = "bench-out/bench-$enc.mp4"
   $a = @('-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=1920x1080:rate=30','-f','lavfi','-i','sine=frequency=440:sample_rate=48000',
     '-map','0:v','-map','1:a','-c:v',$enc) + ($extra[$enc] -split ' ') +
-    @('-b:v','793k','-maxrate','1190k','-bufsize','1586k','-g','60','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','96k','-t',"$Seconds",'-y',$out)
+    @('-b:v','793k','-maxrate','1190k','-bufsize','1586k','-g','60','-pix_fmt',$(if ($enc -like '*_mf') { 'nv12' } else { 'yuv420p' }),'-r','30','-c:a','aac','-b:a','96k','-t',"$Seconds",'-y',$out)
   $sw = [Diagnostics.Stopwatch]::StartNew()
   $p = Start-Process -FilePath $ff -ArgumentList $a -PassThru -NoNewWindow
   $peakWs = 0; $cpu0 = 0
