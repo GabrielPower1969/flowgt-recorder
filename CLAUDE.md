@@ -80,8 +80,9 @@ bash scripts/bench.sh --app --seconds 60      # the same while the app records f
    tables carry every key (a test checks parity).
 8. **Design tokens only from `design/tokens.css`.** No hex colours, font names or radii typed into
    components.
-9. **Commit format** `type(scope): summary`, body optional, and the trailer
-   `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` whenever an agent wrote it. Types:
+9. **Commit format** `type(scope): summary`, body optional. No AI attribution in commits or pull
+   requests: no `Co-Authored-By: Claude …` trailer, no "Generated with Claude Code" line (Gabriel,
+   2026-11-26). Types:
    `feat` `fix` `docs` `test` `chore` `refactor` `design`; scopes: `core` `app` `ui` `docs` `scripts`
    `helper` `design`.
 10. **Never push to `main`, force-push, or create another remote without Gabriel's explicit OK** (D31). The
