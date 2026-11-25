@@ -19,7 +19,7 @@ Evidence for every "measured" below, and the sentences quoted from Microsoft's d
 | Video encoders | whatever that ffmpeg has (`hevc_qsv`, `hevc_nvenc`, …) | Intel QSV through VPL (`hevc_qsv`, `h264_qsv`), then Windows' own through Media Foundation: `hevc_mf`, `h264_mf` (hardware), then `h264_mf` in software, then `mpeg4` |
 | DLLs the app imports | Windows system DLLs only (measured) | the same, and the script fails on anything else; `+crt-static` keeps the Visual C++ runtime out, so the package declares no framework dependency |
 | Build-machine paths in the binary | 711 (measured) | 0: `--remap-path-prefix`, no `CARGO_MANIFEST_DIR` lookup; the script checks every file |
-| WebView2 | the installer downloads the bootstrapper | none shipped: the manifest asks for Windows 11, where the runtime is part of the system |
+| WebView2 | the installer downloads the bootstrapper | none shipped: part of Windows 11; on Windows 10 (2004+) usually present with Edge, and a message box says so when it is not |
 | Licences | not bundled | `licenses/` in the package: ffmpeg notice (source URLs, hashes, configure line), LGPL 2.1 text, the VPL MIT licence, the app's MIT licence |
 | Uninstall | the installer's uninstaller | Windows removes the package and its redirected app data. Recordings stay (see below) |
 
@@ -124,7 +124,10 @@ activations", `0x80073D2B`, seen 2026-11-12).
 - **Windows App Certification Kit not run**: it installs the package first.
 - **Computer sound is not recorded on Windows**, in this variant or the ordinary one. ffmpeg has no
   WASAPI loopback input; the plan is the native engine (`docs/tasks/W-6.md`).
-- **Windows 11 only.** A Windows 10 package would have to bring or require the WebView2 Runtime.
+- **Windows 10 2004 (build 19041) and later, since 2026-11-26.** 2004 is what keeps the app's own windows out of
+  the recording (WDA_EXCLUDEFROMCAPTURE). The package cannot bring the WebView2 Runtime; Windows 11 has it, and on
+  Windows 10 the app shows a message box (both languages) when it is missing instead of closing without a word.
+  Not run on Windows 10 yet: no Windows 10 machine.
 - **x64 only.**
 - **Software H.264 overshoots the size budget**; the package falls back to it only on a PC where neither QSV nor Media Foundation hardware encoding works. Hardware HEVC measured 872 kbps against the 889 kbps
   budget; the Media Foundation software encoder measured 735 to 919 kbps on ten seconds of a still

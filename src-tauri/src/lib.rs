@@ -37,6 +37,31 @@ fn use_directshow_camera_in_webview() {
     }
 }
 
+/// Every window of the app is a WebView2. Windows 11 ships the runtime; on Windows 10 it usually
+/// came with Microsoft Edge, but not on every PC, and without it no window can open: the app would
+/// end without a word. Say what is missing instead, in both languages (no window, no i18n table).
+#[cfg(windows)]
+fn webview2_present_or_explain() -> bool {
+    use webview2_com::Microsoft::Web::WebView2::Win32::GetAvailableCoreWebView2BrowserVersionString;
+    use ::windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+    let mut version = windows_core::PWSTR::null();
+    let found = unsafe { GetAvailableCoreWebView2BrowserVersionString(windows_core::PCWSTR::null(), &mut version) }.is_ok()
+        && !version.is_null();
+    if !version.is_null() {
+        let _ = webview2_com::take_pwstr(version);
+    }
+    if !found {
+        let text = windows_core::HSTRING::from(
+            "FlowGT Recorder 需要 Microsoft Edge WebView2 运行时，这台电脑上没有找到。\n\
+             请从微软官网安装“Microsoft Edge WebView2 Runtime”（免费），然后重新打开本应用。\n\n\
+             FlowGT Recorder needs the Microsoft Edge WebView2 Runtime, which is not installed on this PC.\n\
+             Install \"Microsoft Edge WebView2 Runtime\" (free) from Microsoft's website, then open the app again.",
+        );
+        unsafe { MessageBoxW(None, &text, &windows_core::HSTRING::from("FlowGT Recorder"), MB_OK | MB_ICONERROR) };
+    }
+    found
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(windows)]
@@ -44,6 +69,10 @@ pub fn run() {
     // `--selftest N`: headless end-to-end check with synthetic inputs; never opens a window.
     if let Some(code) = selftest::maybe_run() {
         std::process::exit(code);
+    }
+    #[cfg(windows)]
+    if !webview2_present_or_explain() {
+        std::process::exit(1);
     }
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
