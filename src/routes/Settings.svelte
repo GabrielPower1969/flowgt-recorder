@@ -187,7 +187,8 @@
         {#if out.width > 2560 && s.video.fps >= 60 && info?.encoder && !info.encoder.hardware}<span class="err">{t("settings.video.heavy")}</span>{/if}
       </div>
       <div class="field"><span class="label">{t("settings.video.encoder")}</span>
-        <Segmented label={t("settings.video.encoder")} value={s.video.encoderPreference} onchange={(v: Settings["video"]["encoderPreference"]) => save((x) => (x.video.encoderPreference = v))} options={(["auto", "hevc", "h264"] as const).map((v) => ({ value: v, label: t(`settings.video.encoder.${v}`) }))} /></div>
+        <Segmented label={t("settings.video.encoder")} value={s.video.encoderPreference} onchange={(v: Settings["video"]["encoderPreference"]) => save((x) => (x.video.encoderPreference = v))} options={(["auto", "hevc", "h264"] as const).map((v) => ({ value: v, label: t(`settings.video.encoder.${v}`) }))} />
+        <span class="faint" data-testid="encoder-hint">{t("settings.video.encoderHint")}</span></div>
     {:else if tab === "audio"}
       <div class="field"><span class="label">{t("settings.audio.tracks")}</span>
         <Segmented label={t("settings.audio.tracks")} value={s.audio.tracks} onchange={(v: Settings["audio"]["tracks"]) => save((x) => (x.audio.tracks = v))} options={(["mixed", "separate"] as const).map((v) => ({ value: v, label: t(`settings.audio.tracks.${v}`) }))} /></div>

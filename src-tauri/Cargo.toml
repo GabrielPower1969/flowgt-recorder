@@ -62,7 +62,8 @@ block2 = "0.6"
 webview2-com = "0.39"
 windows-core = "0.62"
 # Start at login under MSIX (Windows.ApplicationModel.StartupTask, activation kind).
-windows = { version = "0.62", features = ["ApplicationModel", "ApplicationModel_Activation", "Foundation"] }
+# Win32_UI_WindowsAndMessaging: the message box when the WebView2 Runtime is missing (Windows 10).
+windows = { version = "0.62", features = ["ApplicationModel", "ApplicationModel_Activation", "Foundation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]
 opt-level = 3

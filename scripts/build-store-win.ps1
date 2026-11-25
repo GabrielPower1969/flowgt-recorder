@@ -52,7 +52,8 @@ function Fail([string]$msg) { Write-Host "FAIL: $msg"; exit 1 }
 function Note([string]$msg) { Write-Host $msg; Add-Content -Path $Report -Value $msg -Encoding UTF8 }
 
 function Find-SdkTool([string]$name) {
-  $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
+  # A developer shell (or an unpacked SDK) names its Windows SDK in WindowsSdkDir; else the default install.
+  $kits = if ($env:WindowsSdkDir -and (Test-Path (Join-Path $env:WindowsSdkDir 'bin'))) { Join-Path $env:WindowsSdkDir 'bin' } else { Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin' }
   $hit = Get-ChildItem -Path $kits -Filter $name -Recurse -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
   if (-not $hit) { Fail "$name was not found in the Windows SDK ($kits)" }
@@ -60,6 +61,11 @@ function Find-SdkTool([string]$name) {
 }
 
 function Find-Dumpbin {
+  # A developer shell (or unpacked build tools) names its MSVC folder in VCToolsInstallDir.
+  if ($env:VCToolsInstallDir) {
+    $own = Join-Path $env:VCToolsInstallDir 'bin/Hostx64/x64/dumpbin.exe'
+    if (Test-Path $own) { return $own }
+  }
   $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
   if (-not (Test-Path $vswhere)) { Fail 'vswhere.exe was not found (install the Visual Studio build tools)' }
   $vs = & $vswhere -latest -products * -property installationPath

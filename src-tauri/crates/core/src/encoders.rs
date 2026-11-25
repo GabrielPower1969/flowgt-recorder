@@ -74,9 +74,13 @@ fn is_hardware(name: &str) -> bool {
 
 /// The pixel format handed to an encoder. Media Foundation's hardware encoders take NV12 and turn
 /// away planar 4:2:0 ("Invalid argument" on the first frame, measured with Intel's H.264 and HEVC
-/// encoders); its software encoder takes either. The picture in the file is 8-bit 4:2:0 both ways.
+/// encoders); its software encoder takes either. NVENC also gets NV12: on Windows the screen is
+/// grabbed with a global D3D11 device (`-init_hw_device d3d11va`), NVENC then opens in D3D11 mode,
+/// and there it refuses planar 4:2:0 ("GetSequenceParams failed: invalid param", GeForce GTX 1660 Ti,
+/// driver 610.60, measured 2026-11-21): every Windows recording on an NVIDIA card failed to start.
+/// The picture in the file is 8-bit 4:2:0 both ways.
 pub fn input_pix_fmt(encoder_name: &str) -> &'static str {
-    if encoder_name.ends_with("_mf") {
+    if encoder_name.ends_with("_mf") || encoder_name.ends_with("_nvenc") {
         "nv12"
     } else {
         "yuv420p"
@@ -258,6 +262,8 @@ mod tests {
         let test = self_test_command("ffmpeg", &c);
         assert!(test.args.windows(2).any(|w| w == ["-pix_fmt", "nv12"]));
         assert_eq!((input_pix_fmt("hevc_mf"), input_pix_fmt("hevc_qsv"), input_pix_fmt("libx264")), ("nv12", "yuv420p", "yuv420p"));
+        // NVENC too: in D3D11 mode (the Windows screen grab) it refuses planar 4:2:0.
+        assert_eq!((input_pix_fmt("hevc_nvenc"), input_pix_fmt("h264_nvenc")), ("nv12", "nv12"));
         // ...and a segment whose header waits for the encoder; every other encoder keeps the header up front.
         assert_eq!(segment_movflags("hevc_mf"), "+frag_keyframe+delay_moov+default_base_moof");
         assert_eq!(segment_movflags("h264_mf"), "+frag_keyframe+delay_moov+default_base_moof");
